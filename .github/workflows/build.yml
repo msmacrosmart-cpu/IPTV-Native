@@ -80,6 +80,27 @@ jobs:
           PYCODE
           rm -f "$RUNNER_TEMP/tmdb-private.pem" "$RUNNER_TEMP/tmdb-public.der"
 
+      - name: Validate TMDB access when configured
+        run: |
+          python3 - <<'PYCODE'
+          import json, os, urllib.error, urllib.parse, urllib.request
+          key = os.environ.get('TMDB_API_KEY', '')
+          if not key:
+              print('No TMDB key configured for this build; using provider metadata.')
+          else:
+              params = urllib.parse.urlencode({'api_key': key, 'language': 'pt-BR', 'append_to_response': 'credits,videos'})
+              try:
+                  with urllib.request.urlopen('https://api.themoviedb.org/3/movie/550?' + params, timeout=20) as response:
+                      data = json.load(response)
+                  if data.get('id') != 550 or not data.get('credits', {}).get('cast'):
+                      raise ValueError('unexpected metadata')
+                  print('TMDB key accepted; live movie metadata and cast are reachable.')
+              except urllib.error.HTTPError as error:
+                  raise SystemExit('TMDB access failed with HTTP ' + str(error.code))
+              except Exception as error:
+                  raise SystemExit('TMDB access could not be verified: ' + type(error).__name__)
+          PYCODE
+
       - name: Set up JDK 17
         uses: actions/setup-java@v4
         with:
@@ -102,6 +123,11 @@ jobs:
 
       - name: Verify Gradle / Kotlin toolchain
         run: ./gradlew --version --no-daemon
+
+      - name: Verify supplied loading and Android TV artwork
+        run: |
+          cmp "IPTV Native Telas/XtreamTV/Picsart_26-11-06_18-01-23-760.png" app/src/main/res/drawable-nodpi/splash_art.png
+          cmp "IPTV Native Telas/XtreamTV/20261106_180011_0000.png" app/src/main/res/drawable-nodpi/tv_launcher_banner.png
 
       # Compiles every Kotlin source file, the Compose resources and the launcher icons.
       - name: Build Debug APK
@@ -140,7 +166,7 @@ jobs:
           profile: pixel_2
           disable-animations: true
           emulator-options: -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -camera-back none
-          script: bash -o pipefail -c 'adb shell wm size 768x1376; adb shell wm density 160; adb shell settings put secure immersive_mode_confirmations confirmed; ./gradlew connectedDebugAndroidTest --no-daemon 2>&1 | tee build-instrumented.log; result=${PIPESTATUS[0]}; mkdir -p artifacts; if [ "$result" -ne 0 ]; then adb exec-out cat /data/local/tmp/iptv-ui-failure.png > artifacts/screen-failure.png 2>/dev/null || true; adb exec-out cat /data/local/tmp/iptv-ui-failure.txt > artifacts/diagnostics.txt 2>/dev/null || true; for test in nativeScreensUseRealSessionCatalogFavoritesEpgAndPlayback tmdbDetailsHideSearchAndSupportRemoteCastAndTrailer firstLoginDisplaysRealCatalogStagesBeforeHome; do adb exec-out cat /data/local/tmp/iptv-ui-failure-$test.txt > artifacts/diagnostics-$test.txt 2>/dev/null || true; done; if [ ! -s artifacts/screen-failure.png ]; then adb exec-out screencap -p > artifacts/screen-failure.png || true; fi; else for name in login home top-10 hero-no-backdrop movies series live favorites settings player phone-login phone phone-home phone-tv phone-catalog-scroll phone-detail; do adb exec-out cat /data/local/tmp/iptv-screen-$name.png > artifacts/screen-$name.png || result=1; done; fi; exit "$result"'
+          script: bash -o pipefail -c 'adb shell wm size 768x1376; adb shell wm density 160; adb shell settings put secure immersive_mode_confirmations confirmed; ./gradlew connectedDebugAndroidTest --no-daemon 2>&1 | tee build-instrumented.log; result=${PIPESTATUS[0]}; mkdir -p artifacts; if [ "$result" -ne 0 ]; then adb exec-out cat /data/local/tmp/iptv-ui-failure.png > artifacts/screen-failure.png 2>/dev/null || true; adb exec-out cat /data/local/tmp/iptv-ui-failure.txt > artifacts/diagnostics.txt 2>/dev/null || true; for test in nativeScreensUseRealSessionCatalogFavoritesEpgAndPlayback tmdbDetailsHideSearchAndSupportRemoteCastAndTrailer firstLoginDisplaysRealCatalogStagesBeforeHome; do adb exec-out cat /data/local/tmp/iptv-ui-failure-$test.txt > artifacts/diagnostics-$test.txt 2>/dev/null || true; done; if [ ! -s artifacts/screen-failure.png ]; then adb exec-out screencap -p > artifacts/screen-failure.png || true; fi; else for name in splash login home top-10 hero-no-backdrop movies series live favorites settings player phone-login phone phone-home phone-tv phone-catalog-scroll phone-detail; do adb exec-out cat /data/local/tmp/iptv-screen-$name.png > artifacts/screen-$name.png || result=1; done; fi; exit "$result"'
 
       # Same signing config as debug (see app/build.gradle.kts), so the artifact is installable
       # straight from the Actions run.
@@ -212,7 +238,7 @@ jobs:
                                       capture_output=True, check=True)
               shas.append(result.stdout.strip())
           screenshots = []
-          for name in ('screen-login.png', 'screen-home.png', 'screen-top-10.png', 'screen-phone-login.png', 'screen-movies.png', 'screen-series.png', 'screen-live.png', 'screen-favorites.png', 'screen-settings.png', 'screen-player.png', 'screen-phone.png', 'screen-phone-home.png', 'screen-phone-tv.png', 'screen-hero-no-backdrop.png', 'screen-android-tv.png', 'screen-android-tv-login.png', 'screen-android-tv-catalog.png', 'screen-android-tv-guide.png', 'screen-android-tv-detail.png', 'screen-phone-catalog-scroll.png', 'screen-phone-detail.png'):
+          for name in ('screen-splash.png', 'screen-login.png', 'screen-home.png', 'screen-top-10.png', 'screen-phone-login.png', 'screen-movies.png', 'screen-series.png', 'screen-live.png', 'screen-favorites.png', 'screen-settings.png', 'screen-player.png', 'screen-phone.png', 'screen-phone-home.png', 'screen-phone-tv.png', 'screen-hero-no-backdrop.png', 'screen-android-tv.png', 'screen-android-tv-login.png', 'screen-android-tv-catalog.png', 'screen-android-tv-guide.png', 'screen-android-tv-detail.png', 'screen-phone-catalog-scroll.png', 'screen-phone-detail.png'):
               path = pathlib.Path('artifacts') / name
               if path.exists() and path.stat().st_size:
                   payload = json.dumps({'content': base64.b64encode(path.read_bytes()).decode(), 'encoding': 'base64'})

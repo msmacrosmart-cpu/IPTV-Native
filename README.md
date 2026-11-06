@@ -4,6 +4,7 @@ Aplicativo Android nativo em Kotlin/Jetpack Compose para Android TV, celulares e
 
 ## Edição 2.6.0
 
+- A arte horizontal fornecida aparece somente no carregamento. A arte quadrada é usada nos ícones adaptativos e clássicos do Android, e a imagem 320×180 no banner do Android TV.
 - Navegação lateral com quatro ícones em neon, inspirados na imagem fornecida: Home, TV, Filmes e Séries. Configurações ficam acessíveis pela engrenagem no cabeçalho. A opção Multitela foi retirada.
 - Tela de login com botão Entrar do tamanho dos campos e perfis locais por servidor/usuário. O wallpaper fornecido é usado no login e no restante do aplicativo, com a imagem original em alta resolução.
 - Home com até seis filmes recentes da categoria Lançamentos do provedor, botões Assistir/Detalhes e navegação por D-pad/teclado. Com entrada por controle ou teclado, o banner não troca automaticamente. Imagens verticais nunca são usadas como banner: se não houver arte paisagem válida, é exibido o fundo neutro.

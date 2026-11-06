@@ -10,17 +10,16 @@ import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.semantics.contentDescription
@@ -40,13 +39,16 @@ fun LoadingScreen(message: String) {
         .pointerInput(Unit) { awaitPointerEventScope { while (true) awaitPointerEvent().changes.forEach { it.consume() } } },
         contentAlignment = Alignment.Center) {
         val compact = maxHeight < 380.dp
-        Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.Center) {
-            Image(painterResource(R.drawable.brand_square), contentDescription = "IPTV Native",
-                modifier = Modifier.size(if (compact) 96.dp else 144.dp).clip(RoundedCornerShape(18.dp)))
-            Spacer(Modifier.height(if (compact) 14.dp else 22.dp))
-            LoadingWheel(Modifier.size(if (compact) 40.dp else 52.dp))
-            Spacer(Modifier.height(if (compact) 12.dp else 18.dp))
-            Text(message, color = Color.White, fontSize = if (compact) 15.sp else 18.sp,
+        // The supplied widescreen artwork belongs exclusively to the loading screen.
+        // Fit preserves its proportions on both TV and wide landscape phones; the
+        // surrounding black matches the image and avoids stretching the logo.
+        Image(painterResource(R.drawable.splash_art), contentDescription = "IPTV Native",
+            contentScale = ContentScale.Fit, modifier = Modifier.fillMaxSize().testTag("loading-art"))
+        Column(Modifier.align(Alignment.BottomCenter).padding(bottom = if (compact) 10.dp else 24.dp),
+            horizontalAlignment = Alignment.CenterHorizontally) {
+            LoadingWheel(Modifier.size(if (compact) 30.dp else 44.dp))
+            Spacer(Modifier.height(if (compact) 5.dp else 10.dp))
+            Text(message, color = Color.White, fontSize = if (compact) 13.sp else 17.sp,
                 fontWeight = FontWeight.Medium, modifier = Modifier.testTag("loading-message"))
         }
     }

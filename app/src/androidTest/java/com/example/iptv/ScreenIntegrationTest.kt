@@ -7,6 +7,7 @@ import android.content.Intent
 import android.content.pm.ActivityInfo
 import android.content.res.Configuration
 import android.graphics.Bitmap
+import android.graphics.BitmapFactory
 import android.os.ParcelFileDescriptor
 import android.view.View
 import android.view.ViewGroup
@@ -275,6 +276,14 @@ class ScreenIntegrationTest {
         compose.waitUntil(10_000) { existsUnmerged("app-background") }
         compose.onNodeWithTag("app-background", useUnmergedTree = true).assertExists()
         compose.waitUntil(30_000) { existsUnmerged("app-background-loaded") }
+        val appInfo = compose.activity.applicationInfo
+        assertEquals(R.mipmap.ic_launcher, appInfo.icon)
+        assertEquals(R.drawable.tv_launcher_banner, appInfo.banner)
+        val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+        BitmapFactory.decodeResource(compose.activity.resources, R.drawable.splash_art, bounds)
+        assertEquals(1920, bounds.outWidth)
+        assertEquals(1080, bounds.outHeight)
+        compose.onNodeWithTag("loading-art").assertDoesNotExist()
         assertLoginFitsAndIsCentered()
         capture("screen-login.png")
         val loginFieldWidth = compose.onNodeWithText("Servidor Xtream").fetchSemanticsNode().boundsInRoot.width
@@ -420,6 +429,10 @@ class ScreenIntegrationTest {
         compose.onNodeWithContentDescription("Destaque 3: Filme 103").performClick()
         compose.waitUntil(30_000) { existsUnmerged("hero-backdrop-rejected-vod:103") }
         assertFalse(existsUnmerged("hero-backdrop-loaded-vod:103"))
+        compose.onNodeWithTag("hero-details-vod:103").performClick()
+        compose.waitUntil(30_000) { existsUnmerged("detail-backdrop-rejected") }
+        assertFalse(existsUnmerged("detail-backdrop-loaded"))
+        compose.onNodeWithContentDescription("Voltar aos itens").performClick()
 
         compose.onNodeWithContentDescription("TV").performClick()
         compose.waitUntil(10_000) { exists("channel-1") && exists("channel-2") }
@@ -732,6 +745,18 @@ class ScreenIntegrationTest {
         }
         useRemoteInputMode()
         if (isTv) traceIme("remote mode")
+        // Real TV-system-image regression: advance and return without a pager/focus bounce.
+        compose.onNodeWithContentDescription("Destaque 1: Filme Teste").performClick()
+        compose.waitUntil(10_000) { exists("hero-watch-vod:101") }
+        compose.onNodeWithTag("hero-watch-vod:101").performSemanticsAction(SemanticsActions.RequestFocus)
+            .assertIsFocused().performKeyInput { pressKey(Key.DirectionRight) }
+        compose.waitUntil(10_000) { focused("hero-details-vod:101") }
+        compose.onNodeWithTag("hero-details-vod:101").performKeyInput { pressKey(Key.DirectionRight) }
+        compose.waitUntil(10_000) { focused("hero-details-vod:102") }
+        compose.onNodeWithTag("hero-details-vod:102").performKeyInput { pressKey(Key.DirectionLeft) }
+        compose.waitUntil(10_000) { focused("hero-watch-vod:102") }
+        compose.onNodeWithTag("hero-watch-vod:102").performKeyInput { pressKey(Key.DirectionLeft) }
+        compose.waitUntil(10_000) { focused("hero-watch-vod:101") }
         compose.onNodeWithContentDescription("Filmes").performSemanticsAction(SemanticsActions.RequestFocus)
             .assertIsFocused().performKeyInput { pressKey(Key.DirectionCenter) }
         compose.waitUntil(20_000) { exists("poster-vod:101") }
@@ -831,10 +856,13 @@ class ScreenIntegrationTest {
                         runCatching { compose.onNodeWithTag("loading-message").assertTextContains(label) }.isSuccess
                 }
                 compose.onNodeWithTag("loading-screen").assertIsDisplayed()
+                compose.onNodeWithTag("loading-art").assertIsDisplayed()
+                if (action == "get_live_categories") capture("screen-splash.png")
                 assertFalse("Home cannot open while $label is still in flight", exists("home-list"))
                 stageRelease.getValue(action).countDown()
             }
             compose.waitUntil(30_000) { exists("home-list") && !exists("loading-screen") }
+            compose.onNodeWithTag("loading-art").assertDoesNotExist()
         } finally {
             stageRelease.values.forEach { it.countDown() }
             blockStartupStages.set(false)
