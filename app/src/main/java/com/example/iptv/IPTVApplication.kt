@@ -1,8 +1,17 @@
 package com.example.iptv
 
 import android.app.Application
+import coil.ImageLoader
+import coil.ImageLoaderFactory
+import coil.disk.DiskCache
+import coil.memory.MemoryCache
+import com.example.iptv.data.cache.CatalogCache
+import com.example.iptv.data.cache.HeroLoader
+import com.example.iptv.data.epg.XmltvRepository
+import com.example.iptv.data.network.ApiClient
 import com.example.iptv.data.preferences.SessionManager
 import com.example.iptv.data.repository.XtreamRepository
+import com.example.iptv.data.tmdb.TmdbRepository
 
 /**
  * Application entry point. Owns the session storage and the single [XtreamRepository]
@@ -11,17 +20,44 @@ import com.example.iptv.data.repository.XtreamRepository
  *
  * The class name must match `android:name` in AndroidManifest.xml (".IPTVApplication").
  */
-class IPTVApplication : Application() {
+class IPTVApplication : Application(), ImageLoaderFactory {
 
     lateinit var sessionManager: SessionManager
+        private set
+
+    lateinit var epgRepository: XmltvRepository
         private set
 
     lateinit var repository: XtreamRepository
         private set
 
+    lateinit var catalogCache: CatalogCache
+        private set
+
+    lateinit var heroLoader: HeroLoader
+        private set
+
+    // Injectable only in instrumentation tests; production uses the build-time key and HTTPS endpoint.
+    lateinit var tmdbRepository: TmdbRepository
+        internal set
+    var tmdbApiKey: String = BuildConfig.TMDB_API_KEY
+        internal set
+
     override fun onCreate() {
         super.onCreate()
         sessionManager = SessionManager(this)
+        epgRepository = XmltvRepository(cacheDir, ApiClient.httpClient())
         repository = XtreamRepository(sessionManager)
+        catalogCache = CatalogCache(filesDir.resolve("catalog-cache"), repository)
+        tmdbRepository = TmdbRepository(ApiClient.httpClient())
+        heroLoader = HeroLoader(this, repository, catalogCache, { tmdbRepository }, { tmdbApiKey })
     }
+
+    override fun newImageLoader(): ImageLoader = ImageLoader.Builder(this)
+        .memoryCache { MemoryCache.Builder(this).maxSizePercent(0.15).build() }
+        .diskCache { DiskCache.Builder().directory(cacheDir.resolve("coil-images"))
+            .maxSizeBytes(256L * 1024 * 1024).build() }
+        // Some panels send no-cache headers even for unchanging artwork.
+        .respectCacheHeaders(false)
+        .build()
 }

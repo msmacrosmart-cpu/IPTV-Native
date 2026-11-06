@@ -1,9 +1,7 @@
 package com.example.iptv.data.network
 
-import com.example.iptv.BuildConfig
 import kotlinx.serialization.json.Json
 import okhttp3.OkHttpClient
-import okhttp3.logging.HttpLoggingInterceptor
 import retrofit2.Retrofit
 import java.util.concurrent.TimeUnit
 
@@ -41,15 +39,6 @@ object ApiClient {
                     .header("Accept", "application/json, text/plain, */*")
                     .build()
                 chain.proceed(request)
-            }
-            .apply {
-                if (BuildConfig.DEBUG) {
-                    addInterceptor(
-                        HttpLoggingInterceptor().apply {
-                            level = HttpLoggingInterceptor.Level.BASIC
-                        }
-                    )
-                }
             }
             .build()
     }

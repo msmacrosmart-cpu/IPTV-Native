@@ -36,8 +36,12 @@ object XtreamParser {
         val server = obj?.get("server_info").asObject()
 
         val status = user?.string("status") ?: "Unknown"
-        val auth = user?.int("auth") ?: 0
-        val isActive = auth == 1 || status.equals("Active", true)
+        val auth = user?.int("auth")
+        // Some panels omit auth or status, but an explicit rejection/disabled status wins.
+        val isActive = auth != 0 && when {
+            status.equals("Unknown", true) -> auth == 1
+            else -> status.equals("Active", true)
+        }
 
         val allowedFormats = user?.stringList("allowed_output_formats") ?: emptyList()
 
@@ -47,8 +51,8 @@ object XtreamParser {
             message = user?.string("message") ?: "",
             isActive = isActive,
             isTrial = user?.bool("is_trial") ?: false,
-            expiresAtMillis = user?.long("exp_date")?.takeIf { it > 0L },
-            createdAtMillis = user?.long("created_at")?.takeIf { it > 0L },
+            expiresAtMillis = epochMillis(user?.long("exp_date")),
+            createdAtMillis = epochMillis(user?.long("created_at")),
             maxConnections = user?.int("max_connections") ?: 1,
             activeConnections = user?.int("active_cons") ?: 0,
             allowedFormats = allowedFormats,
@@ -57,6 +61,11 @@ object XtreamParser {
             timezone = server?.string("timezone") ?: "UTC",
             panelUrl = panelUrl
         )
+    }
+
+    // Xtream usually sends Unix seconds; accept milliseconds from panels that already convert it.
+    private fun epochMillis(value: Long?): Long? = value?.takeIf { it > 0L }?.let {
+        if (it < 10_000_000_000L) it * 1000L else it
     }
 
     // ---------------------------------------------------------------- categories
@@ -119,7 +128,7 @@ object XtreamParser {
                 extension = obj.string("container_extension")?.trim().orEmpty().ifBlank { "mp4" },
                 categoryId = obj.string("category_id")?.takeIf { it.isNotBlank() },
                 plot = obj.string("plot")?.takeIf { it.isNotBlank() },
-                addedAtMillis = obj.long("added")?.takeIf { it > 0L }?.times(1000L)
+                addedAtMillis = epochMillis(obj.long("added"))
             )
         }?.distinctBy { it.id }.orEmpty()
 
@@ -142,7 +151,8 @@ object XtreamParser {
                 rating = obj.string("rating")?.takeIf { it.isNotBlank() && it != "0" },
                 rating5 = obj.double("rating_5based")?.takeIf { it > 0.0 },
                 backdrop = backdropPath?.takeIf { it.isNotBlank() },
-                categoryId = obj.string("category_id")?.takeIf { it.isNotBlank() }
+                categoryId = obj.string("category_id")?.takeIf { it.isNotBlank() },
+                addedAtMillis = epochMillis(obj.long("added")) ?: epochMillis(obj.long("last_modified"))
             )
         }?.distinctBy { it.id }.orEmpty()
 
@@ -253,10 +263,12 @@ object XtreamParser {
             cast = info?.string("cast")?.takeIf { it.isNotBlank() },
             director = info?.string("director")?.takeIf { it.isNotBlank() },
             genre = info?.string("genre")?.takeIf { it.isNotBlank() },
-            releaseDate = info?.string("releasedate") ?: info?.string("release_date"),
+            releaseDate = info?.string("releasedate") ?: info?.string("release_date") ?: info?.string("releaseDate"),
             durationLabel = info?.string("duration")?.takeIf { it.isNotBlank() },
             backdrop = backdrop?.takeIf { it.isNotBlank() },
-            rating = info?.string("rating")?.takeIf { it.isNotBlank() }
+            rating = info?.string("rating")?.takeIf { it.isNotBlank() },
+            tmdbId = (info?.string("tmdb_id") ?: info?.string("tmdb"))?.takeIf { it.toLongOrNull()?.let { id -> id > 0 } == true },
+            youtubeTrailer = (info?.string("youtube_trailer") ?: info?.string("trailer"))?.takeIf { it.isNotBlank() }
         )
     }
 

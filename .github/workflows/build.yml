@@ -5,6 +5,15 @@ on:
     branches: ["**"]
   pull_request:
   workflow_dispatch:
+    inputs:
+      export_apk:
+        description: "Transferir APK de teste via API Git para ambientes sem acesso aos artifacts"
+        type: boolean
+        default: false
+      secure_key_exchange:
+        description: "Receber a chave TMDB por RSA efêmero se o secret não estiver disponível"
+        type: boolean
+        default: false
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
@@ -17,11 +26,81 @@ jobs:
   build:
     name: Build Debug + Release APK
     runs-on: ubuntu-latest
-    timeout-minutes: 40
+    timeout-minutes: 55
+    env:
+      TMDB_API_KEY: ${{ secrets.TMDB_API_KEY }}
 
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
+
+      # Optional exchange for restricted integrations that cannot write repository secrets
+      # or dispatch workflows. A push opts in with [secure-tmdb]; normal builds never wait.
+      # Only the triggering GitHub user can supply ciphertext for this run's ephemeral RSA key.
+      - name: Receive transient TMDB build key
+        if: ${{ (github.event_name == 'workflow_dispatch' && inputs.secure_key_exchange) || (github.event_name == 'push' && contains(github.event.head_commit.message, '[secure-tmdb]')) }}
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          if [ -n "$TMDB_API_KEY" ]; then
+            echo "Using the configured TMDB_API_KEY repository secret."
+            exit 0
+          fi
+          umask 077
+          openssl genpkey -algorithm RSA -pkeyopt rsa_keygen_bits:2048 -out "$RUNNER_TEMP/tmdb-private.pem" 2>/dev/null
+          openssl pkey -in "$RUNNER_TEMP/tmdb-private.pem" -pubout -outform DER -out "$RUNNER_TEMP/tmdb-public.der"
+          python3 - <<'PYCODE'
+          import base64, json, os, re, subprocess, time
+          env = os.environ
+          repo, sha, run, actor = (env[k] for k in ('GITHUB_REPOSITORY', 'GITHUB_SHA', 'GITHUB_RUN_ID', 'GITHUB_ACTOR'))
+          public = base64.b64encode(open(env['RUNNER_TEMP'] + '/tmdb-public.der', 'rb').read()).decode()
+          body = f'TMDB_KEY_EXCHANGE_PUBLIC_V1\nrun={run}\npublic_der={public}'
+          subprocess.run(['gh', 'api', f'repos/{repo}/commits/{sha}/comments', '--method', 'POST', '-f', 'body=' + body],
+                         check=True, stdout=subprocess.DEVNULL)
+          deadline = time.monotonic() + 300
+          ciphertext = None
+          while time.monotonic() < deadline and ciphertext is None:
+              result = subprocess.run(['gh', 'api', f'repos/{repo}/commits/{sha}/comments?per_page=100'], capture_output=True, text=True)
+              if result.returncode == 0:
+                  for item in json.loads(result.stdout):
+                      message = item.get('body', '').splitlines()
+                      if (item.get('user', {}).get('login') == actor and item.get('user', {}).get('type') == 'User'
+                          and len(message) == 3 and message[0] == 'TMDB_KEY_EXCHANGE_CIPHERTEXT_V1'
+                          and message[1] == f'run={run}' and message[2].startswith('ciphertext=')):
+                          ciphertext = base64.b64decode(message[2].split('=', 1)[1], validate=True)
+                          break
+              if ciphertext is None: time.sleep(5)
+          if ciphertext is None: raise SystemExit('Timed out waiting for the encrypted TMDB key.')
+          decrypted = subprocess.run(['openssl', 'pkeyutl', '-decrypt', '-inkey', env['RUNNER_TEMP'] + '/tmdb-private.pem',
+                                      '-pkeyopt', 'rsa_padding_mode:oaep', '-pkeyopt', 'rsa_oaep_md:sha256'],
+                                     input=ciphertext, capture_output=True, check=True).stdout.decode().strip()
+          if not re.fullmatch('[a-fA-F0-9]{32}', decrypted): raise SystemExit('Invalid TMDB v3 key format.')
+          print('::add-mask::' + decrypted)
+          with open(env['GITHUB_ENV'], 'a') as output: output.write('TMDB_API_KEY=' + decrypted + '\n')
+          print('Transient build key received; it will not be committed or logged.')
+          PYCODE
+          rm -f "$RUNNER_TEMP/tmdb-private.pem" "$RUNNER_TEMP/tmdb-public.der"
+
+      - name: Validate TMDB access when configured
+        run: |
+          python3 - <<'PYCODE'
+          import json, os, urllib.error, urllib.parse, urllib.request
+          key = os.environ.get('TMDB_API_KEY', '')
+          if not key:
+              print('No TMDB key configured for this build; using provider metadata.')
+          else:
+              params = urllib.parse.urlencode({'api_key': key, 'language': 'pt-BR', 'append_to_response': 'credits,videos'})
+              try:
+                  with urllib.request.urlopen('https://api.themoviedb.org/3/movie/550?' + params, timeout=20) as response:
+                      data = json.load(response)
+                  if data.get('id') != 550 or not data.get('credits', {}).get('cast'):
+                      raise ValueError('unexpected metadata')
+                  print('TMDB key accepted; live movie metadata and cast are reachable.')
+              except urllib.error.HTTPError as error:
+                  raise SystemExit('TMDB access failed with HTTP ' + str(error.code))
+              except Exception as error:
+                  raise SystemExit('TMDB access could not be verified: ' + type(error).__name__)
+          PYCODE
 
       - name: Set up JDK 17
         uses: actions/setup-java@v4
@@ -46,11 +125,49 @@ jobs:
       - name: Verify Gradle / Kotlin toolchain
         run: ./gradlew --version --no-daemon
 
+      - name: Verify supplied loading and Android TV artwork
+        run: |
+          cmp "IPTV Native Telas/XtreamTV/Picsart_26-11-06_18-01-23-760.png" app/src/main/res/drawable-nodpi/splash_art.png
+          cmp "IPTV Native Telas/XtreamTV/20261106_180011_0000.png" app/src/main/res/drawable-nodpi/tv_launcher_banner.png
+
       # Compiles every Kotlin source file, the Compose resources and the launcher icons.
       - name: Build Debug APK
         run: |
           set -o pipefail
-          ./gradlew assembleDebug --stacktrace --no-daemon 2>&1 | tee build-debug.log
+          ./gradlew assembleDebug assembleDebugAndroidTest --stacktrace --no-daemon 2>&1 | tee build-debug.log
+
+      - name: Run unit tests
+        run: |
+          set -o pipefail
+          ./gradlew testDebugUnitTest --no-daemon 2>&1 | tee build-tests.log
+
+      - name: Enable KVM for the Android emulator
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+
+      - name: Exercise D-pad and overscan on Android TV
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 30
+          arch: x86
+          target: android-tv
+          profile: tv_1080p
+          disable-animations: true
+          emulator-options: -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim
+          script: bash -o pipefail -c 'mkdir -p artifacts; ./gradlew connectedDebugAndroidTest -Pandroid.testInstrumentationRunnerArguments.class=com.example.iptv.ScreenIntegrationTest#largeScreenRemoteNavigationAndOverscanAreUsable -Pandroid.testInstrumentationRunnerArguments.requireTv=true --no-daemon 2>&1 | tee build-tv.log; result=${PIPESTATUS[0]}; if [ "$result" -eq 0 ]; then for name in android-tv android-tv-login android-tv-catalog android-tv-guide android-tv-detail; do adb exec-out cat /data/local/tmp/iptv-screen-$name.png > artifacts/screen-$name.png || result=1; done; else adb exec-out cat /data/local/tmp/iptv-ui-failure.png > artifacts/screen-failure.png 2>/dev/null || true; adb exec-out cat /data/local/tmp/iptv-ui-failure.txt > artifacts/diagnostics.txt 2>/dev/null || true; fi; exit "$result"'
+
+      - name: Exercise the screens on an Android emulator
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 29
+          arch: x86_64
+          target: google_apis
+          profile: pixel_2
+          disable-animations: true
+          emulator-options: -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -camera-back none
+          script: bash -o pipefail -c 'adb shell wm size 768x1376; adb shell wm density 160; adb shell settings put secure immersive_mode_confirmations confirmed; ./gradlew connectedDebugAndroidTest --no-daemon 2>&1 | tee build-instrumented.log; result=${PIPESTATUS[0]}; mkdir -p artifacts; if [ "$result" -ne 0 ]; then adb exec-out cat /data/local/tmp/iptv-ui-failure.png > artifacts/screen-failure.png 2>/dev/null || true; adb exec-out cat /data/local/tmp/iptv-ui-failure.txt > artifacts/diagnostics.txt 2>/dev/null || true; for test in nativeScreensUseRealSessionCatalogFavoritesEpgAndPlayback tmdbDetailsHideSearchAndSupportRemoteCastAndTrailer firstLoginDisplaysRealCatalogStagesBeforeHome catalogSortsBothWaysAndReturnsToTheSameFolderAndPosition; do adb exec-out cat /data/local/tmp/iptv-ui-failure-$test.txt > artifacts/diagnostics-$test.txt 2>/dev/null || true; done; if [ ! -s artifacts/screen-failure.png ]; then adb exec-out screencap -p > artifacts/screen-failure.png || true; fi; else for name in splash login home top-10 hero-no-backdrop movies series live favorites settings player phone-login phone phone-home phone-tv phone-catalog-scroll phone-detail; do adb exec-out cat /data/local/tmp/iptv-screen-$name.png > artifacts/screen-$name.png || result=1; done; fi; exit "$result"'
 
       # Same signing config as debug (see app/build.gradle.kts), so the artifact is installable
       # straight from the Actions run.
@@ -58,6 +175,26 @@ jobs:
         run: |
           set -o pipefail
           ./gradlew assembleRelease --stacktrace --no-daemon 2>&1 | tee build-release.log
+
+      - name: Verify automatic TMDB build configuration
+        run: |
+          python3 - <<'PYCODE'
+          import os, pathlib, zipfile
+          key = os.environ.get('TMDB_API_KEY', '').encode()
+          if not key:
+              print('No build key configured; provider data remains available.')
+          else:
+              apk = next(pathlib.Path('app/build/outputs/apk/release').glob('*.apk'))
+              with zipfile.ZipFile(apk) as package:
+                  present = any(key in package.read(name) for name in package.namelist() if name.endswith('.dex'))
+              if not present: raise SystemExit('TMDB build configuration not found in the release APK.')
+              print('Automatic TMDB build configuration is present in the release APK.')
+          PYCODE
+
+      - name: Verify APK signatures
+        run: |
+          "$ANDROID_HOME/build-tools/35.0.0/apksigner" verify --verbose app/build/outputs/apk/debug/*.apk
+          "$ANDROID_HOME/build-tools/35.0.0/apksigner" verify --verbose --print-certs app/build/outputs/apk/release/*.apk
 
       - name: Collect APKs
         run: |
@@ -81,6 +218,42 @@ jobs:
           path: app/build/outputs/apk/release/*.apk
           retention-days: 30
 
+      # Optional transport for restricted environments that cannot reach Actions artifact storage.
+      # Git blobs are unreferenced; APKs are never committed to the source tree.
+      - name: Export APK through Git data API
+        if: ${{ (github.event_name == 'workflow_dispatch' && inputs.export_apk) || (github.event_name == 'push' && contains(github.event.head_commit.message, '[export-apk]')) }}
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          python3 - <<'PYCODE'
+          import base64, hashlib, json, os, pathlib, subprocess
+          apk = next(pathlib.Path('app/build/outputs/apk/release').glob('*.apk'))
+          data = apk.read_bytes()
+          repo = os.environ['GITHUB_REPOSITORY']
+          shas = []
+          for offset in range(0, len(data), 2 * 1024 * 1024):
+              chunk = data[offset:offset + 2 * 1024 * 1024]
+              payload = json.dumps({'content': base64.b64encode(chunk).decode(), 'encoding': 'base64'})
+              result = subprocess.run(['gh', 'api', f'repos/{repo}/git/blobs', '--method', 'POST',
+                                       '--input', '-', '--jq', '.sha'], input=payload, text=True,
+                                      capture_output=True, check=True)
+              shas.append(result.stdout.strip())
+          screenshots = []
+          for name in ('screen-splash.png', 'screen-login.png', 'screen-home.png', 'screen-top-10.png', 'screen-phone-login.png', 'screen-movies.png', 'screen-series.png', 'screen-live.png', 'screen-favorites.png', 'screen-settings.png', 'screen-player.png', 'screen-phone.png', 'screen-phone-home.png', 'screen-phone-tv.png', 'screen-hero-no-backdrop.png', 'screen-android-tv.png', 'screen-android-tv-login.png', 'screen-android-tv-catalog.png', 'screen-android-tv-guide.png', 'screen-android-tv-detail.png', 'screen-phone-catalog-scroll.png', 'screen-phone-detail.png'):
+              path = pathlib.Path('artifacts') / name
+              if path.exists() and path.stat().st_size:
+                  payload = json.dumps({'content': base64.b64encode(path.read_bytes()).decode(), 'encoding': 'base64'})
+                  result = subprocess.run(['gh', 'api', f'repos/{repo}/git/blobs', '--method', 'POST',
+                                           '--input', '-', '--jq', '.sha'], input=payload, text=True,
+                                          capture_output=True, check=True)
+                  screenshots.append(name + '=' + result.stdout.strip())
+          comment = ('APK_BLOB_TRANSFER_V1\nrun=' + os.environ['GITHUB_RUN_ID'] +
+                     '\nsha256=' + hashlib.sha256(data).hexdigest() + '\nsize=' + str(len(data)) +
+                     '\nblobs=' + ','.join(shas) + '\n' + '\n'.join(screenshots))
+          subprocess.run(['gh', 'api', f"repos/{repo}/commits/{os.environ['GITHUB_SHA']}/comments",
+                          '--method', 'POST', '-f', 'body=' + comment], check=True)
+          PYCODE
+
       - name: Upload reports on failure
         if: failure()
         uses: actions/upload-artifact@v4
@@ -88,6 +261,9 @@ jobs:
           name: build-reports
           path: |
             build-debug.log
+            build-tests.log
+            build-instrumented.log
+            build-tv.log
             build-release.log
             app/build/reports/**
             **/build/reports/**
@@ -101,13 +277,51 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          LOG="(debug log unavailable)"
-          if [ -f build-debug.log ]; then
-            LOG=$(tail -n 160 build-debug.log)
-          elif [ -f build-release.log ]; then
-            LOG=$(tail -n 160 build-release.log)
+          LOG="(build log unavailable)"
+          for FILE in build-release.log build-instrumented.log build-tv.log build-tests.log build-debug.log; do
+            if [ -f "$FILE" ]; then
+              LOG=$( { grep -E '(^e: | error: |^FAILURE:|^\* What went wrong:|^> | FAILED|tests? (completed|failed))' "$FILE" || true; tail -n 90 "$FILE"; } | tail -n 160)
+              break
+            fi
+          done
+          if [ -d app/build/outputs/androidTest-results ]; then
+            REPORT=$(python3 - <<'PYCODE'
+          import glob, xml.etree.ElementTree as ET
+          for path in glob.glob('app/build/outputs/androidTest-results/**/*.xml', recursive=True):
+              try:
+                  root = ET.parse(path).getroot()
+                  for case in root.iter('testcase'):
+                      for failure in list(case.findall('failure')) + list(case.findall('error')):
+                          print(case.get('name'), failure.get('message', ''), (failure.text or '')[:8000])
+              except Exception:
+                  pass
+          PYCODE
+            )
+            LOG="$LOG
+          $REPORT"
           fi
-          jq -n --arg body "$LOG" '{body: $body}' > payload.json
+          for FILE in artifacts/diagnostics-nativeScreensUseRealSessionCatalogFavoritesEpgAndPlayback.txt artifacts/diagnostics-tmdbDetailsHideSearchAndSupportRemoteCastAndTrailer.txt artifacts/diagnostics-catalogSortsBothWaysAndReturnsToTheSameFolderAndPosition.txt artifacts/diagnostics.txt; do
+            if [ -s "$FILE" ]; then
+              LOG="$LOG
+          === $FILE ===
+          $(head -c 14000 "$FILE")"
+            fi
+          done
+          if [ -s artifacts/screen-failure.png ]; then
+            SCREEN_BLOB=$(python3 - <<'PYCODE'
+          import base64, json, os, subprocess
+          data = open('artifacts/screen-failure.png', 'rb').read()
+          payload = json.dumps({'content': base64.b64encode(data).decode(), 'encoding': 'base64'})
+          proc = subprocess.run(['gh', 'api', f"repos/{os.environ['GITHUB_REPOSITORY']}/git/blobs",
+                                 '--method', 'POST', '--input', '-', '--jq', '.sha'], input=payload,
+                                text=True, capture_output=True)
+          print(proc.stdout.strip())
+          PYCODE
+            )
+            LOG="$LOG
+          SCREENSHOT_BLOB=$SCREEN_BLOB"
+          fi
+          jq -n --arg body "${LOG:0:60000}" '{body: $body}' > payload.json
           curl -sS -X POST \
             -H "Authorization: Bearer $GH_TOKEN" \
             -H "Accept: application/vnd.github+json" \

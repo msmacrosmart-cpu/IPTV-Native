@@ -1,0 +1,138 @@
+package com.xtream.player.ui.main
+
+import androidx.activity.compose.BackHandler
+import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.*
+import androidx.compose.runtime.*
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.saveable.rememberSaveableStateHolder
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.input.InputMode
+import androidx.compose.ui.platform.LocalFocusManager
+import androidx.compose.ui.platform.LocalInputModeManager
+import androidx.compose.ui.unit.dp
+import com.example.iptv.data.cache.CatalogCache
+import com.example.iptv.data.model.PanelCredentials
+import com.example.iptv.data.model.VodDetails
+import com.example.iptv.data.tmdb.DetailExtras
+import com.example.iptv.data.model.UserSettings
+import com.example.iptv.data.preferences.SavedProfile
+import com.xtream.player.data.*
+import com.xtream.player.ui.browse.BrowseScreen
+import com.xtream.player.ui.components.*
+import com.xtream.player.ui.detail.DetailScreen
+import com.xtream.player.ui.home.HomeScreen
+import com.xtream.player.ui.live.LiveScreen
+import com.xtream.player.ui.settings.SettingsScreen
+import com.xtream.player.ui.settings.SettingsActions
+import com.xtream.player.ui.theme.XColors
+import kotlinx.coroutines.delay
+
+class MainActions(
+    val onPlay: (PlayerRequest) -> Unit,
+    val onOpenDetails: (VodItem) -> Unit,
+    val onCloseDetails: () -> Unit,
+    val onPlayItem: (VodItem) -> Unit,
+    val onPlayHero: (VodItem) -> Unit,
+    val onPrepareHeroes: (List<VodItem>) -> Unit,
+    val onCancelHeroPlayback: () -> Unit,
+    val onPlaySeries: () -> Unit,
+    val onPlayEpisode: (AppViewModel.EpisodeChoice) -> Unit,
+    val onTrailer: (String) -> Unit,
+    val onToggleFav: (String) -> Unit,
+    val onRefreshContent: () -> Unit,
+    val onChannelFocused: (Channel) -> Unit,
+    val settings: SettingsActions,
+)
+
+@Composable
+fun MainScreen(session: Session?, content: ContentState, epg: Map<String, List<Programme>>,
+               favorites: List<String>, epgUpdatedAt: Long?, epgLoading: Boolean, epgMessage: String?,
+               heroDetails: Map<String, VodDetails>, loadingHeroKey: String?,
+               loading: Boolean, loginError: String?, detail: VodItem?, episodes: AppViewModel.EpisodeSelection?,
+               episodeLoading: Boolean, episodeError: String?, detailExtras: DetailExtras, metadataLoading: Boolean, metadataMessage: String?,
+               profiles: List<SavedProfile>, settings: UserSettings,
+               parentalUnlocked: Boolean, parentalBusy: Boolean, testingConnection: Boolean, connectionTest: String?, actions: MainActions,
+               previewEnabled: Boolean = true, restoreChannelId: String? = null, onChannelRestored: () -> Unit = {}) {
+    var tab by rememberSaveable { mutableStateOf(Tab.Home) }
+    var query by rememberSaveable { mutableStateOf("") }
+    // Save each catalog's folder, search-in-folders, sort and grid position while
+    // its details screen is shown. Keep profiles isolated without storing passwords.
+    val browseAccount = remember(session?.server, session?.username, session?.isDemo) {
+        if (session == null || session.isDemo) "demo"
+        else CatalogCache.accountKey(PanelCredentials(session.server, session.username, ""))
+    }
+    val browseStates = rememberSaveableStateHolder()
+    var returnToItem by rememberSaveable(browseAccount) { mutableStateOf<String?>(null) }
+    val visibleContent = remember(content, settings.lockedCategories, parentalUnlocked) {
+        content.withParentalRestrictions(settings.lockedCategories, parentalUnlocked)
+    }
+    val searchFocus = remember { FocusRequester() }
+    val hideKeyboard = rememberHideKeyboard()
+    // TV input services sometimes finish a queued show after the tab changes. Repeat the
+    // hide once the new screen is mounted, so it does not cover the player or catalog.
+    LaunchedEffect(tab) { delay(250); hideKeyboard() }
+    LaunchedEffect(detail?.favoriteKey) {
+        if (detail != null) {
+            // Search may have just queued an IME show while the selected card opened.
+            delay(200); hideKeyboard()
+            delay(300); hideKeyboard()
+        }
+    }
+    val focusManager = LocalFocusManager.current
+    val inputMode = LocalInputModeManager.current
+    val selectTab: (Tab) -> Unit = { selected ->
+        hideKeyboard()
+        if (inputMode.inputMode == InputMode.Touch) focusManager.clearFocus(force = true)
+        actions.onCancelHeroPlayback()
+        actions.onCloseDetails()
+        returnToItem = null
+        tab = selected; query = ""
+    }
+    BackHandler(enabled = detail == null && tab != Tab.Home) { selectTab(Tab.Home) }
+
+    @Composable fun Header(compact: Boolean) {
+        TopBar(tab, query, { query = it }, searchFocus, compact, actions.onRefreshContent) { selectTab(Tab.Settings) }
+    }
+    @Composable fun Content(modifier: Modifier) {
+        Box(modifier) {
+            if (detail != null) DetailScreen(detail, detail.favoriteKey in favorites, episodes, episodeLoading, episodeError,
+                detailExtras, metadataLoading, metadataMessage,
+                onBack = actions.onCloseDetails, onFavorite = { actions.onToggleFav(detail.favoriteKey) },
+                onPlay = { if (detail.isSeries) actions.onPlaySeries() else actions.onPlayItem(detail) },
+                onTrailer = actions.onTrailer, onEpisode = actions.onPlayEpisode)
+            else when (tab) {
+                Tab.Home -> HomeScreen(visibleContent, epg, query, favorites, heroDetails, loadingHeroKey, settings.time24Hour,
+                    actions.onOpenDetails, actions.onPlayHero, actions.onPrepareHeroes,
+                    { ch -> actions.onPlay(PlayerRequest(ch.name, ch.url, true, visibleContent.channels, visibleContent.channels.indexOf(ch), ch.fallbackUrl)) }, actions.onToggleFav)
+                Tab.Live -> LiveScreen(visibleContent, epg, favorites, query, actions.onToggleFav, actions.onPlay,
+                    previewEnabled, settings.showChannelEpg, settings.time24Hour, settings.onlyChannelsWithEpg, settings.showFullEpg,
+                    actions.onChannelFocused, restoreChannelId, onChannelRestored)
+                Tab.Movies -> browseStates.SaveableStateProvider("$browseAccount:movies") {
+                    BrowseScreen("filmes", visibleContent.movieCategories, visibleContent.movies, query, favorites, actions.onToggleFav,
+                        onSelect = { item -> returnToItem = item.favoriteKey; actions.onOpenDetails(item) },
+                        restoreItemKey = returnToItem, onReturnFocusRestored = { returnToItem = null })
+                }
+                Tab.Series -> browseStates.SaveableStateProvider("$browseAccount:series") {
+                    BrowseScreen("séries", visibleContent.seriesCategories, visibleContent.series, query, favorites, actions.onToggleFav,
+                        onSelect = { item -> returnToItem = item.favoriteKey; actions.onOpenDetails(item) },
+                        restoreItemKey = returnToItem, onReturnFocusRestored = { returnToItem = null })
+                }
+                Tab.Settings -> SettingsScreen(session, content, epg, epgUpdatedAt, epgLoading, epgMessage,
+                    loading, loginError, profiles, settings, parentalUnlocked, parentalBusy, testingConnection, connectionTest, actions.settings)
+            }
+        }
+    }
+    BoxWithConstraints(Modifier.fillMaxSize()) {
+        val compactHeader = maxWidth < 850.dp
+        Row(Modifier.fillMaxSize()) {
+            Sidebar(tab, selectTab, compact = false)
+            Column(Modifier.weight(1f).fillMaxHeight()) {
+                // Details need the full height; restore the search bar when returning to the catalog.
+                if (detail == null) Header(compactHeader)
+                Content(Modifier.weight(1f).fillMaxWidth())
+            }
+        }
+    }
+}

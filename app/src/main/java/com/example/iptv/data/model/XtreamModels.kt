@@ -1,5 +1,7 @@
 package com.example.iptv.data.model
 
+import kotlinx.serialization.Serializable
+
 /** Session credentials for a Xtream Codes panel. */
 data class PanelCredentials(
     val serverUrl: String = "",
@@ -49,22 +51,47 @@ enum class StreamFormat(val label: String, val extension: String) {
 
 enum class VideoDecoder(val label: String) {
     AUTO("Automático"),
-    HARDWARE("Hardware (preferencial)"),
-    COMPATIBILITY("Compatibilidade (fallback SW)")
+    HARDWARE("Hardware preferencial"),
+    COMPATIBILITY("Software preferencial")
 }
+
+enum class PlaybackApp(val label: String) { INTERNAL("Player interno"), EXTERNAL("Outro aplicativo") }
+
+const val DEFAULT_USER_AGENT = "VLC/3.0.20 LibVLC/3.0.20"
 
 data class UserSettings(
     val streamFormat: StreamFormat = StreamFormat.TS,
     val bufferSeconds: Int = 15,
     val decoder: VideoDecoder = VideoDecoder.AUTO,
-    val lastEpgSyncMillis: Long = 0L
+    val lastEpgSyncMillis: Long = 0L,
+    val autoUpdateEpg: Boolean = true,
+    val customXmltvUrl: String = "",
+    val epgIntervalHours: Int = 24,
+    val catalogIntervalDays: Int = 3,
+    val epgOffsetHours: Int = 0,
+    val time24Hour: Boolean = true,
+    val showChannelEpg: Boolean = true,
+    val onlyChannelsWithEpg: Boolean = false,
+    val showFullEpg: Boolean = true,
+    val subtitlesEnabled: Boolean = true,
+    val subtitleSizePercent: Int = 100,
+    val autoplayNextEpisode: Boolean = false,
+    val userAgent: String = DEFAULT_USER_AGENT,
+    val livePlayer: PlaybackApp = PlaybackApp.INTERNAL,
+    val moviePlayer: PlaybackApp = PlaybackApp.INTERNAL,
+    val seriesPlayer: PlaybackApp = PlaybackApp.INTERNAL,
+    val parentalSalt: String = "",
+    val parentalHash: String = "",
+    val lockedCategories: Set<String> = emptySet(),
 )
 
+@Serializable
 data class LiveCategory(
     val id: String,
     val name: String
 )
 
+@Serializable
 data class LiveChannel(
     val id: Int,
     val name: String,
@@ -95,11 +122,13 @@ data class EpgEntry(
     fun isCurrent(nowMillis: Long): Boolean = nowMillis in startMillis until endMillis
 }
 
+@Serializable
 data class VodCategory(
     val id: String,
     val name: String
 )
 
+@Serializable
 data class VodItem(
     val id: Int,
     val name: String,
@@ -112,11 +141,13 @@ data class VodItem(
     val addedAtMillis: Long? = null
 )
 
+@Serializable
 data class SeriesCategory(
     val id: String,
     val name: String
 )
 
+@Serializable
 data class SeriesItem(
     val id: Int,
     val name: String,
@@ -129,7 +160,9 @@ data class SeriesItem(
     val rating5: Double? = null,
     val backdrop: String? = null,
     val categoryId: String? = null,
-    val episodeCount: Int? = null
+    val episodeCount: Int? = null,
+    // Some panels only expose last_modified for series; see XtreamParser.
+    val addedAtMillis: Long? = null
 )
 
 data class Episode(
@@ -148,6 +181,7 @@ data class SeasonEpisodes(
     val episodes: List<Episode>
 )
 
+@Serializable
 data class VodDetails(
     val plot: String? = null,
     val cast: String? = null,
@@ -156,7 +190,9 @@ data class VodDetails(
     val releaseDate: String? = null,
     val durationLabel: String? = null,
     val backdrop: String? = null,
-    val rating: String? = null
+    val rating: String? = null,
+    val tmdbId: String? = null,
+    val youtubeTrailer: String? = null,
 )
 
 /** Everything the player needs to start a stream. */
