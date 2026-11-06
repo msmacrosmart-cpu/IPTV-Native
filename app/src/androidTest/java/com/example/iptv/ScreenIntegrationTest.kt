@@ -477,6 +477,11 @@ class ScreenIntegrationTest {
         compose.onNodeWithTag("settings-shortcuts").assertIsDisplayed()
         compose.onNodeWithTag("setting-shortcut-multi").assertDoesNotExist()
         compose.onNodeWithTag("setting-tmdb-key").assertDoesNotExist()
+        listOf("setting-shortcut-speed", "setting-shortcut-vpn", "setting-shortcut-device").forEach {
+            compose.onNodeWithTag(it).assertExists()
+        }
+        compose.onNodeWithTag("setting-speed-test").assertExists()
+        compose.onNodeWithTag("setting-vpn").assertExists()
         assertEquals(24, vm.settings.epgIntervalHours)
         assertEquals(3, vm.settings.catalogIntervalDays)
         compose.onNodeWithTag("setting-shortcut-epg").performClick()

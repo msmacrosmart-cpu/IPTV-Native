@@ -148,6 +148,7 @@ fun SettingsScreen(
             }
             AdvancedSettings(settings, epg.size, epgUpdatedAt, epgLoading, epgMessage, actions)
             ParentalSettings(content, settings, parentalUnlocked, parentalBusy, actions)
+            DeviceTools()
             GlowButton("Atualizar catálogo", Icons.Filled.Refresh, ringAlways = false, onClick = actions.refreshContent)
             GlowButton("Sair da conta", Icons.Filled.Logout, ringAlways = false, onClick = actions.logout)
             GlowButton("Licenças de terceiros", Icons.Filled.Info, ringAlways = false) { showLicenses = true }

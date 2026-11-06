@@ -1,3 +1,5 @@
+@file:OptIn(androidx.compose.foundation.ExperimentalFoundationApi::class)
+
 package com.xtream.player.ui.settings
 
 import androidx.compose.foundation.ExperimentalFoundationApi
@@ -48,6 +50,9 @@ private val shortcuts = listOf(
     Shortcut("player", "Seleção de player", Icons.Outlined.PlayCircleOutline, "Seleção de player"),
     Shortcut("player-settings", "Configurações do player", Icons.Outlined.Tune, "Configurações gerais"),
     Shortcut("external", "Players externos", Icons.Outlined.OndemandVideo, "Seleção de player"),
+    Shortcut("speed", "Teste de velocidade", Icons.Outlined.Speed, "Teste de velocidade"),
+    Shortcut("vpn", "VPN", Icons.Outlined.Security, "VPN"),
+    Shortcut("device", "Tipo de dispositivo", Icons.Outlined.Devices, "Tipo de dispositivo"),
     Shortcut("account", "Informações da conta", Icons.Outlined.AccountCircle, "Dados da conta"),
     Shortcut("profiles", "Perfis", Icons.Outlined.People, "Perfis"),
 )
