@@ -32,7 +32,8 @@ sealed interface EpgUpdateState {
 data class EpgGuide(
     val sourceKey: String = "",
     val programs: Map<String, List<EpgEntry>> = emptyMap(),
-    val programCount: Int = 0
+    val programCount: Int = 0,
+    val cachedAtMillis: Long = 0,
 ) {
     val channelCount: Int get() = programs.size
     fun forChannel(channel: LiveChannel): List<EpgEntry> =
@@ -70,7 +71,7 @@ class XmltvRepository(cacheDir: File, private val http: OkHttpClient) {
                 val result = parse(file)
                 synchronized(stateLock) {
                     if (token != generation.get()) return@withLock false
-                    _guide.value = EpgGuide(key, result.programs, result.programCount)
+                    _guide.value = EpgGuide(key, result.programs, result.programCount, file.lastModified())
                 }
                 true
             } catch (e: CancellationException) {
@@ -108,7 +109,7 @@ class XmltvRepository(cacheDir: File, private val http: OkHttpClient) {
                     if (token != generation.get()) return@withLock false
                     val target = File(directory, "$key.xml")
                     if (!downloaded.renameTo(target)) throw IOException("Não foi possível salvar o guia no dispositivo.")
-                    _guide.value = EpgGuide(key, result.programs, result.programCount)
+                    _guide.value = EpgGuide(key, result.programs, result.programCount, target.lastModified())
                     _state.value = EpgUpdateState.Idle
                 }
                 true

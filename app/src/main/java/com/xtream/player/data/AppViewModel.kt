@@ -201,10 +201,12 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
             val loaded = xmltv.loadFromDisk(creds, settings.customXmltvUrl)
             if (generation != token || repository.currentCredentials() != creds) return@launch
             if (loaded) {
-                epgUpdatedAt = settings.lastEpgSyncMillis.takeIf { it > 0 }
+                epgUpdatedAt = xmltv.guide.value.cachedAtMillis.takeIf { it > 0 }
                 mergeGuide()
             }
-            val last = settings.lastEpgSyncMillis
+            // The file timestamp is per account/source; a different account's recent sync
+            // must not make an older saved guide look fresh.
+            val last = if (loaded) xmltv.guide.value.cachedAtMillis else 0L
             val guideFresh = last > 0 && System.currentTimeMillis() >= last &&
                 System.currentTimeMillis() - last < BackgroundSync.GUIDE_TTL_MILLIS
             if (settings.autoUpdateEpg && (!loaded || !guideFresh)) updateGuide(creds, token)
@@ -297,7 +299,7 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
         epgMessage = null
         if (xmltv.refresh(creds, repository.settings.value.customXmltvUrl) && generation == token &&
             repository.markEpgSyncedIfActive(creds)) {
-            epgUpdatedAt = repository.settings.value.lastEpgSyncMillis
+            epgUpdatedAt = xmltv.guide.value.cachedAtMillis.takeIf { it > 0 } ?: repository.settings.value.lastEpgSyncMillis
             mergeGuide()
             epgMessage = "Guia atualizado: ${epg.values.sumOf { it.size }} programas"
         }

@@ -70,6 +70,8 @@ class XmltvRepositoryTest {
         val afterRestart = XmltvRepository(folder.root, http)
         assertTrue(afterRestart.loadFromDisk(credentials, ""))
         assertEquals(1, afterRestart.guide.value.programCount)
+        assertTrue("Sync time belongs to this cached guide file", afterRestart.guide.value.cachedAtMillis > 0)
+        assertEquals(repository.guide.value.cachedAtMillis, afterRestart.guide.value.cachedAtMillis)
     }
 
     @Test fun badXmlNeverOverwritesLastValidFileAndOtherAccountsCannotSeeIt() = runBlocking {

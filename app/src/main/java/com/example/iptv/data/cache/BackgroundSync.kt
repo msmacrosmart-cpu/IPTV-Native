@@ -70,7 +70,7 @@ class GuideSyncWorker(context: Context, params: WorkerParameters) : CoroutineWor
         return try {
             val loaded = app.epgRepository.loadFromDisk(credentials, settings.customXmltvUrl)
             if (!app.repository.isSessionCurrent(credentials, token)) return Result.success()
-            val last = settings.lastEpgSyncMillis
+            val last = if (loaded) app.epgRepository.guide.value.cachedAtMillis else 0L
             val fresh = last > 0 && System.currentTimeMillis() >= last &&
                 System.currentTimeMillis() - last < BackgroundSync.GUIDE_TTL_MILLIS
             if (loaded && fresh) return Result.success()
