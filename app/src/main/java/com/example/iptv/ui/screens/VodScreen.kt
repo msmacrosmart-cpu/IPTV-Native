@@ -216,7 +216,7 @@ private fun SelectAllOptionButton(
             .clip(RoundedCornerShape(12.dp))
             .background(
                 if (isSelected) Brush.horizontalGradient(listOf(Color(0x4DFF574D), Color(0x26FF574D)))
-                else Color(0x22FFFFFF)
+                else Brush.horizontalGradient(listOf(Color(0x22FFFFFF), Color(0x22FFFFFF)))
             )
             .border(1.dp, if (isSelected) AccentCoral else Color.White.copy(alpha = 0.12f), RoundedCornerShape(12.dp))
             .clickable(onClick = onClick)

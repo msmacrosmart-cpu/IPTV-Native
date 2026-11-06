@@ -28,21 +28,12 @@ fun TopographicBackground(
             .background(Color(0xFF07080B))
     ) {
         // Imagem Oficial de Fundo de Carregamento e Login
-        try {
-            Image(
-                painter = painterResource(id = R.drawable.bg_app_main),
-                contentDescription = null,
-                contentScale = ContentScale.Crop,
-                modifier = Modifier.fillMaxSize()
-            )
-        } catch (e: Exception) {
-            // Fallback de contingência caso os drawables locais estejam em carregamento
-            Box(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .background(Color(0xFF090A0E))
-            )
-        }
+        Image(
+            painter = painterResource(id = R.drawable.bg_app_main),
+            contentDescription = null,
+            contentScale = ContentScale.Crop,
+            modifier = Modifier.fillMaxSize()
+        )
 
         // Overlay em gradiente escuro de Glassmorphism (sem linhas neon horizontais ou riscos)
         // Mantém alto contraste e legibilidade impecável para os componentes
