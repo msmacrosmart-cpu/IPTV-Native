@@ -25,8 +25,6 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.onFocusChanged
-import androidx.compose.ui.input.InputMode
-import androidx.compose.ui.platform.LocalInputModeManager
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
@@ -59,6 +57,7 @@ import kotlinx.coroutines.delay
 @Composable
 fun LiveScreen(content: ContentState, epg: Map<String, List<Programme>>, favorites: List<String>, query: String,
                onToggleFav: (String) -> Unit, onPlay: (PlayerRequest) -> Unit, previewEnabled: Boolean = true,
+               showChannelEpg: Boolean = true, time24Hour: Boolean = true,
                onChannelFocused: (Channel) -> Unit = {}, restoreChannelId: String? = null, onChannelRestored: () -> Unit = {}) {
     var catId by rememberSaveable { mutableStateOf("all") }
     var now by remember { mutableLongStateOf(System.currentTimeMillis()) }
@@ -72,13 +71,12 @@ fun LiveScreen(content: ContentState, epg: Map<String, List<Programme>>, favorit
     var focusedId by rememberSaveable { mutableStateOf<String?>(null) }
     var previewId by rememberSaveable { mutableStateOf<String?>(null) }
     val listState = rememberLazyListState()
-    val inputMode = LocalInputModeManager.current
     val focusRequesters = remember { mutableMapOf<String, FocusRequester>() }
     LaunchedEffect(previewEnabled, restoreChannelId, channels) {
         if (previewEnabled && restoreChannelId != null) {
             val index = channels.indexOfFirst { it.id == restoreChannelId }
             if (index >= 0) {
-                focusedId = restoreChannelId; previewId = restoreChannelId; listState.scrollToItem(index)
+                focusedId = restoreChannelId; listState.scrollToItem(index)
                 delay(800)
                 if (focusedId == restoreChannelId) runCatching { focusRequesters[restoreChannelId]?.requestFocus() }
                 onChannelRestored()
@@ -86,12 +84,15 @@ fun LiveScreen(content: ContentState, epg: Map<String, List<Programme>>, favorit
         }
     }
     LaunchedEffect(channels) {
-        if (channels.none { it.id == previewId }) previewId = channels.firstOrNull()?.id
+        if (channels.none { it.id == previewId }) previewId = null
         if (channels.none { it.id == focusedId }) focusedId = null
     }
-    LaunchedEffect(focusedId, channels) { focusedId?.let { id -> delay(450); if (channels.any { it.id == id }) previewId = id } }
+    // Focusing a row may fetch guide metadata, but never opens a media connection.
+    LaunchedEffect(focusedId, channels) {
+        focusedId?.let { id -> delay(250); channels.firstOrNull { it.id == id }?.let(onChannelFocused) }
+    }
+    LaunchedEffect(previewEnabled) { if (!previewEnabled) previewId = null }
     val preview = channels.firstOrNull { it.id == previewId }
-    LaunchedEffect(preview?.id) { preview?.let(onChannelFocused) }
     var muted by rememberSaveable { mutableStateOf(true) }
     fun play(ch: Channel) {
         val index = channels.indexOf(ch).coerceAtLeast(0)
@@ -107,14 +108,19 @@ fun LiveScreen(content: ContentState, epg: Map<String, List<Programme>>, favorit
                 contentPadding = PaddingValues(horizontal = 8.dp, vertical = 4.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
                 items(channels, key = { it.id }) { ch ->
                     val requester = remember(ch.id) { focusRequesters.getOrPut(ch.id) { FocusRequester() } }
-                    ChannelRow(ch, epg[ch.epgId], now, "ch:${ch.id}" in favorites, previewId == ch.id,
-                        Modifier.focusRequester(requester), onFocus = { focusedId = ch.id },
+                    ChannelRow(ch, if (showChannelEpg) epg[ch.epgId] else null, now, "ch:${ch.id}" in favorites, previewId == ch.id,
+                        showChannelEpg, time24Hour, Modifier.focusRequester(requester), onFocus = { focusedId = ch.id },
                         onFavorite = { onToggleFav("ch:${ch.id}") }) {
                         val wasPreviewing = previewId == ch.id
-                        focusedId = ch.id; previewId = ch.id
-                        // Touch selects the inline player first; a second tap or Fullscreen opens it.
-                        // On TV, focus already previews the channel and OK opens fullscreen.
-                        if (inputMode.inputMode != InputMode.Touch || wasPreviewing) play(ch)
+                        focusedId = ch.id
+                        if (wasPreviewing) {
+                            // Stop the inline player before creating the fullscreen player.
+                            previewId = null
+                            play(ch)
+                        } else {
+                            previewId = ch.id
+                            onChannelFocused(ch)
+                        }
                     }
                 }
             }
@@ -122,7 +128,7 @@ fun LiveScreen(content: ContentState, epg: Map<String, List<Programme>>, favorit
     }
     @Composable fun Preview(modifier: Modifier) {
         // Preserve the existing live preview, sound, fullscreen and EPG controls.
-        PreviewPanel(preview, preview?.let { epg[it.epgId] }, now, muted, previewEnabled, false,
+        PreviewPanel(preview, preview?.let { epg[it.epgId] }, now, muted, previewEnabled, false, time24Hour,
             modifier.testTag("tv-preview-pane"), onMute = { muted = !muted }, onPlay = { preview?.let(::play) })
     }
     Row(Modifier.fillMaxSize().padding(8.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -147,7 +153,7 @@ fun LiveScreen(content: ContentState, epg: Map<String, List<Programme>>, favorit
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
 private fun ChannelRow(ch: Channel, prog: List<Programme>?, now: Long, fav: Boolean, active: Boolean,
-                       modifier: Modifier = Modifier, onFocus: () -> Unit, onFavorite: () -> Unit, onClick: () -> Unit) {
+                       showEpg: Boolean, time24Hour: Boolean, modifier: Modifier = Modifier, onFocus: () -> Unit, onFavorite: () -> Unit, onClick: () -> Unit) {
     val shape = RoundedCornerShape(10.dp)
     val (cur, _) = prog.nowNext(now)
     val pct = cur?.let { ((now - it.start).toFloat() / (it.stop - it.start).coerceAtLeast(1)).coerceIn(0f, 1f) } ?: 0f
@@ -163,13 +169,13 @@ private fun ChannelRow(ch: Channel, prog: List<Programme>?, now: Long, fav: Bool
         Column(Modifier.padding(start = 12.dp).weight(1f)) {
             Text("${ch.number}. ${ch.name}", color = if (active) XColors.BlueSoft else XColors.Text,
                 fontSize = 14.sp, fontWeight = FontWeight.Medium, maxLines = 1, overflow = TextOverflow.Ellipsis)
-            Text(cur?.title ?: "Sem programação disponível", color = XColors.TextDim, fontSize = 12.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            if (showEpg) Text(cur?.title ?: "Sem programação disponível", color = XColors.TextDim, fontSize = 12.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
             if (cur != null) Row(verticalAlignment = Alignment.CenterVertically) {
-                Text(fmtClock(cur.start), color = XColors.Body, fontSize = 10.sp)
+                Text(fmtClock(cur.start, time24Hour), color = XColors.Body, fontSize = 10.sp)
                 Box(Modifier.weight(1f).padding(horizontal = 7.dp).height(4.dp).clip(RoundedCornerShape(50)).background(Color(0x4DFFFFFF))) {
                     Box(Modifier.fillMaxHeight().fillMaxWidth(pct).background(XColors.Accent))
                 }
-                Text(fmtClock(cur.stop), color = XColors.Body, fontSize = 10.sp)
+                Text(fmtClock(cur.stop, time24Hour), color = XColors.Body, fontSize = 10.sp)
             }
         }
         IconAction(if (fav) Icons.Filled.Star else Icons.Filled.StarBorder,
@@ -179,7 +185,7 @@ private fun ChannelRow(ch: Channel, prog: List<Programme>?, now: Long, fav: Bool
 
 @Composable
 private fun PreviewPanel(channel: Channel?, programs: List<Programme>?, now: Long, muted: Boolean,
-                         enabled: Boolean, compact: Boolean, modifier: Modifier = Modifier,
+                         enabled: Boolean, compact: Boolean, time24Hour: Boolean, modifier: Modifier = Modifier,
                          onMute: () -> Unit, onPlay: () -> Unit) {
     val upcoming = programs.orEmpty().filter { it.stop > now }.sortedBy { it.start }.take(if (compact) 2 else 8)
     val shape = RoundedCornerShape(14.dp)
@@ -211,7 +217,7 @@ private fun PreviewPanel(channel: Channel?, programs: List<Programme>?, now: Lon
                     val live = now in p.start until p.stop
                     Column(Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 3.dp).clip(RoundedCornerShape(12.dp))
                         .background(if (live) XColors.Selection else XColors.Panel).padding(14.dp)) {
-                        Text("${fmtClock(p.start)} – ${fmtClock(p.stop)}" + if (live) "   AO VIVO" else "", color = if (live) XColors.Live else XColors.TextDim, fontSize = 12.sp)
+                        Text("${fmtClock(p.start, time24Hour)} – ${fmtClock(p.stop, time24Hour)}" + if (live) "   AO VIVO" else "", color = if (live) XColors.Live else XColors.TextDim, fontSize = 12.sp)
                         Text(p.title, color = if (live) XColors.BlueSoft else XColors.Text, fontSize = 14.sp, fontWeight = FontWeight.Medium, modifier = Modifier.padding(top = 6.dp))
                     }
                 }

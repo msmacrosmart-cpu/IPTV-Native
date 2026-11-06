@@ -85,7 +85,7 @@ fun PillField(
         textStyle = TextStyle(color = XColors.Text, fontSize = 16.sp, fontFamily = DmSans),
         cursorBrush = SolidColor(XColors.Accent),
         visualTransformation = if (password) PasswordVisualTransformation() else VisualTransformation.None,
-        keyboardOptions = KeyboardOptions(keyboardType = if (password) KeyboardType.Password else keyboardType, imeAction = imeAction),
+        keyboardOptions = KeyboardOptions(keyboardType = if (password && keyboardType == KeyboardType.Text) KeyboardType.Password else keyboardType, imeAction = imeAction),
         keyboardActions = KeyboardActions(onDone = { onDone() }),
         modifier = modifier.heightIn(min = minHeight).onFocusChanged { focused = it.isFocused },
         decorationBox = { inner ->

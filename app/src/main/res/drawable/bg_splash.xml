@@ -9,5 +9,5 @@
         android:width="132dp"
         android:height="132dp"
         android:gravity="center"
-        android:drawable="@drawable/ic_logo_mark" />
+        android:drawable="@drawable/brand_square" />
 </layer-list>

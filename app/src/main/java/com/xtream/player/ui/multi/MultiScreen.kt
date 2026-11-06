@@ -56,6 +56,7 @@ import androidx.media3.ui.PlayerView
 import com.xtream.player.data.Channel
 import com.xtream.player.data.PlayerRequest
 import com.xtream.player.ui.components.GlassPanel
+import com.xtream.player.ui.components.CategoryChip
 import com.xtream.player.ui.components.IconAction
 import com.xtream.player.ui.components.PillField
 import com.xtream.player.ui.components.focusGlow
@@ -67,6 +68,7 @@ import kotlinx.coroutines.delay
 /** Four independent players. Only one tile holds audio focus and is audible at a time. */
 @Composable
 fun MultiScreen(channels: List<Channel>, slotIds: List<String?>, audible: Int, enabled: Boolean,
+                screenCount: Int, onScreenCount: (Int) -> Unit,
                 onSetSlot: (Int, String?) -> Unit, onAudible: (Int) -> Unit, onPlay: (PlayerRequest) -> Unit) {
     var picking by remember { mutableStateOf<Int?>(null) }
     var pendingFocus by remember { mutableStateOf<Int?>(null) }
@@ -74,8 +76,14 @@ fun MultiScreen(channels: List<Channel>, slotIds: List<String?>, audible: Int, e
     val requests = remember { List(4) { FocusRequester() } }
     val inputMode = LocalInputModeManager.current
     val view = LocalView.current
-    val hasPlayers = slotIds.any { id -> id != null && channels.any { it.id == id } }
+    val count = screenCount.coerceIn(1, 4)
+    val hasPlayers = slotIds.take(count).any { id -> id != null && channels.any { it.id == id } }
     val audioAllowed = rememberMultiAudioFocus(enabled && hasPlayers)
+    LaunchedEffect(count) {
+        // Hidden players must be removed, not left consuming extra provider connections.
+        for (index in count until slotIds.size) if (!slotIds[index].isNullOrBlank()) onSetSlot(index, null)
+        if (audible >= count) onAudible(0)
+    }
     LaunchedEffect(pendingFocus, picking, slotIds) {
         val index = pendingFocus ?: return@LaunchedEffect
         if (picking != null) return@LaunchedEffect
@@ -101,31 +109,35 @@ fun MultiScreen(channels: List<Channel>, slotIds: List<String?>, audible: Int, e
         if (pendingFocus == index) pendingFocus = null
     }
     BoxWithConstraints(Modifier.fillMaxSize()) {
-        // Three 44 dp player actions need enough room; stack videos on narrow phones.
-        val columns = if (maxWidth < 448.dp) 1 else 2
-        LazyVerticalGrid(columns = GridCells.Fixed(columns), modifier = Modifier.fillMaxSize(),
-            contentPadding = PaddingValues(18.dp), horizontalArrangement = Arrangement.spacedBy(12.dp),
-            verticalArrangement = Arrangement.spacedBy(12.dp)) {
-            item(span = { GridItemSpan(maxLineSpan) }) {
-                Column(Modifier.padding(bottom = 8.dp)) {
-                    Text("Multitela", color = XColors.Text, fontSize = 27.sp, fontWeight = FontWeight.SemiBold)
-                    Text("Até quatro canais simultâneos. O som vem apenas da tela selecionada.",
-                        color = XColors.TextDim, fontSize = 13.sp, modifier = Modifier.padding(top = 4.dp))
-                    Text("O limite depende das conexões do provedor e dos decodificadores do aparelho.",
-                        color = XColors.Body, fontSize = 12.sp, modifier = Modifier.padding(top = 3.dp))
-                    if (hasPlayers && !audioAllowed) Text("Som temporariamente indisponível enquanto outro aplicativo usa o áudio.",
-                        color = XColors.TextDim, fontSize = 12.sp, modifier = Modifier.padding(top = 3.dp))
-                }
+        val compact = maxHeight < 400.dp || maxWidth < 700.dp
+        Column(Modifier.fillMaxSize().padding(if (compact) 8.dp else 16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                Text("Multitela", color = XColors.Text, fontSize = if (compact) 19.sp else 25.sp,
+                    fontWeight = FontWeight.SemiBold, modifier = Modifier.weight(1f))
+                (1..4).forEach { number -> CategoryChip("$number", number == count) { onScreenCount(number) } }
             }
-            items((0 until 4).toList(), key = { it }) { index ->
-                val channel = channels.firstOrNull { it.id == slotIds.getOrNull(index) }
-                val focusModifier = Modifier.focusRequester(requests[index]).onFocusChanged {
-                    if (it.isFocused) focusedTile = index else if (focusedTile == index) focusedTile = null
+            if (!compact) Text("Som em uma tela por vez · o limite depende das conexões do provedor e do aparelho.",
+                color = XColors.TextDim, fontSize = 12.sp)
+            if (hasPlayers && !audioAllowed && !compact) Text("Som temporariamente indisponível enquanto outro aplicativo usa o áudio.",
+                color = XColors.TextDim, fontSize = 12.sp)
+            val columns = if (count == 1) 1 else 2
+            val rows = (count + columns - 1) / columns
+            repeat(rows) { row ->
+                Row(Modifier.weight(1f).fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    repeat(columns) { column ->
+                        val index = row * columns + column
+                        if (index >= count) Spacer(Modifier.weight(1f)) else {
+                            val channel = channels.firstOrNull { it.id == slotIds.getOrNull(index) }
+                            val focusModifier = Modifier.weight(1f).fillMaxHeight().focusRequester(requests[index]).onFocusChanged {
+                                if (it.isFocused) focusedTile = index else if (focusedTile == index) focusedTile = null
+                            }
+                            if (channel == null) EmptyTile(index, focusModifier) { picking = index }
+                            else MultiTile(index, channel, audible == index, audioAllowed, enabled, focusModifier,
+                                onSelect = { onAudible(index) }, onRemove = { onSetSlot(index, null); pendingFocus = index },
+                                onFullscreen = { onPlay(PlayerRequest(channel.name, channel.url, true, listOf(channel), 0, channel.fallbackUrl)) })
+                        }
+                    }
                 }
-                if (channel == null) EmptyTile(index, focusModifier) { picking = index }
-                else MultiTile(index, channel, audible == index, audioAllowed, enabled, focusModifier,
-                    onSelect = { onAudible(index) }, onRemove = { onSetSlot(index, null); pendingFocus = index },
-                    onFullscreen = { onPlay(PlayerRequest(channel.name, channel.url, true, listOf(channel), 0, channel.fallbackUrl)) })
             }
         }
     }

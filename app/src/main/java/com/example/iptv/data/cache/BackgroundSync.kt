@@ -19,17 +19,18 @@ object BackgroundSync {
     const val GUIDE_WORK = "xtream-guide-every-12-hours"
     const val GUIDE_TTL_MILLIS = 12L * 60 * 60 * 1000
 
-    fun schedule(context: Context) {
+    fun schedule(context: Context, guideIntervalHours: Int = 12) {
         val manager = WorkManager.getInstance(context)
         val connected = Constraints.Builder().setRequiredNetworkType(NetworkType.CONNECTED).build()
         val catalog = PeriodicWorkRequestBuilder<CatalogSyncWorker>(3, TimeUnit.DAYS)
             .setInitialDelay(3, TimeUnit.DAYS).setConstraints(connected)
             .setBackoffCriteria(BackoffPolicy.EXPONENTIAL, 30, TimeUnit.MINUTES).build()
-        val guide = PeriodicWorkRequestBuilder<GuideSyncWorker>(12, TimeUnit.HOURS)
-            .setInitialDelay(12, TimeUnit.HOURS).setConstraints(connected)
+        val interval = guideIntervalHours.coerceIn(6, 48).toLong()
+        val guide = PeriodicWorkRequestBuilder<GuideSyncWorker>(interval, TimeUnit.HOURS)
+            .setInitialDelay(interval, TimeUnit.HOURS).setConstraints(connected)
             .setBackoffCriteria(BackoffPolicy.EXPONENTIAL, 30, TimeUnit.MINUTES).build()
         manager.enqueueUniquePeriodicWork(CATALOG_WORK, ExistingPeriodicWorkPolicy.KEEP, catalog)
-        manager.enqueueUniquePeriodicWork(GUIDE_WORK, ExistingPeriodicWorkPolicy.KEEP, guide)
+        manager.enqueueUniquePeriodicWork(GUIDE_WORK, ExistingPeriodicWorkPolicy.UPDATE, guide)
     }
 
     fun cancel(context: Context) {
@@ -72,7 +73,7 @@ class GuideSyncWorker(context: Context, params: WorkerParameters) : CoroutineWor
             if (!app.repository.isSessionCurrent(credentials, token)) return Result.success()
             val last = if (loaded) app.epgRepository.guide.value.cachedAtMillis else 0L
             val fresh = last > 0 && System.currentTimeMillis() >= last &&
-                System.currentTimeMillis() - last < BackgroundSync.GUIDE_TTL_MILLIS
+                System.currentTimeMillis() - last < TimeUnit.HOURS.toMillis(settings.epgIntervalHours.toLong())
             if (loaded && fresh) return Result.success()
             val updated = app.epgRepository.refresh(credentials, settings.customXmltvUrl)
             if (!app.repository.isSessionCurrent(credentials, token)) return Result.success()

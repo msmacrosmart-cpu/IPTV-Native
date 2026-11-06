@@ -71,6 +71,14 @@ data class CachedShortGuideEntry(val fetchedAtMillis: Long, val programmes: List
 
 data class CatalogRefreshResult(val snapshot: CachedCatalog?, val failures: Int, val attempted: Boolean)
 
+/** A phase represents real requests, not a timer or a fabricated percentage. */
+enum class CatalogStage(val label: String) {
+    PLAYLIST("Baixando Playlist"),
+    CHANNELS("Baixando Canais"),
+    MOVIES("Baixando Filmes"),
+    SERIES("Baixando Séries"),
+}
+
 /**
  * App-private, per-account catalog/hero/short-EPG cache. Only one refresh runs at a time;
  * reading the last snapshot never waits for an in-flight network request. Files are compressed,
@@ -116,16 +124,16 @@ class CatalogCache(private val directory: File, private val repository: XtreamRe
         }
     }
 
-    suspend fun loadShortGuide(credentials: PanelCredentials): CachedShortGuide {
+    suspend fun loadShortGuide(credentials: PanelCredentials, offsetMillis: Long = 0): CachedShortGuide {
         val key = accountKey(credentials)
         val cached = fileMutex.withLock { read<CachedShortGuide>(file(key, "short-epg")) }
         val now = System.currentTimeMillis()
         val entries = cached?.takeIf { it.accountKey == key }?.entries.orEmpty()
-            .filterValues { entry -> entry.programmes.any { it.stop > now } }
+            .filterValues { entry -> entry.programmes.any { it.stop + offsetMillis > now } }
         return CachedShortGuide(key, entries)
     }
 
-    suspend fun saveShortGuide(credentials: PanelCredentials, channelId: String, entry: CachedShortGuideEntry) {
+    suspend fun saveShortGuide(credentials: PanelCredentials, channelId: String, entry: CachedShortGuideEntry, offsetMillis: Long = 0) {
         val token = repository.sessionToken(credentials) ?: return
         val key = accountKey(credentials)
         fileMutex.withLock {
@@ -133,27 +141,39 @@ class CatalogCache(private val directory: File, private val repository: XtreamRe
             val previous = read<CachedShortGuide>(file(key, "short-epg"))?.takeIf { it.accountKey == key }
             val now = System.currentTimeMillis()
             val entries = (previous?.entries.orEmpty() + (channelId to entry)).entries
-                .filter { it.value.programmes.any { programme -> programme.stop > now } }
+                .filter { it.value.programmes.any { programme -> programme.stop + offsetMillis > now } }
                 .sortedByDescending { it.value.fetchedAtMillis }.take(MAX_SHORT_EPG_CHANNELS)
                 .associate { it.key to it.value }
             write(file(key, "short-epg"), CachedShortGuide(key, entries))
         }
     }
 
-    suspend fun refresh(credentials: PanelCredentials, force: Boolean = false): CatalogRefreshResult = refreshMutex.withLock {
+    suspend fun refresh(
+        credentials: PanelCredentials,
+        force: Boolean = false,
+        onProgress: (CatalogStage) -> Unit = {},
+    ): CatalogRefreshResult = refreshMutex.withLock {
         val token = repository.sessionToken(credentials) ?: return@withLock CatalogRefreshResult(null, 1, false)
         val previous = load(credentials)
         if (!repository.isSessionCurrent(credentials, token)) return@withLock CatalogRefreshResult(null, 1, false)
         if (!force && previous?.isFresh() == true) return@withLock CatalogRefreshResult(previous, 0, false)
         val result = coroutineScope {
+            onProgress(CatalogStage.PLAYLIST)
+            // Start the independent requests together, but advance the label only as each
+            // actual section is awaited. Fast panels never see an artificial delay.
             val lc = async { repository.liveCategories() }
             val ch = async { repository.liveChannels() }
             val mc = async { repository.vodCategories() }
             val mv = async { repository.vodItems() }
             val sc = async { repository.seriesCategories() }
             val se = async { repository.series() }
-            val liveCats = lc.await(); val channels = ch.await(); val movieCats = mc.await()
-            val movies = mv.await(); val seriesCats = sc.await(); val series = se.await()
+            val liveCats = lc.await(); val movieCats = mc.await(); val seriesCats = sc.await()
+            onProgress(CatalogStage.CHANNELS)
+            val channels = ch.await()
+            onProgress(CatalogStage.MOVIES)
+            val movies = mv.await()
+            onProgress(CatalogStage.SERIES)
+            val series = se.await()
             val failures = listOf(liveCats, channels, movieCats, movies, seriesCats, series).count { it is ApiResult.Failure }
             val liveOk = liveCats is ApiResult.Success && channels is ApiResult.Success
             val moviesOk = movieCats is ApiResult.Success && movies is ApiResult.Success
@@ -182,6 +202,24 @@ class CatalogCache(private val directory: File, private val repository: XtreamRe
         }
         // Still show the new data in memory if disk is full, but report it and leave the old file intact.
         if (!saved) result.copy(failures = result.failures + 1) else result
+    }
+
+    /** Clear only the active account's local snapshots; favourites and credentials are untouched. */
+    suspend fun clearActive(credentials: PanelCredentials): Boolean {
+        val token = repository.sessionToken(credentials) ?: return false
+        val key = accountKey(credentials)
+        return refreshMutex.withLock {
+            fileMutex.withLock files@{
+                if (!repository.isSessionCurrent(credentials, token)) return@files false
+                withContext(Dispatchers.IO) {
+                    listOf("catalog", "heroes", "short-epg").forEach { AtomicFile(file(key, it)).delete() }
+                }
+                if (!repository.isSessionCurrent(credentials, token)) return@files false
+                _catalog.value = null
+                _heroes.value = null
+                true
+            }
+        }
     }
 
     /** Drop memory immediately, and delete just this account's files after in-flight disk writes. */

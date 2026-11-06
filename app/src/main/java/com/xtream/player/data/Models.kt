@@ -14,6 +14,10 @@ data class Session(
     val maxConns: Int,
     val isDemo: Boolean = false,
     val epgSource: String = "",
+    val isTrial: Boolean = false,
+    val allowedFormats: List<String> = emptyList(),
+    val timezone: String = "",
+    val syncedAt: Long? = null,
 )
 
 data class Category(val id: String, val name: String)

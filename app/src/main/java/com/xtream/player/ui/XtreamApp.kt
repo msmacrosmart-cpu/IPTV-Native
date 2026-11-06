@@ -1,9 +1,17 @@
 package com.xtream.player.ui
 
 import android.widget.Toast
+import android.content.ActivityNotFoundException
+import android.content.Intent
+import android.net.Uri
+import com.example.iptv.data.model.PlaybackApp
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.remember
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.lifecycle.viewmodel.compose.viewModel
@@ -20,6 +28,8 @@ import com.xtream.player.ui.login.LoginScreen
 import com.xtream.player.ui.main.MainActions
 import com.xtream.player.ui.main.MainScreen
 import com.xtream.player.ui.player.PlayerScreen
+import com.xtream.player.ui.settings.SettingsActions
+import com.xtream.player.ui.splash.LoadingScreen
 import kotlinx.coroutines.delay
 
 @Composable
@@ -30,11 +40,6 @@ fun XtreamApp(vm: AppViewModel = viewModel()) {
     val hideKeyboard = rememberHideKeyboard()
     val focusManager = LocalFocusManager.current
     fun dismissKeyboard() { hideKeyboard(); focusManager.clearFocus(force = true) }
-    LaunchedEffect(Unit) {
-        if (!vm.restoring && vm.session != null && nav.currentDestination?.route == "login") {
-            nav.navigate("main") { popUpTo("login") { inclusive = true } }
-        }
-    }
     LaunchedEffect(vm.notice) { vm.notice?.let { Toast.makeText(context, it, Toast.LENGTH_LONG).show(); vm.consumeNotice() } }
     // Some TV IMEs deliver a pending show request after the login screen disappears.
     // Repeat the hide after navigation settles; never reopen or replace the system keyboard.
@@ -42,14 +47,40 @@ fun XtreamApp(vm: AppViewModel = viewModel()) {
         if (entry?.destination?.route == "main") { delay(200); hideKeyboard() }
     }
     fun openPlayer(request: PlayerRequest) {
-        vm.cancelHeroPlayback(); dismissKeyboard(); vm.startPlayback(request)
-        nav.navigate("player") { launchSingleTop = true }
+        vm.cancelHeroPlayback(); dismissKeyboard()
+        val choice = when {
+            request.isLive -> vm.settings.livePlayer
+            request.episodeId != null -> vm.settings.seriesPlayer
+            else -> vm.settings.moviePlayer
+        }
+        if (choice == PlaybackApp.EXTERNAL) {
+            // Xtream URLs can contain credentials; the settings screen warns before enabling this.
+            val intent = Intent(Intent.ACTION_VIEW).setDataAndType(Uri.parse(request.url), "video/*")
+            try { context.startActivity(Intent.createChooser(intent, "Abrir vídeo com")) }
+            catch (_: ActivityNotFoundException) { Toast.makeText(context, "Nenhum aplicativo de vídeo encontrado.", Toast.LENGTH_LONG).show() }
+        } else {
+            vm.startPlayback(request)
+            nav.navigate("player") { launchSingleTop = true }
+        }
     }
+    if (vm.restoring) {
+        LoadingScreen(vm.loadingMessage)
+        return
+    }
+    // Capture the destination only after the disk restore; subsequent session changes
+    // are explicit navigation events, not a rebuilt NavHost graph.
+    val initialDestination = remember { if (vm.session != null) "main" else "login" }
     AppBackground {
-      NavHost(nav, startDestination = "login") {
+      Box(Modifier.fillMaxSize()) {
+      NavHost(nav, startDestination = initialDestination) {
         composable("login") {
             DeviceSafeArea {
-                LoginScreen(vm.loading || vm.restoring, vm.loginError) { server, user, pass ->
+                LoginScreen(vm.loading || vm.restoring, vm.loginError, profiles = vm.profiles, onSwitchProfile = { id ->
+                    dismissKeyboard()
+                    vm.switchProfile(id) {
+                        nav.navigate("main") { popUpTo("login") { inclusive = true }; launchSingleTop = true }
+                    }
+                }) { server, user, pass ->
                     vm.login(server, user, pass) {
                         dismissKeyboard()
                         nav.navigate("main") { popUpTo(nav.graph.startDestinationId) { inclusive = true }; launchSingleTop = true }
@@ -69,19 +100,32 @@ fun XtreamApp(vm: AppViewModel = viewModel()) {
                 onPlaySeries = { vm.playSeries(::openPlayer) },
                 onPlayEpisode = { vm.playEpisode(it, ::openPlayer) },
                 onToggleFav = vm::toggleFavorite,
-                onRefreshEpg = vm::refreshEpg,
-                onLogout = {
-                    dismissKeyboard(); vm.logout()
-                    nav.navigate("login") { popUpTo("main") { inclusive = true }; launchSingleTop = true }
-                },
                 onRefreshContent = vm::refreshContent,
                 onChannelFocused = vm::channelFocused,
-                onSaveCredentials = { server, user, pass -> vm.login(server, user, pass) { dismissKeyboard() } },
+                settings = SettingsActions(
+                    saveCredentials = { server, user, pass -> vm.login(server, user, pass) { dismissKeyboard() } },
+                    switchProfile = { id -> dismissKeyboard(); vm.switchProfile(id) },
+                    removeProfile = vm::removeProfile,
+                    refreshAccount = vm::refreshAccount,
+                    refreshEpg = vm::refreshEpg,
+                    refreshContent = vm::refreshContent,
+                    updateSettings = vm::updateUserSettings,
+                    clearCache = vm::clearCache,
+                    setPin = vm::setParentalPin,
+                    unlock = vm::unlockParental,
+                    lock = vm::lockParental,
+                    clearPin = vm::clearParental,
+                    toggleCategory = vm::toggleLockedCategory,
+                    logout = {
+                        dismissKeyboard(); vm.logout()
+                        nav.navigate("login") { popUpTo("main") { inclusive = true }; launchSingleTop = true }
+                    },
+                ),
             )
             DeviceSafeArea {
                 MainScreen(vm.session, vm.content, vm.epg, vm.favorites, vm.epgUpdatedAt, vm.epgLoading, vm.epgMessage,
                     vm.heroDetails, vm.loadingHeroKey, vm.loading, vm.loginError, vm.detailItem, vm.episodeSelection, vm.episodeLoading, vm.episodeError,
-                    actions, previewEnabled = entry?.destination?.route == "main", restoreChannelId = vm.lastPlayedChannelId,
+                    vm.profiles, vm.settings, vm.parentalUnlocked, vm.parentalBusy, actions, previewEnabled = entry?.destination?.route == "main", restoreChannelId = vm.lastPlayedChannelId,
                     onChannelRestored = vm::consumeChannelRestore)
             }
         }
@@ -89,6 +133,8 @@ fun XtreamApp(vm: AppViewModel = viewModel()) {
             vm.playerRequest?.let { request -> PlayerScreen(request, onBack = { nav.popBackStack() }, onProgress = vm::saveProgress,
                 onChannelChanged = vm::channelPlaying) }
         }
+      }
+      if (vm.loading) LoadingScreen(vm.loadingMessage)
       }
     }
 }

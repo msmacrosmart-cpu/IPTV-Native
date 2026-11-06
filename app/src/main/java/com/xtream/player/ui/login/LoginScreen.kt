@@ -26,6 +26,8 @@ import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.window.Dialog
+import com.example.iptv.data.preferences.SavedProfile
 import com.xtream.player.ui.components.GlassPanel
 import com.xtream.player.ui.components.GlowButton
 import com.xtream.player.ui.components.PillField
@@ -35,7 +37,26 @@ import com.xtream.player.ui.theme.XColors
 import kotlinx.coroutines.delay
 
 @Composable
-fun LoginScreen(loading: Boolean, error: String?, onLogin: (server: String, user: String, pass: String) -> Unit) {
+fun LoginScreen(loading: Boolean, error: String?, profiles: List<SavedProfile> = emptyList(),
+                onSwitchProfile: (String) -> Unit = {}, onLogin: (server: String, user: String, pass: String) -> Unit) {
+    var showProfiles by remember { mutableStateOf(false) }
+    if (showProfiles) Dialog(onDismissRequest = { showProfiles = false }) {
+        GlassPanel(Modifier.widthIn(max = 500.dp).fillMaxWidth().heightIn(max = 440.dp), RoundedCornerShape(16.dp)) {
+            Column(Modifier.verticalScroll(rememberScrollState()).padding(20.dp)) {
+                Text("Perfis salvos", color = XColors.Text, fontSize = 20.sp, fontWeight = FontWeight.SemiBold)
+                profiles.forEach { profile ->
+                    Column(Modifier.fillMaxWidth().padding(top = 12.dp)) {
+                        Text(profile.username, color = XColors.Text, fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
+                        Text(profile.server, color = XColors.TextDim, fontSize = 12.sp, maxLines = 1)
+                        GlowButton("Abrir perfil", ringAlways = false, modifier = Modifier.testTag("login-profile-${profile.id}")) {
+                            showProfiles = false; onSwitchProfile(profile.id)
+                        }
+                    }
+                }
+                GlowButton("Fechar", ringAlways = false, modifier = Modifier.padding(top = 12.dp)) { showProfiles = false }
+            }
+        }
+    }
     var server by rememberSaveable { mutableStateOf("") }
     var user by rememberSaveable { mutableStateOf("") }
     var pass by remember { mutableStateOf("") }
@@ -88,6 +109,10 @@ fun LoginScreen(loading: Boolean, error: String?, onLogin: (server: String, user
                     if (error != null) Text(error, color = XColors.Live, fontSize = 13.sp, modifier = Modifier.padding(top = gap))
                     Spacer(Modifier.height(if (compact) 8.dp else 22.dp))
                     Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End, verticalAlignment = Alignment.CenterVertically) {
+                        if (profiles.isNotEmpty()) {
+                            GlowButton("Perfis salvos", ringAlways = false) { showProfiles = true }
+                            Spacer(Modifier.weight(1f))
+                        }
                         if (loading) CircularProgressIndicator(Modifier.padding(end = 12.dp).size(22.dp), color = XColors.Accent, strokeWidth = 2.dp)
                         GlowButton("Entrar", Icons.Filled.Link, Modifier.testTag("login-submit")
                             .semantics { contentDescription = "Entrar" }, onClick = submit)

@@ -21,7 +21,14 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.onFocusChanged
+import androidx.compose.ui.input.key.Key
+import androidx.compose.ui.input.key.KeyEventType
+import androidx.compose.ui.input.key.key
+import androidx.compose.ui.input.key.onPreviewKeyEvent
+import androidx.compose.ui.input.key.type
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
@@ -45,7 +52,7 @@ import java.util.Locale
 
 @Composable
 fun HomeScreen(content: ContentState, epg: Map<String, List<Programme>>, query: String,
-               favorites: List<String>, heroDetails: Map<String, VodDetails>, loadingHeroKey: String?,
+               favorites: List<String>, heroDetails: Map<String, VodDetails>, loadingHeroKey: String?, time24Hour: Boolean,
                onSelectItem: (VodItem) -> Unit, onWatchItem: (VodItem) -> Unit,
                onPrepareHeroes: (List<VodItem>) -> Unit,
                onPlayChannel: (Channel) -> Unit, onToggleFav: (String) -> Unit) {
@@ -74,7 +81,7 @@ fun HomeScreen(content: ContentState, epg: Map<String, List<Programme>>, query: 
         val gutter = if (compact) 16.dp else 28.dp
         // Match the catalog posters on Home too, leaving more titles visible at once.
         val cardWidth = catalogCardWidth(maxWidth * CatalogGridFraction)
-        val heroHeight = (maxHeight * .62f).coerceIn(if (compact) 240.dp else 320.dp, 520.dp)
+        val heroHeight = (maxHeight * .80f).coerceIn(if (compact) 270.dp else 360.dp, 560.dp)
         LazyColumn(Modifier.fillMaxSize().testTag("home-list"), contentPadding = PaddingValues(bottom = 36.dp),
             verticalArrangement = Arrangement.spacedBy(if (compact) 24.dp else 30.dp)) {
             if (slides.isNotEmpty()) item(key = "hero") {
@@ -90,23 +97,22 @@ fun HomeScreen(content: ContentState, epg: Map<String, List<Programme>>, query: 
                 PosterRail("Top 10 séries · por nota do provedor", topSeries, gutter, cardWidth, favorites, onSelectItem, onToggleFav,
                     "Nenhuma série disponível.", ranked = true, tag = "top-series")
             }
-            item(key = "continue") {
+            if (continuing.isNotEmpty()) item(key = "continue") {
                 PosterRail("Continuar assistindo", continuing, gutter, cardWidth, favorites, onSelectItem, onToggleFav,
                     "Os filmes e episódios que você começar aparecerão aqui.")
             }
-            item(key = "live-favs") {
+            if (favoriteChannels.isNotEmpty()) item(key = "live-favs") {
                 Column {
                     RailHeader("Canais favoritos ao vivo", favoriteChannels.size, gutter)
-                    if (favoriteChannels.isEmpty()) EmptyRail("Adicione canais aos favoritos na TV ao vivo.", gutter)
-                    else LazyRow(contentPadding = PaddingValues(start = gutter, end = gutter, top = 10.dp, bottom = 6.dp),
+                    LazyRow(contentPadding = PaddingValues(start = gutter, end = gutter, top = 10.dp, bottom = 6.dp),
                         horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                         items(favoriteChannels, key = { it.id }) { ch ->
-                            LiveCard(ch, epg[ch.epgId], now, onLongClick = { onToggleFav("ch:${ch.id}") }) { onPlayChannel(ch) }
+                            LiveCard(ch, epg[ch.epgId], now, time24Hour, onLongClick = { onToggleFav("ch:${ch.id}") }) { onPlayChannel(ch) }
                         }
                     }
                 }
             }
-            item(key = "vod-favs") {
+            if (favoriteVod.isNotEmpty()) item(key = "vod-favs") {
                 PosterRail("Filmes e séries favoritos", favoriteVod, gutter, cardWidth, favorites, onSelectItem, onToggleFav,
                     "Marque filmes ou séries como favoritos para encontrá-los aqui.")
             }
@@ -148,30 +154,70 @@ private fun EmptyRail(message: String, gutter: androidx.compose.ui.unit.Dp) {
     Text(message, color = XColors.Body, fontSize = 13.sp, modifier = Modifier.padding(start = gutter, end = gutter, top = 10.dp))
 }
 
+private enum class HeroFocus { Watch, Details, Indicator, None }
+
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
 private fun HeroCarousel(slides: List<VodItem>, height: androidx.compose.ui.unit.Dp, compact: Boolean,
                          loadingHeroKey: String?, onSelect: (VodItem) -> Unit, onWatch: (VodItem) -> Unit) {
     val pager = rememberPagerState(pageCount = { slides.size })
     val scope = rememberCoroutineScope()
+    val watchFocus = remember(slides.map { it.favoriteKey }) { slides.associate { it.favoriteKey to FocusRequester() } }
+    val detailsFocus = remember(slides.map { it.favoriteKey }) { slides.associate { it.favoriteKey to FocusRequester() } }
     var hasFocus by remember { mutableStateOf(false) }
+    var focusedControl by remember { mutableStateOf(HeroFocus.None) }
     LaunchedEffect(pager, slides.size, hasFocus, loadingHeroKey) {
         while (slides.size > 1) {
             delay(8_000)
             if (!hasFocus && loadingHeroKey == null && !pager.isScrollInProgress) pager.animateScrollToPage((pager.currentPage + 1) % slides.size)
         }
     }
-    Box(Modifier.fillMaxWidth().height(height).onFocusChanged { hasFocus = it.hasFocus }.focusGroup()) {
+    Box(Modifier.fillMaxWidth().height(height).testTag("hero-carousel")
+        .onFocusChanged { hasFocus = it.hasFocus; if (!it.hasFocus) focusedControl = HeroFocus.None }
+        .onPreviewKeyEvent { event ->
+            val delta = when (event.key) { Key.DirectionRight -> 1; Key.DirectionLeft -> -1; else -> 0 }
+            val movePage = when (focusedControl) {
+                HeroFocus.Watch -> delta < 0
+                HeroFocus.Details -> delta > 0
+                HeroFocus.Indicator -> delta != 0
+                HeroFocus.None -> false
+            }
+            if (slides.size > 1 && event.type == KeyEventType.KeyDown && movePage) {
+                if (!pager.isScrollInProgress) {
+                    val target = (pager.currentPage + delta + slides.size) % slides.size
+                    val control = focusedControl
+                    scope.launch {
+                        pager.animateScrollToPage(target)
+                        // Keep the same action focused after the new slide is composed.
+                        delay(50)
+                        val key = slides[target].favoriteKey
+                        runCatching {
+                            when (control) {
+                                HeroFocus.Watch -> watchFocus[key]?.requestFocus()
+                                HeroFocus.Details -> detailsFocus[key]?.requestFocus()
+                                else -> Unit
+                            }
+                        }
+                    }
+                }
+                true
+            } else false
+        }.focusGroup()) {
         HorizontalPager(state = pager, key = { slides[it].favoriteKey }, modifier = Modifier.fillMaxSize()) { index ->
             val item = slides[index]
             HeroSlide(item, compact, loadingHeroKey == item.favoriteKey,
+                watchModifier = Modifier.focusRequester(watchFocus.getValue(item.favoriteKey))
+                    .onFocusChanged { if (it.isFocused) focusedControl = HeroFocus.Watch },
+                detailsModifier = Modifier.focusRequester(detailsFocus.getValue(item.favoriteKey))
+                    .onFocusChanged { if (it.isFocused) focusedControl = HeroFocus.Details },
                 onSelect = { onSelect(item) }, onWatch = { onWatch(item) })
         }
         if (slides.size > 1) Row(Modifier.align(Alignment.BottomEnd).padding(end = if (compact) 8.dp else 24.dp, bottom = 8.dp),
             verticalAlignment = Alignment.CenterVertically) {
             slides.forEachIndexed { index, slide ->
                 val shape = RoundedCornerShape(50)
-                Box(Modifier.size(34.dp).focusGlow(shape, zoom = 1f).clip(shape)
+                Box(Modifier.size(34.dp).onFocusChanged { if (it.isFocused) focusedControl = HeroFocus.Indicator }
+                    .focusGlow(shape, zoom = 1f).clip(shape)
                     .semantics { contentDescription = "Destaque ${index + 1}: ${slide.title}" }
                     .combinedClickable { scope.launch { pager.animateScrollToPage(index) } }, contentAlignment = Alignment.Center) {
                     Box(Modifier.width(if (pager.currentPage == index) 18.dp else 6.dp).height(6.dp).clip(shape)
@@ -183,7 +229,8 @@ private fun HeroCarousel(slides: List<VodItem>, height: androidx.compose.ui.unit
 }
 
 @Composable
-private fun HeroSlide(item: VodItem, compact: Boolean, loading: Boolean, onSelect: () -> Unit, onWatch: () -> Unit) {
+private fun HeroSlide(item: VodItem, compact: Boolean, loading: Boolean,
+                      watchModifier: Modifier, detailsModifier: Modifier, onSelect: () -> Unit, onWatch: () -> Unit) {
     var backdropFailed by remember(item.backdrop) { mutableStateOf(false) }
     val backdrop = item.backdrop?.takeIf { it.isNotBlank() && !backdropFailed }
     val image = backdrop ?: item.poster?.takeIf { it.isNotBlank() }
@@ -204,8 +251,8 @@ private fun HeroSlide(item: VodItem, compact: Boolean, loading: Boolean, onSelec
             0f to XColors.Bg.copy(alpha = .97f), .45f to XColors.Bg.copy(alpha = .82f), 1f to Color.Transparent)))
         Box(Modifier.fillMaxSize().background(Brush.verticalGradient(
             0f to XColors.Bg.copy(alpha = .10f), .65f to Color.Transparent, 1f to XColors.Bg.copy(alpha = .8f))))
-        Column(Modifier.align(Alignment.BottomStart).fillMaxWidth(if (compact) .88f else .52f)
-            .padding(start = if (compact) 16.dp else 28.dp, bottom = if (compact) 42.dp else 38.dp)) {
+        Column(Modifier.align(Alignment.BottomStart).fillMaxWidth(if (compact) .90f else .60f)
+            .padding(start = if (compact) 16.dp else 28.dp, end = 12.dp, bottom = 52.dp)) {
             Text("FILME  ·  LANÇAMENTOS", color = XColors.TextDim,
                 fontSize = 11.sp, letterSpacing = 1.1.sp, fontWeight = FontWeight.SemiBold)
             Spacer(Modifier.height(5.dp))
@@ -224,10 +271,10 @@ private fun HeroSlide(item: VodItem, compact: Boolean, loading: Boolean, onSelec
                 Box(Modifier.fillMaxHeight().fillMaxWidth(item.progress.coerceIn(0f, 1f)).background(XColors.Accent))
             }
             Spacer(Modifier.height(14.dp))
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp), verticalAlignment = Alignment.CenterVertically) {
                 GlowButton(if (loading) "Carregando…" else "Assistir", Icons.Filled.PlayArrow,
-                    Modifier.testTag("hero-watch-${item.favoriteKey}"), onClick = { if (!loading) onWatch() })
-                GlowButton("Detalhes", Icons.Filled.Info, Modifier.testTag("hero-details-${item.favoriteKey}"),
+                    watchModifier.weight(1f, fill = false).testTag("hero-watch-${item.favoriteKey}"), onClick = { if (!loading) onWatch() })
+                GlowButton("Detalhes", Icons.Filled.Info, detailsModifier.weight(1f, fill = false).testTag("hero-details-${item.favoriteKey}"),
                     ringAlways = false, onClick = onSelect)
             }
         }
@@ -243,7 +290,7 @@ private fun HeroPill(text: String, color: Color) {
 
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
-private fun LiveCard(ch: Channel, prog: List<Programme>?, now: Long, onLongClick: () -> Unit, onClick: () -> Unit) {
+private fun LiveCard(ch: Channel, prog: List<Programme>?, now: Long, time24Hour: Boolean, onLongClick: () -> Unit, onClick: () -> Unit) {
     val shape = RoundedCornerShape(12.dp)
     val (cur, _) = prog.nowNext(now)
     val pct = cur?.let { ((now - it.start).toFloat() / (it.stop - it.start).coerceAtLeast(1)).coerceIn(0f, 1f) } ?: 0f
@@ -266,7 +313,7 @@ private fun LiveCard(ch: Channel, prog: List<Programme>?, now: Long, onLongClick
             Box(Modifier.weight(1f).height(3.dp).background(Color(0x33888888))) {
                 Box(Modifier.fillMaxHeight().fillMaxWidth(pct).background(XColors.Live))
             }
-            if (cur != null) Text("  ${fmtClock(cur.start)} – ${fmtClock(cur.stop)}", color = XColors.Body, fontSize = 10.sp)
+            if (cur != null) Text("  ${fmtClock(cur.start, time24Hour)} – ${fmtClock(cur.stop, time24Hour)}", color = XColors.Body, fontSize = 10.sp)
         }
     }
 }

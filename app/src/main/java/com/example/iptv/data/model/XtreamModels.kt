@@ -51,9 +51,13 @@ enum class StreamFormat(val label: String, val extension: String) {
 
 enum class VideoDecoder(val label: String) {
     AUTO("Automático"),
-    HARDWARE("Hardware (preferencial)"),
-    COMPATIBILITY("Compatibilidade (fallback SW)")
+    HARDWARE("Hardware preferencial"),
+    COMPATIBILITY("Software preferencial")
 }
+
+enum class PlaybackApp(val label: String) { INTERNAL("Player interno"), EXTERNAL("Outro aplicativo") }
+
+const val DEFAULT_USER_AGENT = "VLC/3.0.20 LibVLC/3.0.20"
 
 data class UserSettings(
     val streamFormat: StreamFormat = StreamFormat.TS,
@@ -61,7 +65,20 @@ data class UserSettings(
     val decoder: VideoDecoder = VideoDecoder.AUTO,
     val lastEpgSyncMillis: Long = 0L,
     val autoUpdateEpg: Boolean = true,
-    val customXmltvUrl: String = ""
+    val customXmltvUrl: String = "",
+    val epgIntervalHours: Int = 12,
+    val epgOffsetHours: Int = 0,
+    val time24Hour: Boolean = true,
+    val showChannelEpg: Boolean = true,
+    val subtitlesEnabled: Boolean = true,
+    val userAgent: String = DEFAULT_USER_AGENT,
+    val multiScreens: Int = 4,
+    val livePlayer: PlaybackApp = PlaybackApp.INTERNAL,
+    val moviePlayer: PlaybackApp = PlaybackApp.INTERNAL,
+    val seriesPlayer: PlaybackApp = PlaybackApp.INTERNAL,
+    val parentalSalt: String = "",
+    val parentalHash: String = "",
+    val lockedCategories: Set<String> = emptySet(),
 )
 
 @Serializable

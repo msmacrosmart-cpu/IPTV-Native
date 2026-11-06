@@ -137,7 +137,23 @@ class XmltvRepository(cacheDir: File, private val http: OkHttpClient) {
         _state.value = EpgUpdateState.Idle
     }
 
-    /** Also removes every account's cached XMLTV file when logging out or clearing cache. */
+    /** Remove only this account/source, preserving other profiles' guide caches. */
+    suspend fun deleteSource(credentials: PanelCredentials, customUrl: String) {
+        val url = runCatching { sourceUrl(credentials, customUrl) }.getOrNull() ?: return
+        val key = cacheKey(credentials, url)
+        mutex.withLock {
+            withContext(Dispatchers.IO) { File(directory, "$key.xml").delete() }
+            synchronized(stateLock) {
+                if (_guide.value.sourceKey == key) {
+                    generation.incrementAndGet()
+                    _guide.value = EpgGuide()
+                    _state.value = EpgUpdateState.Idle
+                }
+            }
+        }
+    }
+
+    /** Remove all cached XMLTV files (used only for explicit global cleanup). */
     fun clear() = synchronized(stateLock) {
         generation.incrementAndGet()
         _guide.value = EpgGuide()
@@ -155,7 +171,8 @@ class XmltvRepository(cacheDir: File, private val http: OkHttpClient) {
     private suspend fun parse(file: File): XmltvParser.Result = withContext(Dispatchers.Default) {
         val now = System.currentTimeMillis()
         val context = currentCoroutineContext()
-        XmltvParser.parse(file, now - 2 * HOUR, now + 48 * HOUR) { context.ensureActive() }
+        // Keep the extra window needed by the user-selectable ±12 h guide shift.
+        XmltvParser.parse(file, now - 14 * HOUR, now + 60 * HOUR) { context.ensureActive() }
     }
 
     private suspend fun download(url: String, file: File, token: Long) = withContext(Dispatchers.IO) {

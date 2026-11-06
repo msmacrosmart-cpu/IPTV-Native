@@ -20,6 +20,10 @@ import com.example.iptv.data.model.Episode
 import com.example.iptv.data.model.PanelCredentials
 import com.example.iptv.data.model.StreamFormat
 import com.example.iptv.data.model.VodDetails
+import com.example.iptv.data.model.UserSettings
+import com.example.iptv.data.model.DEFAULT_USER_AGENT
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
@@ -41,6 +45,7 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
     private var restoreJob: Job? = null
     private var heroPlayJob: Job? = null
     private var heroPrepJob: Job? = null
+    private var cacheClearJob: Job? = null
     private var generation = 0
     private var detailGeneration = 0
     private var heroPlayGeneration = 0
@@ -48,6 +53,10 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
     private val shortGuideFetchedAt = mutableMapOf<String, Long>()
 
     var session by mutableStateOf<Session?>(null); private set
+    var profiles by mutableStateOf(repository.savedProfiles()); private set
+    var settings by mutableStateOf(repository.settings.value); private set
+    var parentalUnlocked by mutableStateOf(false); private set
+    var parentalBusy by mutableStateOf(false); private set
     var content by mutableStateOf(emptyContent()); private set
     var heroDetails by mutableStateOf<Map<String, VodDetails>>(emptyMap()); private set
     var loadingHeroKey by mutableStateOf<String?>(null); private set
@@ -57,6 +66,7 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
     var epgMessage by mutableStateOf<String?>(null); private set
     var loading by mutableStateOf(false); private set
     var restoring by mutableStateOf(true); private set
+    var loadingMessage by mutableStateOf("Verificando cache…"); private set
     var loginError by mutableStateOf<String?>(null); private set
     var notice by mutableStateOf<String?>(null); private set
     var playerRequest by mutableStateOf<PlayerRequest?>(null); private set
@@ -73,6 +83,7 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
     data class EpisodeSelection(val item: VodItem, val choices: List<EpisodeChoice>)
 
     init {
+        viewModelScope.launch { repository.settings.collect { settings = it } }
         viewModelScope.launch {
             app.catalogCache.catalog.collect { cached ->
                 val creds = repository.currentCredentials()
@@ -103,23 +114,33 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
                 }
             }
         }
-        val cached = repository.cachedAccount()
-        if (repository.hasStoredSession() && cached != null && repository.currentCredentials() != null) {
-            val creds = repository.currentCredentials()!!
-            activate(cached)
-            val token = generation
-            restoreJob = viewModelScope.launch {
+        restoreJob = viewModelScope.launch {
+            val started = android.os.SystemClock.elapsedRealtime()
+            val creds = repository.currentCredentials()
+            try {
+                val cached = repository.cachedAccount()
+                if (creds != null && cached != null) activate(cached)
+            } catch (e: kotlinx.coroutines.CancellationException) {
+                throw e
+            } catch (_: Exception) {
+                notice = "Não foi possível restaurar o cache. Tente atualizar o catálogo."
+            } finally {
+                // Let the institutional splash render even on a completely empty first run.
+                delay((450L - (android.os.SystemClock.elapsedRealtime() - started)).coerceAtLeast(0L))
+                restoring = false
+            }
+            // Validation is deliberately after the on-disk restore: an offline panel must
+            // not prevent a previously saved catalogue from opening.
+            if (creds != null && repository.currentCredentials() == creds && session?.isDemo == false) {
+                val token = generation
                 when (val result = repository.restoreSession()) {
-                    is ApiResult.Success -> {
-                        if (generation == token && repository.currentCredentials() == creds && session?.isDemo == false)
-                            session = mapSession(result.data, creds)
-                    }
+                    is ApiResult.Success -> if (generation == token && repository.currentCredentials() == creds)
+                        session = mapSession(result.data, creds)
                     is ApiResult.Failure -> if (generation == token && repository.currentCredentials() == creds)
                         notice = "Não foi possível validar a conta agora: ${result.message}"
                 }
             }
         }
-        restoring = false
     }
 
     fun login(server: String, user: String, pass: String, onSuccess: () -> Unit) {
@@ -131,15 +152,17 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
         restoreJob?.cancel()
         viewModelScope.launch {
             loading = true
+            loadingMessage = "Conectando à conta…"
             loginError = null
             try {
                 if (server.trim().equals("demo", true)) {
-                    val previous = repository.currentCredentials()
                     cancelActiveWork()
                     BackgroundSync.cancel(app)
                     app.catalogCache.forgetMemory()
-                    repository.logout()
-                    if (previous != null) viewModelScope.launch { app.catalogCache.deleteAccount(previous) }
+                    repository.deactivate()
+                    profiles = repository.savedProfiles()
+                    settings = repository.settings.value
+                    parentalUnlocked = false
                     xmltv.invalidate()
                     library.select(null)
                     history = library.progress()
@@ -152,7 +175,7 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
                     onSuccess()
                 } else {
                     when (val result = repository.login(server, user, pass)) {
-                        is ApiResult.Success -> { activate(result.data); onSuccess() }
+                        is ApiResult.Success -> { activate(result.data); profiles = repository.savedProfiles(); onSuccess() }
                         is ApiResult.Failure -> loginError = result.message
                     }
                 }
@@ -162,55 +185,239 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
-    private fun activate(account: AccountInfo) {
+    fun switchProfile(id: String, onReady: () -> Unit = {}) {
+        if (loading) return
+        restoreJob?.cancel()
+        viewModelScope.launch {
+            loading = true
+            loadingMessage = "Carregando perfil…"
+            loginError = null
+            try {
+                val account = repository.activateProfile(id)
+                if (account == null) {
+                    loginError = "Não foi possível abrir este perfil. Entre novamente com as credenciais."
+                    notice = loginError
+                } else {
+                    activate(account)
+                    profiles = repository.savedProfiles()
+                    onReady()
+                    val creds = repository.currentCredentials()
+                    val token = generation
+                    if (creds != null) restoreJob = viewModelScope.launch {
+                        when (val result = repository.restoreSession()) {
+                            is ApiResult.Success -> if (generation == token && repository.currentCredentials() == creds)
+                                session = mapSession(result.data, creds)
+                            is ApiResult.Failure -> if (generation == token && repository.currentCredentials() == creds)
+                                notice = "Perfil aberto com dados locais. Não foi possível validar a conta agora."
+                        }
+                    }
+                }
+            } finally {
+                loading = false
+            }
+        }
+    }
+
+    fun removeProfile(id: String) {
+        val removed = repository.removeProfile(id) ?: return
+        profiles = repository.savedProfiles()
+        library.deleteAccount(removed)
+        viewModelScope.launch { app.catalogCache.deleteAccount(removed) }
+        notice = "Perfil removido deste dispositivo."
+    }
+
+    fun refreshAccount() {
+        if (session?.isDemo != false || loading) return
+        val creds = repository.currentCredentials() ?: return
+        val token = generation
+        restoreJob?.cancel()
+        restoreJob = viewModelScope.launch {
+            when (val result = repository.restoreSession()) {
+                is ApiResult.Success -> if (generation == token && repository.currentCredentials() == creds) {
+                    session = mapSession(result.data, creds)
+                    profiles = repository.savedProfiles()
+                    notice = "Dados da conta atualizados."
+                }
+                is ApiResult.Failure -> if (generation == token && repository.currentCredentials() == creds) notice = result.message
+            }
+        }
+    }
+
+    fun updateUserSettings(requested: UserSettings) {
+        val old = repository.settings.value
+        val url = requested.customXmltvUrl.trim()
+        if (url.isNotEmpty() && url.toHttpUrlOrNull() == null) {
+            notice = "Informe uma URL XMLTV HTTP ou HTTPS válida."
+            return
+        }
+        val agent = requested.userAgent.trim().ifBlank { DEFAULT_USER_AGENT }
+        if (agent.length > 200 || agent.any { it.code !in 32..126 }) {
+            notice = "O user agent deve conter apenas caracteres ASCII imprimíveis (até 200)."
+            return
+        }
+        val changedSource = old.customXmltvUrl != url
+        // Parental credentials and locks have their own verified actions.
+        val next = requested.copy(customXmltvUrl = url, userAgent = agent,
+            lastEpgSyncMillis = if (changedSource) 0L else old.lastEpgSyncMillis,
+            parentalSalt = old.parentalSalt, parentalHash = old.parentalHash, lockedCategories = old.lockedCategories)
+        repository.updateSettings(next)
+        settings = repository.settings.value
+        val creds = repository.currentCredentials()
+        if (creds != null && old.streamFormat != next.streamFormat) {
+            app.catalogCache.catalog.value?.takeIf { it.accountKey == CatalogCache.accountKey(creds) }
+                ?.let { content = applyProgress(mapCatalog(it, creds)) }
+        }
+        if (old.epgOffsetHours != next.epgOffsetHours) mergeGuide()
+        if (changedSource) {
+            guideJob?.cancel()
+            xmltv.invalidate()
+            epgUpdatedAt = null
+            mergeGuide()
+            repository.cachedAccount()?.let { account -> if (creds != null) session = mapSession(account, creds) }
+        }
+        if (!next.autoUpdateEpg && old.autoUpdateEpg) guideJob?.cancel()
+        if (creds != null && next.autoUpdateEpg && (changedSource || !old.autoUpdateEpg)) {
+            val token = generation
+            guideJob = viewModelScope.launch { updateGuide(creds, token) }
+        }
+        if (creds != null && old.epgIntervalHours != next.epgIntervalHours) BackgroundSync.schedule(app, next.epgIntervalHours)
+    }
+
+    fun clearCache() {
+        val creds = repository.currentCredentials() ?: run { notice = "Nenhum cache de conta para limpar."; return }
+        val token = generation
+        catalogueJob?.cancel(); guideJob?.cancel(); shortEpgJob?.cancel(); heroPrepJob?.cancel()
+        BackgroundSync.cancel(app)
+        xmltv.invalidate()
+        val source = repository.settings.value.customXmltvUrl
+        cacheClearJob?.cancel()
+        cacheClearJob = viewModelScope.launch {
+            val cleared = app.catalogCache.clearActive(creds)
+            if (generation != token || repository.currentCredentials() != creds) return@launch
+            xmltv.deleteSource(creds, source)
+            shortGuide.clear(); shortGuideFetchedAt.clear(); heroDetails = emptyMap()
+            epg = emptyMap(); epgUpdatedAt = null; repository.clearEpgSync()
+            notice = if (cleared) "Cache local desta conta limpo. O catálogo atual permanece na memória." else "Não foi possível limpar o cache."
+            BackgroundSync.schedule(app, repository.settings.value.epgIntervalHours)
+        }
+    }
+
+    fun setParentalPin(current: String, pin: String, confirmation: String, onResult: (String?) -> Unit) {
+        if (parentalBusy) return
+        if (!ParentalPin.valid(pin) || pin != confirmation) {
+            onResult("Use um PIN de 4 a 8 números e confirme-o corretamente.")
+            return
+        }
+        val before = repository.settings.value
+        val token = generation
+        parentalBusy = true
+        viewModelScope.launch {
+            try {
+                val result = withContext(Dispatchers.Default) {
+                    if (before.parentalHash.isNotBlank() && !ParentalPin.matches(current, before.parentalSalt, before.parentalHash)) null
+                    else ParentalPin.create(pin)
+                }
+                if (generation != token) return@launch
+                if (result == null) onResult("PIN atual incorreto.") else {
+                    repository.updateSettings(repository.settings.value.copy(parentalSalt = result.first, parentalHash = result.second))
+                    settings = repository.settings.value
+                    parentalUnlocked = true
+                    onResult(null)
+                }
+            } finally { parentalBusy = false }
+        }
+    }
+
+    fun unlockParental(pin: String, onResult: (String?) -> Unit) {
+        if (parentalBusy) return
+        val before = repository.settings.value
+        if (before.parentalHash.isBlank()) { onResult("Crie um PIN primeiro."); return }
+        val token = generation
+        parentalBusy = true
+        viewModelScope.launch {
+            try {
+                val valid = withContext(Dispatchers.Default) { ParentalPin.matches(pin, before.parentalSalt, before.parentalHash) }
+                if (generation != token) return@launch
+                if (valid) { parentalUnlocked = true; onResult(null) } else onResult("PIN incorreto.")
+            } finally { parentalBusy = false }
+        }
+    }
+
+    fun lockParental() { parentalUnlocked = false; closeDetails() }
+
+    fun clearParental() {
+        if (!parentalUnlocked) return
+        repository.updateSettings(repository.settings.value.copy(parentalSalt = "", parentalHash = "", lockedCategories = emptySet()))
+        settings = repository.settings.value
+        parentalUnlocked = false
+    }
+
+    fun toggleLockedCategory(key: String) {
+        val before = repository.settings.value
+        if (!parentalUnlocked || before.parentalHash.isBlank()) return
+        val next = if (key in before.lockedCategories) before.lockedCategories - key else before.lockedCategories + key
+        repository.updateSettings(before.copy(lockedCategories = next))
+        settings = repository.settings.value
+    }
+
+    /** Restore the local snapshot before dismissing the splash or navigating to Home. */
+    private suspend fun activate(account: AccountInfo) {
         val creds = repository.currentCredentials() ?: return
         cancelActiveWork()
+        BackgroundSync.cancel(app)
         xmltv.invalidate()
         app.catalogCache.forgetMemory()
-        BackgroundSync.schedule(app)
         library.select(creds)
         history = library.progress()
         favorites.clear(); favorites.addAll(library.favorites())
         shortGuide.clear(); shortGuideFetchedAt.clear()
         epg = emptyMap(); epgUpdatedAt = null; epgMessage = null
         content = emptyContent()
+        settings = repository.settings.value
+        parentalUnlocked = false
         session = mapSession(account, creds)
         val token = generation
-        catalogueJob = viewModelScope.launch {
-            // Show saved backdrops and catalog before considering the network. Playback URLs
-            // are rebuilt with the current session rather than being stored in the snapshot.
-            app.catalogCache.loadHeroes(creds)
-            if (generation != token || repository.currentCredentials() != creds) return@launch
-            val cached = app.catalogCache.load(creds)
-            if (generation != token || repository.currentCredentials() != creds) return@launch
-            if (cached?.isFresh() != true) {
+        loadingMessage = "Verificando cache…"
+        // The cached data contains no stream credentials; URLs are rebuilt for this account.
+        val heroes = app.catalogCache.loadHeroes(creds)
+        val cached = app.catalogCache.load(creds)
+        val short = app.catalogCache.loadShortGuide(creds, repository.settings.value.epgOffsetHours * 3_600_000L)
+        if (generation != token || repository.currentCredentials() != creds) return
+        heroDetails = heroes.entries.mapValues { it.value.details }
+        if (cached != null) content = applyProgress(mapCatalog(cached, creds))
+        short.entries.forEach { (key, entry) ->
+            shortGuide[key] = entry.programmes
+            shortGuideFetchedAt[key] = entry.fetchedAtMillis
+        }
+        val settings = repository.settings.value
+        val loadedGuide = xmltv.loadFromDisk(creds, settings.customXmltvUrl)
+        if (generation != token || repository.currentCredentials() != creds) return
+        if (loadedGuide) epgUpdatedAt = xmltv.guide.value.cachedAtMillis.takeIf { it > 0 }
+        mergeGuide()
+        val last = if (loadedGuide) xmltv.guide.value.cachedAtMillis else 0L
+        val guideFresh = last > 0 && System.currentTimeMillis() >= last &&
+            System.currentTimeMillis() - last < settings.epgIntervalHours * 3_600_000L
+        if (settings.autoUpdateEpg && (!loadedGuide || !guideFresh)) {
+            guideJob = viewModelScope.launch { updateGuide(creds, token) }
+        }
+        if (cached == null) {
+            // On the first login wait for real responses before entering Home. Partial
+            // results remain usable, and a failure is reported instead of trapping splash.
+            val result = app.catalogCache.refresh(creds) { stage ->
+                if (generation == token && repository.currentCredentials() == creds) loadingMessage = stage.label
+            }
+            if (generation != token || repository.currentCredentials() != creds) return
+            result.snapshot?.let { content = applyProgress(mapCatalog(it, creds)) }
+            if (result.failures > 0) notice = "Não foi possível baixar todo o catálogo. Tente atualizar novamente."
+        } else if (!cached.isFresh()) {
+            // An older or partial snapshot opens immediately; refresh it in the background.
+            catalogueJob = viewModelScope.launch {
                 val result = app.catalogCache.refresh(creds)
                 if (generation == token && repository.currentCredentials() == creds && result.failures > 0)
                     notice = "Não foi possível atualizar todo o catálogo. Os dados anteriores foram preservados."
             }
         }
-        guideJob = viewModelScope.launch {
-            val short = app.catalogCache.loadShortGuide(creds)
-            if (generation != token || repository.currentCredentials() != creds) return@launch
-            short.entries.forEach { (key, entry) ->
-                shortGuide[key] = entry.programmes
-                shortGuideFetchedAt[key] = entry.fetchedAtMillis
-            }
-            mergeGuide()
-            val settings = repository.settings.value
-            val loaded = xmltv.loadFromDisk(creds, settings.customXmltvUrl)
-            if (generation != token || repository.currentCredentials() != creds) return@launch
-            if (loaded) {
-                epgUpdatedAt = xmltv.guide.value.cachedAtMillis.takeIf { it > 0 }
-                mergeGuide()
-            }
-            // The file timestamp is per account/source; a different account's recent sync
-            // must not make an older saved guide look fresh.
-            val last = if (loaded) xmltv.guide.value.cachedAtMillis else 0L
-            val guideFresh = last > 0 && System.currentTimeMillis() >= last &&
-                System.currentTimeMillis() - last < BackgroundSync.GUIDE_TTL_MILLIS
-            if (settings.autoUpdateEpg && (!loaded || !guideFresh)) updateGuide(creds, token)
-        }
+        if (generation == token && repository.currentCredentials() == creds) BackgroundSync.schedule(app, settings.epgIntervalHours)
     }
 
     private fun mapSession(account: AccountInfo, creds: PanelCredentials): Session {
@@ -220,7 +427,9 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
         val source = customSource.ifBlank { "${creds.serverUrl.trimEnd('/')}/xmltv.php" }
         return Session(creds.serverUrl, creds.username, creds.password, account.statusLabel,
             account.expiresAtMillis, account.createdAtMillis, account.activeConnections,
-            account.maxConnections, epgSource = source)
+            account.maxConnections, epgSource = source, isTrial = account.isTrial,
+            allowedFormats = account.allowedFormats, timezone = account.timezone,
+            syncedAt = account.syncedAtMillis.takeIf { it > 0 })
     }
 
     private fun mapCatalog(cached: CachedCatalog, creds: PanelCredentials): ContentState {
@@ -306,12 +515,14 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     private fun mergeGuide() {
+        val shift = repository.settings.value.epgOffsetHours * 3_600_000L
         val xml = xmltv.guide.value.programs.mapValues { (key, entries) ->
-            entries.map { Programme(key, it.title, it.startMillis, it.endMillis) }
+            entries.map { Programme(key, it.title, it.startMillis + shift, it.endMillis + shift) }
         }
+        val short = shortGuide.mapValues { (_, entries) -> entries.map { it.copy(start = it.start + shift, stop = it.stop + shift) } }
         // XMLTV wins when it has usable data for the channel; short EPG fills gaps.
         val now = System.currentTimeMillis()
-        epg = shortGuide.toMap() + xml.filterValues { programmes -> programmes.any { it.stop > now } }
+        epg = short + xml.filterValues { programmes -> programmes.any { it.stop > now } }
     }
 
     fun channelFocused(channel: Channel) {
@@ -330,11 +541,12 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
                     val now = System.currentTimeMillis()
                     val programs = result.data.map { Programme(key, it.title, it.startMillis, it.endMillis) }
                     // An empty/broken short response must not erase still-usable cached data.
-                    if (programs.any { it.stop > now }) {
+                    val offset = repository.settings.value.epgOffsetHours * 3_600_000L
+                    if (programs.any { it.stop + offset > now }) {
                         shortGuideFetchedAt[key] = now
                         shortGuide[key] = programs
                         mergeGuide()
-                        app.catalogCache.saveShortGuide(creds, key, CachedShortGuideEntry(now, programs))
+                        app.catalogCache.saveShortGuide(creds, key, CachedShortGuideEntry(now, programs), offset)
                     }
                 }
                 is ApiResult.Failure -> Unit
@@ -488,8 +700,10 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
         cancelActiveWork()
         BackgroundSync.cancel(app)
         app.catalogCache.forgetMemory()
-        xmltv.clear()
+        // Other saved profiles keep their own XMLTV files and catalogues.
+        xmltv.invalidate()
         repository.logout()
+        profiles = repository.savedProfiles()
         if (previous != null) viewModelScope.launch { app.catalogCache.deleteAccount(previous) }
         session = null; content = emptyContent(); epg = emptyMap(); epgUpdatedAt = null
         epgLoading = false; epgMessage = null; loginError = null; notice = null; playerRequest = null; lastPlayedChannelId = null
@@ -498,7 +712,7 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
 
     private fun cancelActiveWork() {
         generation++; detailGeneration++
-        catalogueJob?.cancel(); guideJob?.cancel(); shortEpgJob?.cancel(); episodeJob?.cancel()
+        catalogueJob?.cancel(); guideJob?.cancel(); shortEpgJob?.cancel(); episodeJob?.cancel(); cacheClearJob?.cancel()
         detailJob?.cancel()
         cancelHeroPlayback()
         heroPrepJob?.cancel(); heroPrepJob = null; heroDetails = emptyMap()

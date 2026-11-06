@@ -15,13 +15,22 @@ class UserLibrary(context: Context) {
         val fraction: Float get() = if (duration > 0) (position.toFloat() / duration).coerceIn(0f, 1f) else 0f
     }
 
-    fun select(credentials: PanelCredentials?) {
+    fun select(credentials: PanelCredentials?) { account = accountKey(credentials) }
+
+    fun deleteAccount(credentials: PanelCredentials) {
+        val prefix = "${accountKey(credentials)}."
+        val editor = prefs.edit()
+        prefs.all.keys.filter { it.startsWith(prefix) }.forEach { editor.remove(it) }
+        editor.apply()
+    }
+
+    private fun accountKey(credentials: PanelCredentials?): String {
         val identity = credentials?.let {
             // HttpUrl canonicalizes scheme/host without lowercasing a case-sensitive panel path.
             val server = it.serverUrl.toHttpUrlOrNull()?.toString()?.trimEnd('/') ?: it.serverUrl.trimEnd('/')
             "$server\u0000${it.username}"
         } ?: "demo"
-        account = MessageDigest.getInstance("SHA-256").digest(identity.toByteArray(Charsets.UTF_8))
+        return MessageDigest.getInstance("SHA-256").digest(identity.toByteArray(Charsets.UTF_8))
             .joinToString("") { "%02x".format(it.toInt() and 0xff) }
     }
 

@@ -24,6 +24,7 @@ import com.example.iptv.data.network.XtreamActions
 import com.example.iptv.data.network.XtreamApiService
 import com.example.iptv.data.network.XtreamParser
 import com.example.iptv.data.preferences.SessionManager
+import com.example.iptv.data.preferences.SavedProfile
 import com.example.iptv.util.FormatUtils
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.currentCoroutineContext
@@ -74,6 +75,25 @@ class XtreamRepository(private val session: SessionManager) {
     fun cachedAccount(): AccountInfo? = _account.value
 
     fun currentCredentials(): PanelCredentials? = credentials
+
+    fun savedProfiles(): List<SavedProfile> = synchronized(serviceLock) { session.savedProfiles() }
+
+    /** Switch synchronously to the encrypted local profile, then validate it in the background. */
+    fun activateProfile(id: String): AccountInfo? = synchronized(serviceLock) {
+        val account = session.activateProfile(id) ?: return@synchronized null
+        val selected = session.credentials() ?: return@synchronized null
+        sessionGeneration.incrementAndGet()
+        credentials = selected
+        api = null
+        _account.value = account
+        _settings.value = session.loadSettings()
+        account
+    }
+
+    fun removeProfile(id: String): PanelCredentials? = synchronized(serviceLock) {
+        val saved = session.credentialsForProfile(id) ?: return@synchronized null
+        if (session.removeProfile(id)) saved else null
+    }
 
     /** Distinguishes logout/re-login even when the same credentials are used again. */
     fun sessionToken(expected: PanelCredentials): Long? = synchronized(serviceLock) {
@@ -151,7 +171,10 @@ class XtreamRepository(private val session: SessionManager) {
                 if (credentials != newCredentials) sessionGeneration.incrementAndGet()
                 credentials = newCredentials
                 api = service
-                if (persist) session.saveCredentials(newCredentials)
+                if (persist) {
+                    session.saveCredentials(newCredentials)
+                    _settings.value = session.loadSettings()
+                }
                 session.saveAccount(sanitized)
                 _account.value = sanitized
             }
@@ -176,9 +199,13 @@ class XtreamRepository(private val session: SessionManager) {
         }
     }
 
-    fun logout() = synchronized(serviceLock) {
+    fun logout() = clearSession(removeProfile = true)
+
+    fun deactivate() = clearSession(removeProfile = false)
+
+    private fun clearSession(removeProfile: Boolean) = synchronized(serviceLock) {
         sessionGeneration.incrementAndGet()
-        session.clear()
+        if (removeProfile) session.clear() else session.deactivate()
         credentials = null
         api = null
         _account.value = null
@@ -284,9 +311,15 @@ class XtreamRepository(private val session: SessionManager) {
         true
     }
 
-    private fun updateSettings(newSettings: UserSettings) {
-        _settings.update { newSettings }
-        session.saveSettings(newSettings)
+    fun updateSettings(newSettings: UserSettings) = synchronized(serviceLock) {
+        val safe = newSettings.copy(
+            bufferSeconds = newSettings.bufferSeconds.coerceIn(5, 60),
+            epgIntervalHours = newSettings.epgIntervalHours.coerceIn(6, 48),
+            epgOffsetHours = newSettings.epgOffsetHours.coerceIn(-12, 12),
+            multiScreens = newSettings.multiScreens.coerceIn(1, 4),
+        )
+        _settings.update { safe }
+        session.saveSettings(safe)
     }
 
     // ---------------------------------------------------------------------- URLs

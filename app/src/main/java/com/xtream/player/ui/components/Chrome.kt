@@ -2,6 +2,7 @@ package com.xtream.player.ui.components
 
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.border
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.*
@@ -25,6 +26,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.semantics.selected
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.TextStyle
@@ -34,14 +36,15 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.example.iptv.R
 import com.xtream.player.ui.theme.DmSans
 import com.xtream.player.ui.theme.XColors
 
 /** The only six primary destinations requested for this app. */
 enum class Tab(val label: String, val outlined: ImageVector, val filled: ImageVector) {
-    Home("Home", Icons.Outlined.Dashboard, Icons.Filled.Dashboard),
+    Home("Home", Icons.Outlined.Home, Icons.Filled.Home),
     Live("TV", Icons.Outlined.LiveTv, Icons.Filled.LiveTv),
-    Movies("Filmes", Icons.Outlined.Movie, Icons.Filled.Movie),
+    Movies("Filmes", Icons.Outlined.LocalMovies, Icons.Filled.LocalMovies),
     Series("Séries", Icons.Outlined.Tv, Icons.Filled.Tv),
     Multi("Multitela", Icons.Outlined.GridView, Icons.Filled.GridView),
     Settings("Configurações", Icons.Outlined.Settings, Icons.Filled.Settings),
@@ -50,16 +53,19 @@ enum class Tab(val label: String, val outlined: ImageVector, val filled: ImageVe
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
 private fun SideButton(tab: Tab, selected: Boolean, size: Dp = 48.dp, onClick: () -> Unit) {
-    val shape = RoundedCornerShape(14.dp)
-    Box(Modifier.size(size).focusGlow(shape, width = 2.dp, zoom = 1f).clip(shape)
-        .background(if (selected) XColors.Selection else Color.Transparent)
-        .border(1.dp, if (selected) XColors.Accent.copy(alpha = .62f) else Color.Transparent, shape)
+    val shape = RoundedCornerShape(12.dp)
+    val neon = Color(0xFF86B8FF)
+    var focused by remember { mutableStateOf(false) }
+    // The same restrained halo is drawn on phone and TV: no elevation or dark shadow.
+    Box(Modifier.size(size).onFocusChanged { focused = it.hasFocus }
+        .border(3.dp, if (focused) neon.copy(alpha = .12f) else Color.Transparent, shape)
+        .padding(2.dp).clip(shape)
+        .background(if (selected || focused) Color(0xFF202331) else Color.Transparent)
+        .border(1.dp, when { focused -> neon; selected -> neon.copy(alpha = .5f); else -> Color.Transparent }, shape)
         .semantics { this.selected = selected }
         .combinedClickable(onClick = onClick), contentAlignment = Alignment.Center) {
         Icon(if (selected) tab.filled else tab.outlined, tab.label,
-            tint = if (selected) XColors.BlueSoft else XColors.TextDim, modifier = Modifier.size(22.dp))
-        if (selected) Box(Modifier.align(Alignment.CenterEnd).width(3.dp).height(20.dp)
-            .clip(RoundedCornerShape(2.dp)).background(XColors.Accent))
+            tint = if (selected || focused) neon else XColors.TextDim, modifier = Modifier.size(22.dp))
     }
 }
 
@@ -73,10 +79,12 @@ fun Sidebar(selected: Tab, onSelect: (Tab) -> Unit, compact: Boolean, modifier: 
     } else {
         BoxWithConstraints(modifier.fillMaxHeight().width(64.dp).background(XColors.Sidebar)) {
             val dense = maxHeight < 420.dp
-            val itemSize = if (maxHeight < 340.dp) 42.dp else 48.dp
+            val itemSize = when { maxHeight < 300.dp -> 34.dp; maxHeight < 350.dp -> 38.dp; else -> 48.dp }
             Column(Modifier.fillMaxSize().padding(horizontal = 8.dp, vertical = if (dense) 4.dp else 8.dp),
                 horizontalAlignment = Alignment.CenterHorizontally) {
-                Spacer(Modifier.height(if (dense) 4.dp else 48.dp))
+                Image(painterResource(R.drawable.brand_square), "IPTV Native",
+                    modifier = Modifier.size(if (dense) 32.dp else 42.dp).clip(RoundedCornerShape(8.dp)))
+                Spacer(Modifier.height(if (dense) 4.dp else 18.dp))
                 Tab.entries.filter { it != Tab.Settings }.forEach {
                     SideButton(it, selected == it, itemSize) { onSelect(it) }
                     Spacer(Modifier.height(2.dp))
