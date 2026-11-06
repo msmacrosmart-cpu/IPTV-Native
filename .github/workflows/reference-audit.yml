@@ -1,0 +1,35 @@
+name: Inspect reference resources
+on:
+  push:
+    paths: [".github/workflows/reference-audit.yml"]
+permissions:
+  contents: write
+jobs:
+  inspect:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Inspect reference settings resources without executing the APK
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          curl -fsSL --retry 2 'https://github.com/smartmacro77-gif/apps/releases/download/v1.0/MakroTV.XtreamYT.apk' -o /tmp/reference.apk
+          "$ANDROID_HOME/build-tools/35.0.0/aapt" dump --values resources /tmp/reference.apk > /tmp/reference-resources.txt
+          python3 - <<'PY'
+          import base64, os, re, subprocess, zipfile
+          apk='/tmp/reference.apk'
+          aapt=os.environ['ANDROID_HOME']+'/build-tools/35.0.0/aapt'
+          lines=open('/tmp/reference-resources.txt',encoding='utf-8',errors='replace').read().splitlines()
+          ids={}
+          for line in lines:
+              match=re.search(r'(?:spec )?resource (0x[0-9a-f]+) brstore\.makro\.app:([a-z]+)/([^:]+):',line)
+              if match: ids[match.group(1)]=match.group(2)+'/'+match.group(3)
+          xml=subprocess.check_output([aapt,'dump','xmltree',apk,'res/layout/activity_settings.xml'],text=True,errors='replace')
+          for key, value in ids.items(): xml=xml.replace('@'+key,'@'+value)
+          relevant='\n'.join(line for line in xml.splitlines() if 'E:' in line or re.search(r'android:(id|src|background|text|visibility)\(',line) or 'srcCompat' in line)
+          names=zipfile.ZipFile(apk).namelist()
+          inventory='\n'.join(name for name in names if re.search(r'(?i)(settings|epg|stream_format|time_format|automation|parental|multi|player|account_info|speed_test)',name) and re.search(r'\.(png|webp|xml)$',name))
+          body=('REFERENCE_SETTINGS_ICONS_V1\n'+relevant+'\n=== resource files ===\n'+inventory)[:60000]
+          subprocess.run(['gh','api',f"repos/{os.environ['GITHUB_REPOSITORY']}/commits/{os.environ['GITHUB_SHA']}/comments",'--method','POST','-f','body='+body],check=True,stdout=subprocess.DEVNULL)
+          PY
