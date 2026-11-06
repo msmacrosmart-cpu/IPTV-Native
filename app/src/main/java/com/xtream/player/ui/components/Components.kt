@@ -56,11 +56,17 @@ fun Modifier.focusGlow(
 ): Modifier = composed {
     var focused by remember { mutableStateOf(false) }
     val t by animateFloatAsState(if (focused) 1f else 0f, tween(140), label = "focus")
+    // Keep the modifier nodes stable while focus animates. Conditionally inserting a border or
+    // shadow before a clickable can recreate its focus target and immediately drop TV focus.
     this
         .onFocusChanged { focused = it.hasFocus }
-        .graphicsLayer { scaleX = 1f + (zoom - 1f) * t; scaleY = 1f + (zoom - 1f) * t }
-        .shadow((14 * t).dp, shape, clip = false, ambientColor = XColors.Accent, spotColor = XColors.Gold)
-        .then(if (focused) Modifier.border(width, FocusBrush, shape) else Modifier)
+        .graphicsLayer {
+            scaleX = 1f + (zoom - 1f) * t; scaleY = 1f + (zoom - 1f) * t
+            shadowElevation = 14.dp.toPx() * t
+            this.shape = shape; clip = false
+            ambientShadowColor = XColors.Accent; spotShadowColor = XColors.Gold
+        }
+        .border(width, if (focused) FocusBrush else SolidColor(Color.Transparent), shape)
 }
 
 /** Painel "glassmorphism": vidro escuro, brilho diagonal e borda clara. */

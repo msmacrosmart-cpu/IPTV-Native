@@ -184,6 +184,7 @@ class ScreenIntegrationTest {
         compose.onNodeWithText("Todos").performClick()
         compose.onNodeWithTag("channel-list").performScrollToNode(hasTestTag("channel-2"))
         compose.onNodeWithTag("channel-2").performSemanticsAction(SemanticsActions.RequestFocus)
+        compose.onNodeWithTag("channel-2").assertIsFocused()
         compose.waitUntil(10_000) {
             runCatching { compose.onNodeWithTag("preview-channel").assertTextContains("Canal Esportes", substring = true) }.isSuccess
         }

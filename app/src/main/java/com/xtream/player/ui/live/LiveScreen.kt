@@ -79,7 +79,7 @@ fun LiveScreen(
     var focusedId by rememberSaveable { mutableStateOf<String?>(null) }
     var previewId by rememberSaveable { mutableStateOf<String?>(null) }
     val listState = rememberLazyListState()
-    val restoreFocus = remember { FocusRequester() }
+    val focusRequesters = remember { mutableMapOf<String, FocusRequester>() }
     LaunchedEffect(previewEnabled, restoreChannelId, channels) {
         if (previewEnabled && restoreChannelId != null) {
             val index = channels.indexOfFirst { it.id == restoreChannelId }
@@ -89,7 +89,7 @@ fun LiveScreen(
                 listState.scrollToItem(index)
                 // NavHost may still have the outgoing player's focus during its transition.
                 delay(800)
-                if (focusedId == restoreChannelId) runCatching { restoreFocus.requestFocus() }
+                if (focusedId == restoreChannelId) runCatching { focusRequesters[restoreChannelId]?.requestFocus() }
                 onChannelRestored()
             }
         }
@@ -131,9 +131,10 @@ fun LiveScreen(
             Spacer(Modifier.height(10.dp))
             LazyColumn(state = listState, modifier = Modifier.testTag("channel-list"), verticalArrangement = Arrangement.spacedBy(8.dp), contentPadding = PaddingValues(vertical = 6.dp, horizontal = 4.dp)) {
                 items(channels, key = { it.id }) { ch ->
+                    val requester = remember(ch.id) { focusRequesters.getOrPut(ch.id) { FocusRequester() } }
                     ChannelRow(
                         ch, epg[ch.epgId], now, "ch:${ch.id}" in favorites, previewId == ch.id,
-                        modifier = if (ch.id == focusedId) Modifier.focusRequester(restoreFocus) else Modifier,
+                        modifier = Modifier.focusRequester(requester),
                         onFocus = { focusedId = ch.id },
                         onLongClick = { onToggleFav("ch:${ch.id}") },
                     ) { focusedId = ch.id; previewId = ch.id; onPlay(PlayerRequest(ch.name, ch.url, true, channels, channels.indexOf(ch))) }
