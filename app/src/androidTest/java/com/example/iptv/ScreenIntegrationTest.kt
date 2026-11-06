@@ -183,6 +183,7 @@ class ScreenIntegrationTest {
         compose.waitUntil(10_000) { exists("channel-2") && !exists("channel-1") }
         compose.onNodeWithText("Todos").performClick()
         compose.onNodeWithTag("channel-list").performScrollToNode(hasTestTag("channel-2"))
+        useRemoteInputMode()
         compose.onNodeWithTag("channel-2").performSemanticsAction(SemanticsActions.RequestFocus)
         compose.onNodeWithTag("channel-2").assertIsFocused()
         compose.waitUntil(10_000) {
@@ -243,6 +244,15 @@ class ScreenIntegrationTest {
         assertEquals(1_900_000_000_000L, cached?.expiresAtMillis ?: 0L)
         assertEquals(1_700_000_000_000L, cached?.createdAtMillis ?: 0L)
         app.repository.logout()
+    }
+
+    private fun useRemoteInputMode() {
+        // The emulator is a touch device: send a real D-pad event to leave touch mode before
+        // asserting TV focus. Clickable controls deliberately do not take focus in touch mode.
+        val output = InstrumentationRegistry.getInstrumentation().uiAutomation
+            .executeShellCommand("input keyevent KEYCODE_DPAD_DOWN")
+        ParcelFileDescriptor.AutoCloseInputStream(output).use { it.readBytes() }
+        compose.waitForIdle()
     }
 
     @OptIn(ExperimentalTestApi::class)
