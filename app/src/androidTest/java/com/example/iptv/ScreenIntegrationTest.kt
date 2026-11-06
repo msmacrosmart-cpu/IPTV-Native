@@ -131,7 +131,7 @@ class ScreenIntegrationTest {
                 val text = "view=${decor.width}x${decor.height} safe=$safeBounds login=$loginBounds " +
                     "session=${vm.session?.username} channels=${vm.content.channels.size} " +
                     "movies=${vm.content.movies.size} series=${vm.content.series.size} " +
-                    "favorites=${vm.favorites} streams=$streamPaths epg=${vm.epg.keys} " +
+                    "favorites=${vm.favorites} streams=$streamPaths epg=${vm.epg.keys} volumes=${multiVolumes()} " +
                     "windowFocus=${compose.activity.window.decorView.hasWindowFocus()} currentFocus=${compose.activity.currentFocus?.javaClass?.simpleName} " +
                     "imeInsets=${keyboardIsVisible()}\n${imeTrace.joinToString("\n")}\n$ime\n$nodes"
                 writeHostFile("ui-failure.txt", text.toByteArray())
@@ -165,7 +165,10 @@ class ScreenIntegrationTest {
     }
 
     @Before fun startPanel() {
-        server = MockWebServer()
+        server = MockWebServer().apply { start() }
+        // Never call synchronized server.url() inside a dispatcher: shutdown() holds the same
+        // monitor while waiting for dispatchers to finish, which can otherwise deadlock.
+        val panelBase = server.url("/")
         server.dispatcher = object : Dispatcher() {
             override fun dispatch(request: RecordedRequest): MockResponse =
                 respond(request).setHeader("Connection", "close")
@@ -231,7 +234,7 @@ class ScreenIntegrationTest {
                         val art = listOf("black-harbor", "summer-static", "house-of-tides", "field-notes", "white-room-six", "open-late", "crimson-skylark", "the-voltage-guard")
                         (101 until 101 + moviesCount.get()).joinToString(prefix = "[", postfix = "]") { id ->
                             val name = if (id == 101) "Filme Teste" else "Filme $id"
-                            val poster = server.url("/art/poster-${art[(id - 101) % art.size]}.webp")
+                            val poster = panelBase.resolve("/art/poster-${art[(id - 101) % art.size]}.webp")
                             """{"stream_id":$id,"name":"$name","category_id":"10","container_extension":"ts","rating":"8.0","added":"${2_000_000_000L - id}","stream_icon":"$poster"}"""
                         }
                     }
@@ -240,20 +243,19 @@ class ScreenIntegrationTest {
                         vodInfoIds.add(id)
                         // One item deliberately has no backdrop, to exercise the sharp poster fallback.
                         if (id == "102") """{"info":{"plot":"Sem arte larga"}}"""
-                        else """{"info":{"plot":"Sinopse real","genre":"Ação","cast":"Ator do painel, Atriz do painel","tmdb_id":"42","youtube_trailer":"abcdefghijk","backdrop_path":["${server.url("/art/backdrop-black-harbor.webp")}"]}}"""
+                        else """{"info":{"plot":"Sinopse real","genre":"Ação","cast":"Ator do painel, Atriz do painel","tmdb_id":"42","youtube_trailer":"abcdefghijk","backdrop_path":["${panelBase.resolve("/art/backdrop-black-harbor.webp")}"]}}"""
                     }
                     "get_series_categories" -> """[{"category_id":"20","category_name":"Drama"}]"""
                     "get_series" -> (101 until 101 + seriesCount.get()).joinToString(prefix = "[", postfix = "]") { id ->
                         val name = if (id == 101) "Série Teste" else "Série $id"
-                        """{"series_id":$id,"name":"$name","category_id":"20","genre":"Drama","cover":"${server.url("/art/poster-skyline-sentinels.webp")}"}"""
+                        """{"series_id":$id,"name":"$name","category_id":"20","genre":"Drama","cover":"${panelBase.resolve("/art/poster-skyline-sentinels.webp")}"}"""
                     }
-                    "get_series_info" -> """{"info":{"plot":"Sinopse da série","cast":"Pessoa da série","tmdb_id":"77","youtube_trailer":"abcdefghijk","backdrop_path":["${server.url("/art/backdrop-skyline-sentinels.webp")}"]},"episodes":{"1":[{"id":"201","episode_num":1,"season":1,"title":"Primeiro","container_extension":"ts"},{"id":"202","episode_num":2,"season":1,"title":"Segundo","container_extension":"ts"}]}}"""
+                    "get_series_info" -> """{"info":{"plot":"Sinopse da série","cast":"Pessoa da série","tmdb_id":"77","youtube_trailer":"abcdefghijk","backdrop_path":["${panelBase.resolve("/art/backdrop-skyline-sentinels.webp")}"]},"episodes":{"1":[{"id":"201","episode_num":1,"season":1,"title":"Primeiro","container_extension":"ts"},{"id":"202","episode_num":2,"season":1,"title":"Segundo","container_extension":"ts"}]}}"""
                     else -> "{}"
                 }
                 return MockResponse().setHeader("Content-Type", "application/json").setBody(body)
             }
         }
-        server.start()
     }
 
     @After fun stopPanel() {
@@ -364,7 +366,7 @@ class ScreenIntegrationTest {
         compose.onNodeWithTag("poster-series:101").performSemanticsAction(SemanticsActions.OnLongClick)
         assertTrue(vm.favorites.containsAll(listOf("vod:101", "series:101")))
         compose.onNodeWithTag("poster-series:101").performClick()
-        compose.waitUntil(20_000) { textExists("Temporada 1") }
+        compose.waitUntil(20_000) { vm.episodeSelection?.choices?.size == 2 }
         capture("screen-series.png")
         compose.onNodeWithTag("detail-list").performScrollToNode(hasText("T1 E2 · Segundo"))
         compose.onNodeWithText("T1 E2 · Segundo").performClick()
@@ -461,12 +463,16 @@ class ScreenIntegrationTest {
         compose.waitUntil(10_000) { !keyboardIsVisible() }
         compose.onNodeWithContentDescription("Adicionar canal 2").performClick()
         compose.onNodeWithTag("choose-channel-2").performClick()
-        compose.waitUntil(10_000) { !keyboardIsVisible() }
+        // A queued IME show from the picker must not reappear over the playback controls.
+        Thread.sleep(1_000)
+        compose.waitUntil(15_000) { !keyboardIsVisible() && !systemImeShown() && compose.activity.window.decorView.hasWindowFocus() }
         compose.waitUntil(10_000) { runCatching { compose.onNodeWithTag("multi-tile-2").assertIsFocused() }.isSuccess }
         compose.waitUntil(30_000) { multiState(1) == "playing" && multiState(2) == "playing" }
         compose.onNodeWithContentDescription("Som ativo na tela 2").assertExists()
+        compose.waitUntil(10_000) { multiVolumes() == listOf(0f, 1f) }
         compose.onNodeWithTag("multi-sound-1").performClick()
         compose.waitUntil(10_000) { compose.onAllNodesWithContentDescription("Som ativo na tela 1").fetchSemanticsNodes().isNotEmpty() }
+        compose.waitUntil(10_000) { multiVolumes() == listOf(1f, 0f) }
         compose.waitUntil(10_000) { multiState(1) == "playing" && multiState(2) == "playing" }
         compose.onNodeWithTag("multi-count-2").performClick()
         compose.waitUntil(10_000) { !exists("multi-tile-3") && !exists("multi-tile-4") }
@@ -595,6 +601,9 @@ class ScreenIntegrationTest {
             assertFalse("Search must disappear when a movie is selected", exists("search-field"))
             assertEquals("Ator do painel", vm.detailExtras.cast.first().name)
             assertTrue("No request should be sent to TMDB without a key", tmdbRequests.isEmpty())
+            // The search IME can report hidden briefly before a queued show completes.
+            Thread.sleep(700)
+            compose.waitUntil(15_000) { !keyboardIsVisible() && !systemImeShown() && compose.activity.window.decorView.hasWindowFocus() }
             shell("input keyevent KEYCODE_BACK")
             compose.waitUntil(10_000) { exists("search-field") && exists("poster-vod:101") }
             compose.onNodeWithTag("search-field").assertTextContains("Filme Teste")
@@ -622,13 +631,17 @@ class ScreenIntegrationTest {
                 visibleHeight > 0f && visibleHeight < 140f * compose.activity.resources.displayMetrics.density)
             capture("screen-phone-detail.png")
 
-            // A real Down from the hero enters the cast and scrolls it fully into view.
+            // Down enters the cast, then moves to its next row and scrolls it fully into view.
             useRemoteInputMode()
             compose.onNodeWithTag("detail-trailer").performSemanticsAction(SemanticsActions.RequestFocus)
                 .assertIsFocused().performKeyInput { pressKey(Key.DirectionDown) }
             compose.waitUntil(10_000) { (0..7).any { focused("cast-member-$it") } }
-            compose.onNodeWithTag("cast-member-0").performSemanticsAction(SemanticsActions.RequestFocus).assertIsFocused()
-            repeat(7) { index ->
+            val columns = (((viewport.width / compose.activity.resources.displayMetrics.density - 42f) / 122f).toInt()).coerceIn(1, 12)
+            assertTrue("Test cast must span more than one row", columns < 8)
+            compose.onNodeWithTag("cast-member-0").performSemanticsAction(SemanticsActions.RequestFocus)
+                .assertIsFocused().performKeyInput { pressKey(Key.DirectionDown) }
+            compose.waitUntil(10_000) { focused("cast-member-$columns") }
+            for (index in columns until 7) {
                 compose.onNodeWithTag("cast-member-$index").performKeyInput { pressKey(Key.DirectionRight) }
                 compose.waitUntil(10_000) { focused("cast-member-${index + 1}") }
             }
@@ -894,7 +907,7 @@ class ScreenIntegrationTest {
         compose.runOnIdle { vm.updateUserSettings(vm.settings.copy(autoplayNextEpisode = true)) }
         compose.onNodeWithContentDescription("Séries").performClick()
         compose.onNodeWithTag("poster-series:101").performClick()
-        compose.waitUntil(20_000) { textExists("T1 E1 · Primeiro") }
+        compose.waitUntil(20_000) { vm.episodeSelection?.choices?.size == 2 }
         compose.onNodeWithTag("detail-list").performScrollToNode(hasText("T1 E1 · Primeiro"))
         compose.onNodeWithText("T1 E1 · Primeiro").performClick()
         compose.waitUntil(30_000) { streamPaths.any { it.endsWith("/201.ts") } && playerState() == "playing" }
@@ -1074,6 +1087,10 @@ class ScreenIntegrationTest {
         var volume: Float? = null
         previewPlayerProperty { volume = it.player?.volume }
         return volume
+    }
+
+    private fun multiVolumes(): List<Float> = mutableListOf<Float>().also { volumes ->
+        previewPlayerProperty { view -> view.player?.volume?.let(volumes::add) }
     }
 
     private fun previewPlayerIdentity(): Int? {

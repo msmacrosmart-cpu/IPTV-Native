@@ -67,19 +67,24 @@ fun DetailScreen(item: VodItem, favorite: Boolean, selection: AppViewModel.Episo
       val compact = maxWidth < 700.dp || short
       // On a short landscape screen leave the top of the cast visible without scrolling.
       val heroHeight = if (short) (maxHeight * .62f).coerceIn(200.dp, 250.dp) else if (compact) 340.dp else 380.dp
+      val castColumns = (((maxWidth.value - 42f) / 122f).toInt()).coerceIn(1, 12)
+      val castRows = remember(extras.cast, castColumns) { extras.cast.chunked(castColumns) }
       LazyColumn(Modifier.fillMaxSize().testTag("detail-list"), contentPadding = PaddingValues(bottom = 32.dp)) {
         item(key = "hero") {
             DetailHero(item, favorite, !item.isSeries || choices.isNotEmpty(), loading, compact, short, heroHeight,
                 extras.youtubeId, onBack, onFavorite, onPlay, onTrailer)
         }
-        if (extras.cast.isNotEmpty()) item(key = "cast") {
-            Column(Modifier.fillMaxWidth().padding(vertical = 8.dp).testTag("detail-cast")) {
+        if (castRows.isNotEmpty()) {
+            item(key = "cast-heading") {
                 Text("Elenco", color = XColors.Text, fontSize = 20.sp, fontWeight = FontWeight.SemiBold,
-                    modifier = Modifier.padding(horizontal = 26.dp, vertical = 6.dp))
-                LazyRow(contentPadding = PaddingValues(horizontal = 26.dp, vertical = 6.dp),
-                    horizontalArrangement = Arrangement.spacedBy(10.dp), modifier = Modifier.testTag("cast-list")) {
-                    itemsIndexed(extras.cast, key = { index, person -> "$index:${person.name}" }) { index, person ->
-                        CastCard(person, Modifier.testTag("cast-member-$index"))
+                    modifier = Modifier.padding(start = 26.dp, end = 26.dp, top = 14.dp, bottom = 8.dp).testTag("detail-cast"))
+            }
+            // Separate lazy rows, rather than a horizontal rail: pressing Down reveals every actor.
+            itemsIndexed(castRows, key = { row, _ -> "cast-row-$row" }) { row, people ->
+                Row(Modifier.fillMaxWidth().padding(start = 26.dp, end = 26.dp, bottom = 10.dp),
+                    horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                    people.forEachIndexed { column, person ->
+                        CastCard(person, Modifier.testTag("cast-member-${row * castColumns + column}"))
                     }
                 }
             }

@@ -57,7 +57,7 @@ fun youtubeVideoId(value: String?): String? {
 
 fun providerExtras(details: VodDetails?): DetailExtras = DetailExtras(
     cast = details?.cast.orEmpty().split(',', ';').map(String::trim).filter(String::isNotEmpty)
-        .distinct().take(20).map { CastMember(it) },
+        .map { CastMember(it) },
     youtubeId = youtubeVideoId(details?.youtubeTrailer),
 )
 
@@ -67,9 +67,12 @@ fun providerExtras(details: VodDetails?): DetailExtras = DetailExtras(
  * for tests; production uses HTTPS. Requests are cancellable and responses are bounded.
  */
 class TmdbRepository(
-    private val client: OkHttpClient,
+    client: OkHttpClient,
     private val baseUrl: HttpUrl = "https://api.themoviedb.org/3/".toHttpUrl(),
 ) {
+    // The v3 API key is a query parameter: never follow a redirect to another host or HTTP.
+    private val client = client.newBuilder().followRedirects(false).followSslRedirects(false).build()
+
     suspend fun lookup(title: String, year: String, isSeries: Boolean, providerId: String?, apiKey: String): TmdbResult {
         if (apiKey.isBlank()) return TmdbResult.Unavailable
         val type = if (isSeries) "tv" else "movie"
@@ -128,7 +131,7 @@ class TmdbRepository(
             val person = entry as? JsonObject ?: return@mapNotNull null
             val name = person.text("name")?.takeIf(String::isNotBlank) ?: return@mapNotNull null
             CastMember(name, person.text("character")?.takeIf(String::isNotBlank), imageUrl(person.text("profile_path"), "w185"))
-        }.distinctBy { it.name to it.character }.take(20)
+        }
         val videos = (root["videos"] as? JsonObject)?.get("results") as? JsonArray
         val trailer = videos.orEmpty().mapNotNull { it as? JsonObject }
             .filter { it.text("site").equals("YouTube", true) && it.text("type").equals("Trailer", true) }

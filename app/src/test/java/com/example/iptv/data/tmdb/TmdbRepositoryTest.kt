@@ -75,6 +75,20 @@ class TmdbRepositoryTest {
         assertNull(youtubeVideoId("too-short"))
     }
 
+    @Test fun retainsTheEntireCastRatherThanTruncatingIt() = runBlocking {
+        val cast = (1..35).joinToString(",") { """{"name":"Pessoa $it"}""" }
+        server.enqueue(MockResponse().setBody("""{"credits":{"cast":[$cast]}}"""))
+        val result = repo.lookup("Teste", "", false, "1", "key") as TmdbResult.Found
+        assertEquals(35, result.metadata.extras.cast.size)
+        assertEquals("Pessoa 35", result.metadata.extras.cast.last().name)
+    }
+
+    @Test fun neverFollowsRedirectsWithTheApiKey() = runBlocking {
+        server.enqueue(MockResponse().setResponseCode(302).setHeader("Location", server.url("/unexpected")))
+        assertEquals(TmdbResult.Unavailable, repo.lookup("Teste", "", false, "1", "secret"))
+        assertEquals(1, server.requestCount)
+    }
+
     @Test fun unauthorizedAndOfflineFailGracefullyAndRequestsAreCancellable() = runBlocking {
         server.enqueue(MockResponse().setResponseCode(401))
         assertEquals(TmdbResult.Unauthorized, repo.lookup("Teste", "", false, "1", "wrong"))

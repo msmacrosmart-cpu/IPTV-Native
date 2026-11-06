@@ -77,6 +77,17 @@ fun MultiScreen(channels: List<Channel>, slotIds: List<String?>, audible: Int, e
     val requests = remember { List(4) { FocusRequester() } }
     val inputMode = LocalInputModeManager.current
     val view = LocalView.current
+    val hideKeyboard = rememberHideKeyboard()
+    var pickerWasOpen by remember { mutableStateOf(false) }
+    LaunchedEffect(picking) {
+        if (picking != null) pickerWasOpen = true
+        else if (pickerWasOpen) {
+            // A dialog's IME can show late, after its window has been dismissed. Close any
+            // queued show requests from the parent window too, until focus has settled.
+            repeat(6) { delay(150); hideKeyboard() }
+            pickerWasOpen = false
+        }
+    }
     val count = screenCount.coerceIn(1, 4)
     val hasPlayers = slotIds.take(count).any { id -> id != null && channels.any { it.id == id } }
     val audioAllowed = rememberMultiAudioFocus(enabled && hasPlayers)

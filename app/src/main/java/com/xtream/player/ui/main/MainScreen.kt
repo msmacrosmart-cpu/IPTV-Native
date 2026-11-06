@@ -66,6 +66,13 @@ fun MainScreen(session: Session?, content: ContentState, epg: Map<String, List<P
     // TV input services sometimes finish a queued show after the tab changes. Repeat the
     // hide once the new screen is mounted, so it does not cover the player or catalog.
     LaunchedEffect(tab) { delay(250); hideKeyboard() }
+    LaunchedEffect(detail?.favoriteKey) {
+        if (detail != null) {
+            // Search may have just queued an IME show while the selected card opened.
+            delay(200); hideKeyboard()
+            delay(300); hideKeyboard()
+        }
+    }
     val focusManager = LocalFocusManager.current
     val inputMode = LocalInputModeManager.current
     val selectTab: (Tab) -> Unit = { selected ->
