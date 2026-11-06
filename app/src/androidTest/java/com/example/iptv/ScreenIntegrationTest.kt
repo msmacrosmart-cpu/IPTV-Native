@@ -282,7 +282,8 @@ class ScreenIntegrationTest {
         compose.onNodeWithTag("app-background", useUnmergedTree = true).assertExists()
         compose.waitUntil(30_000) { existsUnmerged("app-background-loaded") }
         val appInfo = compose.activity.applicationInfo
-        assertEquals(R.mipmap.ic_launcher, appInfo.icon)
+        // Some Android launchers replace the normal manifest icon with roundIcon.
+        assertTrue(appInfo.icon == R.mipmap.ic_launcher || appInfo.icon == R.mipmap.ic_launcher_round)
         assertEquals(R.drawable.tv_launcher_banner, appInfo.banner)
         val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
         BitmapFactory.decodeResource(compose.activity.resources, R.drawable.splash_art, bounds)
@@ -736,21 +737,21 @@ class ScreenIntegrationTest {
             compose.onNodeWithTag("catalog-category-title").assertTextContains(folder)
 
             chooseSort("rating")
-            compose.onNodeWithTag("catalog-sort-direction").assertTextContains("Decrescente")
+            compose.onNodeWithTag("catalog-sort-direction").assertTextContains("Decrescente", substring = true)
             assertFirstCatalogItem("poster-$type:101")
-            compose.onNodeWithTag("catalog-sort-direction").performClick().assertTextContains("Crescente")
+            compose.onNodeWithTag("catalog-sort-direction").performClick().assertTextContains("Crescente", substring = true)
             assertFirstCatalogItem("poster-$type:102")
 
             chooseSort("title")
-            compose.onNodeWithTag("catalog-sort-direction").assertTextContains("Crescente")
+            compose.onNodeWithTag("catalog-sort-direction").assertTextContains("Crescente", substring = true)
             assertFirstCatalogItem("poster-$type:102")
-            compose.onNodeWithTag("catalog-sort-direction").performClick().assertTextContains("Decrescente")
+            compose.onNodeWithTag("catalog-sort-direction").performClick().assertTextContains("Decrescente", substring = true)
             assertFirstCatalogItem("poster-$type:101")
 
             chooseSort("recent")
-            compose.onNodeWithTag("catalog-sort-direction").assertTextContains("Decrescente")
+            compose.onNodeWithTag("catalog-sort-direction").assertTextContains("Decrescente", substring = true)
             assertFirstCatalogItem("poster-$type:101")
-            compose.onNodeWithTag("catalog-sort-direction").performClick().assertTextContains("Crescente")
+            compose.onNodeWithTag("catalog-sort-direction").performClick().assertTextContains("Crescente", substring = true)
             assertFirstCatalogItem("poster-$type:140")
 
             // Open an item far down an alphabetical folder and return without resetting
@@ -767,7 +768,7 @@ class ScreenIntegrationTest {
             compose.onNodeWithTag("catalog-category-title").assertTextContains(folder)
             compose.onNodeWithTag("browse-category-$category").assertIsSelected()
             compose.onNodeWithTag("catalog-sort-title").assertIsSelected()
-            compose.onNodeWithTag("catalog-sort-direction").assertTextContains("Crescente")
+            compose.onNodeWithTag("catalog-sort-direction").assertTextContains("Crescente", substring = true)
         }
         // Each tab retains its own folder and sort while the other tab is visited.
         compose.onNodeWithContentDescription("Filmes").performClick()
