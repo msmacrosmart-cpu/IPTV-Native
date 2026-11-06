@@ -16,6 +16,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.graphics.FilterQuality
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.input.pointer.pointerInput
@@ -43,7 +44,9 @@ fun LoadingScreen(message: String) {
         // Fit preserves its proportions on both TV and wide landscape phones; the
         // surrounding black matches the image and avoids stretching the logo.
         Image(painterResource(R.drawable.splash_art), contentDescription = "IPTV Native",
-            contentScale = ContentScale.Fit, modifier = Modifier.fillMaxSize().testTag("loading-art"))
+            contentScale = ContentScale.Fit, filterQuality = FilterQuality.High,
+            modifier = Modifier.widthIn(max = 960.dp).fillMaxWidth(.85f)
+                .fillMaxHeight(.75f).testTag("loading-art"))
         Column(Modifier.align(Alignment.BottomCenter).padding(bottom = if (compact) 10.dp else 24.dp),
             horizontalAlignment = Alignment.CenterHorizontally) {
             LoadingWheel(Modifier.size(if (compact) 30.dp else 44.dp))

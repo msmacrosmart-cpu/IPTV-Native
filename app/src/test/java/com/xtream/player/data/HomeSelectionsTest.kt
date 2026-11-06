@@ -36,6 +36,18 @@ class HomeSelectionsTest {
         assertEquals(listOf(12, 10), releaseHeroTargets(raw).map { it.id })
     }
 
+    @Test fun heroRequiresValidatedBackdropDeduplicatesAndNeverExceedsEight() {
+        val items = (1..14).map { movie(it.toString(), "new", it.toLong()).copy(backdrop = "https://example.com/$it.jpg") }
+        val mixed = listOf(items[0], items[0], items[1].copy(backdrop = null),
+            items[2].copy(isSeries = true)) + items.drop(3)
+        val approved = items.filter { it.id != "4" }.map { it.favoriteKey }.toSet()
+        val result = validHeroSlides(mixed, approved)
+        assertEquals(8, result.size)
+        assertEquals(result.size, result.distinctBy { it.favoriteKey }.size)
+        assertFalse(result.any { it.id in setOf("2", "3", "4") })
+        assertTrue(validHeroSlides(items, emptySet()).isEmpty())
+    }
+
     @Test fun topTenUsesProviderScoresAndStableTiesRatherThanClaimingPopularity() {
         val items = (1..12).map { movie(it.toString(), "a", null, rating = it.toDouble()) }
         assertEquals((12 downTo 3).map(Int::toString), topRated(items).map { it.id })

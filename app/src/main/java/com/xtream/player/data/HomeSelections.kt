@@ -27,3 +27,8 @@ fun topRated(items: List<VodItem>, limit: Int = 10): List<VodItem> = items.asSeq
     .distinctBy { it.favoriteKey }
     .sortedByDescending { it.rating.takeIf { score -> score.isFinite() } ?: 0.0 }
     .take(limit.coerceAtLeast(0)).toList()
+
+/** Only successfully decoded landscape artwork may enter the eight-title carousel. */
+fun validHeroSlides(items: List<VodItem>, validatedKeys: Set<String>): List<VodItem> = items.asSequence()
+    .filter { !it.isSeries && !it.backdrop.isNullOrBlank() && it.favoriteKey in validatedKeys }
+    .distinctBy { it.favoriteKey }.take(8).toList()

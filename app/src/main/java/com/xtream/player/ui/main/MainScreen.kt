@@ -93,7 +93,7 @@ fun MainScreen(session: Session?, content: ContentState, epg: Map<String, List<P
     BackHandler(enabled = detail == null && tab != Tab.Home) { selectTab(Tab.Home) }
 
     @Composable fun Header(compact: Boolean) {
-        TopBar(tab, query, { query = it }, searchFocus, compact, actions.onRefreshContent) { selectTab(Tab.Settings) }
+        TopBar(tab, query, { query = it }, searchFocus, compact, session, actions.onRefreshContent) { selectTab(Tab.Settings) }
     }
     @Composable fun Content(modifier: Modifier) {
         Box(modifier) {

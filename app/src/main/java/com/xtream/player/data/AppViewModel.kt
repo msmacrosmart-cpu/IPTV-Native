@@ -532,11 +532,11 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
-    /** Fetch/cache artwork only for the latest six release movies, never the whole library. */
+    /** Fetch/cache artwork only for the latest 24 release candidates, never the whole library. */
     fun prepareHeroItems(items: List<VodItem>) {
         val creds = repository.currentCredentials() ?: return
         if (session?.isDemo != false) return
-        val targets = items.asSequence().filter { !it.isSeries }.take(6)
+        val targets = items.asSequence().filter { !it.isSeries }.take(24)
             .mapNotNull { item -> item.id.toIntOrNull()?.let { HeroTarget(it, item.title, item.year) } }.toList()
         heroPrepJob?.cancel()
         heroPrepJob = viewModelScope.launch { app.heroLoader.prepare(creds, targets) }

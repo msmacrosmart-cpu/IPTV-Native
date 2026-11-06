@@ -1,5 +1,7 @@
 package com.xtream.player.ui.settings
 
+import androidx.activity.compose.BackHandler
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
@@ -76,17 +78,21 @@ fun SettingsScreen(
         ConfirmSettingsDialog("Remover perfil?", "As credenciais, favoritos e histórico locais de ${profile.username} serão removidos deste dispositivo.",
             onDismiss = { removeProfile = null }, onConfirm = { actions.removeProfile(profile.id); removeProfile = null })
     }
-    val anchors = rememberSettingsAnchors()
+    var page by rememberSaveable { mutableStateOf<String?>(null) }
+    BackHandler(enabled = page != null) { page = null }
     BoxWithConstraints(Modifier.fillMaxSize()) {
         val gutter = if (maxWidth < 600.dp) 16.dp else 32.dp
-        CompositionLocalProvider(LocalSettingsAnchors provides anchors) {
+        CompositionLocalProvider(LocalSettingsPage provides page) {
+            key(page) {
             Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).testTag("settings-list")
                 .padding(horizontal = gutter, vertical = 26.dp), verticalArrangement = Arrangement.spacedBy(18.dp)) {
                 Column {
                     Text("Configurações", color = XColors.Text, fontSize = 28.sp, fontWeight = FontWeight.SemiBold)
                     Text("Contas, reprodução e guia de programação", color = XColors.TextDim, fontSize = 14.sp, modifier = Modifier.padding(top = 4.dp))
                 }
-                SettingsShortcuts()
+                if (page == null) SettingsShortcuts { page = it }
+                else GlowButton("Voltar às configurações", ringAlways = false,
+                    modifier = Modifier.testTag("settings-back")) { page = null }
                 SettingsPanel("Perfis", "Alterne entre contas Xtream sem misturar favoritos, histórico ou cache.") {
                     if (profiles.isEmpty()) Text("Nenhum perfil salvo neste dispositivo.", color = XColors.TextDim, fontSize = 13.sp)
                     profiles.forEach { profile ->
@@ -100,7 +106,7 @@ fun SettingsScreen(
                             }
                         }
                     }
-                    GlowButton("Adicionar perfil", ringAlways = false) { server = ""; user = ""; password = "" }
+                    GlowButton("Adicionar perfil", ringAlways = false) { server = ""; user = ""; password = ""; page = "Conta Xtream Codes" }
                     Text("Para adicionar, preencha a conexão abaixo e selecione Salvar e conectar.", color = XColors.Body,
                         fontSize = 12.sp, modifier = Modifier.padding(top = 8.dp))
                 }
@@ -149,10 +155,13 @@ fun SettingsScreen(
                 AdvancedSettings(settings, epg.size, epgUpdatedAt, epgLoading, epgMessage, actions)
                 ParentalSettings(content, settings, parentalUnlocked, parentalBusy, actions)
                 DeviceTools()
+                if (page == null) {
                 GlowButton("Atualizar catálogo", Icons.Filled.Refresh, ringAlways = false, onClick = actions.refreshContent)
                 GlowButton("Sair da conta", Icons.Filled.Logout, ringAlways = false, onClick = actions.logout)
                 GlowButton("Licenças de terceiros", Icons.Filled.Info, ringAlways = false) { showLicenses = true }
+                }
                 Text("IPTV Native ${com.example.iptv.BuildConfig.VERSION_NAME}", color = XColors.Body, fontSize = 12.sp, modifier = Modifier.padding(bottom = 20.dp))
+            }
             }
         }
     }
@@ -160,7 +169,8 @@ fun SettingsScreen(
 
 @Composable
 internal fun SettingsPanel(title: String, description: String = "", content: @Composable ColumnScope.() -> Unit) {
-    GlassPanel(Modifier.widthIn(max = 1000.dp).fillMaxWidth(), RoundedCornerShape(16.dp)) {
+    if (LocalSettingsPage.current != title) return
+    GlassPanel(Modifier.testTag("settings-panel-$title").widthIn(max = 1000.dp).fillMaxWidth(), RoundedCornerShape(16.dp)) {
         Column(Modifier.fillMaxWidth().padding(22.dp)) {
             Text(title, color = XColors.Text, fontSize = 17.sp, fontWeight = FontWeight.SemiBold, modifier = settingsAnchor(title))
             if (description.isNotBlank()) Text(description, color = XColors.TextDim, fontSize = 13.sp, modifier = Modifier.padding(top = 5.dp))

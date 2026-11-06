@@ -306,6 +306,7 @@ class ScreenIntegrationTest {
         compose.onNodeWithTag("app-background", useUnmergedTree = true).assertExists()
         compose.waitUntil(30_000) { vodInfoIds.containsAll(listOf("101", "102", "103", "104", "105", "106")) }
         useRemoteInputMode()
+        compose.waitUntil(30_000) { exists("hero-carousel") }
         compose.onNodeWithContentDescription("Destaque 1: Filme Teste").performClick()
         compose.waitUntil(10_000) { exists("hero-watch-vod:101") }
         compose.onNodeWithTag("hero-watch-vod:101").performSemanticsAction(SemanticsActions.RequestFocus)
@@ -322,10 +323,10 @@ class ScreenIntegrationTest {
         compose.onNodeWithTag("hero-watch-vod:101").performKeyInput { pressKey(Key.DirectionRight) }
         compose.waitUntil(10_000) { runCatching { compose.onNodeWithTag("hero-details-vod:101").assertIsFocused() }.isSuccess }
         compose.onNodeWithTag("hero-details-vod:101").performKeyInput { pressKey(Key.DirectionRight) }
-        compose.waitUntil(10_000) { runCatching { compose.onNodeWithTag("hero-details-vod:102").assertIsFocused() }.isSuccess }
-        compose.onNodeWithTag("hero-details-vod:102").performKeyInput { pressKey(Key.DirectionLeft) }
-        compose.waitUntil(10_000) { runCatching { compose.onNodeWithTag("hero-watch-vod:102").assertIsFocused() }.isSuccess }
-        compose.onNodeWithTag("hero-watch-vod:102").performKeyInput { pressKey(Key.DirectionLeft) }
+        compose.waitUntil(10_000) { runCatching { compose.onNodeWithTag("hero-details-vod:104").assertIsFocused() }.isSuccess }
+        compose.onNodeWithTag("hero-details-vod:104").performKeyInput { pressKey(Key.DirectionLeft) }
+        compose.waitUntil(10_000) { runCatching { compose.onNodeWithTag("hero-watch-vod:104").assertIsFocused() }.isSuccess }
+        compose.onNodeWithTag("hero-watch-vod:104").performKeyInput { pressKey(Key.DirectionLeft) }
         compose.waitUntil(10_000) { runCatching { compose.onNodeWithTag("hero-watch-vod:101").assertIsFocused() }.isSuccess }
         // Wait beyond an autoplay period: a keyboard must never bounce to another page by itself.
         Thread.sleep(8_500)
@@ -355,6 +356,7 @@ class ScreenIntegrationTest {
         }
         compose.onNodeWithContentDescription("Multitela").assertDoesNotExist()
         // Assistir on the hero plays a movie directly without going through details.
+        compose.waitUntil(30_000) { exists("hero-carousel") }
         compose.onNodeWithContentDescription("Destaque 1: Filme Teste").performClick()
         compose.waitUntil(10_000) { exists("hero-watch-vod:101") }
         compose.onNodeWithTag("hero-watch-vod:101").performClick()
@@ -425,19 +427,22 @@ class ScreenIntegrationTest {
         showControls()
         compose.onNodeWithContentDescription("Voltar").performClick()
 
-        // A missing landscape image leaves the neutral backdrop, not the portrait poster.
+        // Missing and portrait images must be excluded from the carousel entirely.
         compose.onNodeWithContentDescription("Home").performClick()
         compose.onNodeWithTag("home-list").performScrollToIndex(0)
-        compose.onNodeWithContentDescription("Destaque 2: Filme 102").performClick()
-        compose.waitUntil(30_000) { exists("hero-watch-vod:102") && !keyboardIsVisible() }
-        assertFalse(existsUnmerged("hero-poster-loaded-vod:102"))
-        assertFalse(existsUnmerged("hero-backdrop-loaded-vod:102"))
+        compose.waitUntil(30_000) { exists("hero-carousel") }
+        compose.onNodeWithContentDescription("Destaque 2: Filme 104").performClick()
+        compose.waitUntil(30_000) { exists("hero-watch-vod:104") && !keyboardIsVisible() }
+        compose.onNodeWithContentDescription("Destaque 2: Filme 102").assertDoesNotExist()
+        compose.onNodeWithContentDescription("Destaque 3: Filme 103").assertDoesNotExist()
+        compose.onNodeWithTag("hero-watch-vod:102").assertDoesNotExist()
+        compose.onNodeWithTag("hero-watch-vod:103").assertDoesNotExist()
+        compose.onNodeWithContentDescription("Destaque 9: Filme 111").assertDoesNotExist()
         capture("screen-hero-no-backdrop.png")
-        // A provider may lie about the image type: portrait data is rejected after decoding.
-        compose.onNodeWithContentDescription("Destaque 3: Filme 103").performClick()
-        compose.waitUntil(30_000) { existsUnmerged("hero-backdrop-rejected-vod:103") }
-        assertFalse(existsUnmerged("hero-backdrop-loaded-vod:103"))
-        compose.onNodeWithTag("hero-details-vod:103").performClick()
+        // Details retain the same safety check even for items opened from the catalog.
+        compose.onNodeWithContentDescription("Filmes").performClick()
+        compose.waitUntil(10_000) { exists("poster-vod:103") }
+        compose.onNodeWithTag("poster-vod:103").performClick()
         compose.waitUntil(30_000) { existsUnmerged("detail-backdrop-rejected") }
         assertFalse(existsUnmerged("detail-backdrop-loaded"))
         compose.onNodeWithContentDescription("Voltar aos itens").performClick()
@@ -502,21 +507,29 @@ class ScreenIntegrationTest {
         listOf("setting-shortcut-speed", "setting-shortcut-vpn", "setting-shortcut-device").forEach {
             compose.onNodeWithTag(it).assertExists()
         }
-        compose.onNodeWithTag("setting-speed-test").assertExists()
-        compose.onNodeWithTag("setting-vpn").assertExists()
+        compose.onNodeWithTag("setting-speed-test").assertDoesNotExist()
+        compose.onNodeWithTag("setting-vpn").assertDoesNotExist()
         assertEquals(24, vm.settings.epgIntervalHours)
         assertEquals(3, vm.settings.catalogIntervalDays)
         compose.onNodeWithTag("setting-shortcut-epg").performClick()
-        compose.waitUntil(10_000) { runCatching { compose.onNodeWithText("Guia de programação (EPG)").assertIsDisplayed() }.isSuccess }
-        compose.onNodeWithTag("setting-catalog-interval-1").performScrollTo().performClick()
-        compose.waitUntil(10_000) { vm.settings.catalogIntervalDays == 1 }
-        assertEquals(1, app.sessionManager.loadSettings().catalogIntervalDays)
-        compose.onNodeWithText("Testar conexão").performScrollTo().performClick()
-        compose.waitUntil(20_000) { vm.connectionTest?.contains("ms") == true }
-        compose.onNodeWithText("Guia de programação (EPG)").performScrollTo().assertExists()
+        compose.onNodeWithTag("settings-shortcuts").assertDoesNotExist()
+        compose.onNodeWithTag("settings-panel-Guia de programação (EPG)").assertExists()
+        compose.onNodeWithTag("setting-catalog-interval-1").assertDoesNotExist()
         val count = guideRequests.get()
         compose.onNodeWithText("Atualizar EPG").performScrollTo().performClick()
         compose.waitUntil(30_000) { guideRequests.get() > count && !vm.epgLoading && vm.epgUpdatedAt != null }
+        compose.onNodeWithTag("settings-back").performScrollTo().performClick()
+        compose.onNodeWithTag("setting-shortcut-automation").performScrollTo().performClick()
+        compose.onNodeWithTag("setting-epg-auto").assertDoesNotExist()
+        compose.onNodeWithTag("setting-catalog-interval-1").performScrollTo().performClick()
+        compose.waitUntil(10_000) { vm.settings.catalogIntervalDays == 1 }
+        assertEquals(1, app.sessionManager.loadSettings().catalogIntervalDays)
+        compose.onNodeWithTag("settings-back").performScrollTo().performClick()
+        compose.onNodeWithTag("setting-shortcut-account").performScrollTo().performClick()
+        compose.onNodeWithText("Testar conexão").performScrollTo().performClick()
+        compose.waitUntil(20_000) { vm.connectionTest?.contains("ms") == true }
+        compose.onNodeWithTag("settings-back").performScrollTo().performClick()
+        compose.onNodeWithTag("setting-shortcut-connection").performScrollTo().performClick()
         compose.onNodeWithTag("credential-user").performScrollTo().performTextClearance()
         compose.onNodeWithTag("credential-user").performTextInput("bob")
         compose.onNodeWithText("Salvar e conectar").performScrollTo().performClick()
@@ -527,6 +540,7 @@ class ScreenIntegrationTest {
         val settingsFieldWidth = compose.onNodeWithTag("credential-server").fetchSemanticsNode().boundsInRoot.width
         assertTrue("Settings fields should be readable on TV", settingsFieldWidth <= 1000f * compose.activity.resources.displayMetrics.density)
         capture("screen-settings.png")
+        compose.onNodeWithTag("settings-back").performScrollTo().performClick()
         compose.onNodeWithText("Sair da conta").performScrollTo().performClick()
         compose.waitUntil(10_000) { textExists("Adicionar conexão") }
         assertTrue(app.repository.currentCredentials() == null)
@@ -562,10 +576,11 @@ class ScreenIntegrationTest {
             }
             val vm = ViewModelProvider(compose.activity)[AppViewModel::class.java]
             compose.waitUntil(30_000) { vm.content.movies.size == 30 }
-            compose.onNodeWithContentDescription("Destaque 1: Filme Teste").performClick()
+            compose.waitUntil(30_000) { exists("hero-carousel") }
+        compose.onNodeWithContentDescription("Destaque 1: Filme Teste").performClick()
             compose.waitUntil(10_000) { exists("hero-watch-vod:101") }
             compose.onNodeWithTag("hero-carousel").performTouchInput { swipeLeft() }
-            compose.waitUntil(10_000) { exists("hero-watch-vod:102") }
+            compose.waitUntil(10_000) { exists("hero-watch-vod:104") }
             compose.onNodeWithTag("hero-carousel").performTouchInput { swipeRight() }
             compose.waitUntil(10_000) { exists("hero-watch-vod:101") }
             compose.onNodeWithTag("home-list").performScrollToKey("suggested")
@@ -851,21 +866,22 @@ class ScreenIntegrationTest {
         useRemoteInputMode()
         if (isTv) traceIme("remote mode")
         // Real TV-system-image regression: advance and return without a pager/focus bounce.
+        compose.waitUntil(30_000) { exists("hero-carousel") }
         compose.onNodeWithContentDescription("Destaque 1: Filme Teste").performClick()
         compose.waitUntil(10_000) { exists("hero-watch-vod:101") }
         compose.onNodeWithTag("hero-watch-vod:101").performSemanticsAction(SemanticsActions.RequestFocus)
             .assertIsFocused().performKeyInput { pressKey(Key.DirectionRight) }
         compose.waitUntil(10_000) { focused("hero-details-vod:101") }
         compose.onNodeWithTag("hero-details-vod:101").performKeyInput { pressKey(Key.DirectionRight) }
-        compose.waitUntil(10_000) { focused("hero-details-vod:102") }
+        compose.waitUntil(10_000) { focused("hero-details-vod:104") }
         compose.onNodeWithTag("hero-slide-vod:101").assertDoesNotExist()
         val hero = compose.onNodeWithTag("hero-carousel").fetchSemanticsNode().boundsInRoot
         val slide = compose.onNodeWithTag("hero-slide-vod:102").fetchSemanticsNode().boundsInRoot
         assertTrue("A remote page change must snap to the full banner", kotlin.math.abs(hero.left - slide.left) < 2f &&
             kotlin.math.abs(hero.right - slide.right) < 2f)
-        compose.onNodeWithTag("hero-details-vod:102").performKeyInput { pressKey(Key.DirectionLeft) }
-        compose.waitUntil(10_000) { focused("hero-watch-vod:102") }
-        compose.onNodeWithTag("hero-watch-vod:102").performKeyInput { pressKey(Key.DirectionLeft) }
+        compose.onNodeWithTag("hero-details-vod:104").performKeyInput { pressKey(Key.DirectionLeft) }
+        compose.waitUntil(10_000) { focused("hero-watch-vod:104") }
+        compose.onNodeWithTag("hero-watch-vod:104").performKeyInput { pressKey(Key.DirectionLeft) }
         compose.waitUntil(10_000) { focused("hero-watch-vod:101") }
         compose.onNodeWithContentDescription("Filmes").performSemanticsAction(SemanticsActions.RequestFocus)
             .assertIsFocused().performKeyInput { pressKey(Key.DirectionCenter) }
@@ -1121,11 +1137,12 @@ class ScreenIntegrationTest {
         val app = compose.activity.application as IPTVApplication
         val vm = ViewModelProvider(compose.activity)[AppViewModel::class.java]
         compose.waitUntil(30_000) { vm.content.channels.size == 2 && vm.content.movies.size == 30 &&
-            app.catalogCache.catalog.value?.isFresh() == true && app.catalogCache.heroes.value?.entries?.size == 6 &&
+            app.catalogCache.catalog.value?.isFresh() == true && app.catalogCache.heroes.value?.entries?.size == 24 &&
             app.epgRepository.guide.value.programCount == 1 }
         val credentials = app.repository.currentCredentials()!!
         compose.runOnIdle { vm.channelFocused(vm.content.channels.first { it.id == "2" }) }
         compose.waitUntil(20_000) { runBlocking { app.catalogCache.loadShortGuide(credentials).entries.containsKey("sports") } }
+        compose.waitUntil(30_000) { exists("hero-carousel") }
         compose.onNodeWithContentDescription("Destaque 1: Filme Teste").performClick()
         compose.waitUntil(30_000) { existsUnmerged("hero-backdrop-loaded-vod:101") }
 

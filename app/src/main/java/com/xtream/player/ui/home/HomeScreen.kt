@@ -42,6 +42,14 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import coil.compose.AsyncImage
+import coil.imageLoader
+import coil.request.ImageRequest
+import coil.request.SuccessResult
+import androidx.compose.ui.platform.LocalContext
+import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
+import kotlinx.coroutines.sync.Semaphore
+import kotlinx.coroutines.sync.withPermit
 import com.example.iptv.data.model.VodDetails
 import com.xtream.player.data.*
 import com.xtream.player.ui.components.*
@@ -71,12 +79,30 @@ fun HomeScreen(content: ContentState, epg: Map<String, List<Programme>>, query: 
     // The hero is always the newest movies from the panel's Lançamentos category,
     // never favorites, series or unrelated highly-rated titles.
     val candidates = remember(content.movieCategories, content.movies) {
-        latestReleaseMovies(content.movieCategories, content.movies)
+        latestReleaseMovies(content.movieCategories, content.movies, limit = 24)
     }
     val topMovies = remember(content.movies, query) { topRated(content.movies).filter { it.title.contains(query, true) } }
     val topSeries = remember(content.series, query) { topRated(content.series).filter { it.title.contains(query, true) } }
     LaunchedEffect(candidates.map { it.favoriteKey }) { onPrepareHeroes(candidates) }
-    val slides = remember(candidates, heroDetails) { candidates.map { it.withHeroDetails(heroDetails[it.favoriteKey]) } }
+    val enriched = remember(candidates, heroDetails) {
+        candidates.map { it.withHeroDetails(heroDetails[it.favoriteKey]) }.distinctBy { it.favoriteKey }
+    }
+    val context = LocalContext.current
+    // A URL alone is not proof of a backdrop: reject missing, broken and portrait images
+    // before composing the hero or its controls. Lookups are bounded to 24 recent releases.
+    var slides by remember(candidates) { mutableStateOf<List<VodItem>>(emptyList()) }
+    LaunchedEffect(enriched) {
+        val slots = Semaphore(4)
+        val valid = enriched.map { item -> async {
+            if (item.backdrop.isNullOrBlank()) null else slots.withPermit {
+                val result = context.imageLoader.execute(ImageRequest.Builder(context)
+                    .data(item.backdrop).size(1280, 720).build()) as? SuccessResult
+                val image = result?.drawable
+                item.takeIf { image != null && image.intrinsicWidth > image.intrinsicHeight && image.intrinsicHeight > 0 }
+            }
+        } }.awaitAll().filterNotNull()
+        slides = validHeroSlides(enriched, valid.map { it.favoriteKey }.toSet())
+    }
 
     BoxWithConstraints(Modifier.fillMaxSize()) {
         val compact = maxWidth < 800.dp || maxHeight < 400.dp
@@ -89,7 +115,7 @@ fun HomeScreen(content: ContentState, epg: Map<String, List<Programme>>, query: 
             if (slides.isNotEmpty()) item(key = "hero") {
                 HeroCarousel(slides, heroHeight, compact, loadingHeroKey, onSelectItem, onWatchItem)
             }
-            else item(key = "hero-empty") { Text("Nenhum filme na categoria Lançamentos do provedor.",
+            else item(key = "hero-empty") { Text("Nenhum lançamento com banner válido disponível.",
                 color = XColors.TextDim, modifier = Modifier.padding(gutter).testTag("hero-empty")) }
             item(key = "top-movies") {
                 PosterRail("Top 10 filmes · por nota do provedor", topMovies, gutter, cardWidth, favorites, onSelectItem, onToggleFav,

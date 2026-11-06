@@ -33,9 +33,7 @@ import com.xtream.player.ui.components.focusGlow
 import com.xtream.player.ui.theme.XColors
 import kotlinx.coroutines.launch
 
-internal class SettingsAnchor(val bringIntoView: BringIntoViewRequester = BringIntoViewRequester(),
-                              val focus: FocusRequester = FocusRequester())
-internal val LocalSettingsAnchors = staticCompositionLocalOf<Map<String, SettingsAnchor>> { emptyMap() }
+internal val LocalSettingsPage = staticCompositionLocalOf<String?> { null }
 
 private data class Shortcut(val id: String, val title: String, val icon: ImageVector, val target: String)
 
@@ -43,8 +41,8 @@ private data class Shortcut(val id: String, val title: String, val icon: ImageVe
 private val shortcuts = listOf(
     Shortcut("general", "Configurações gerais", Icons.Outlined.Settings, "Configurações gerais"),
     Shortcut("epg", "EPG", Icons.Outlined.LiveTv, "Guia de programação (EPG)"),
-    Shortcut("stream", "Formato de transmissão", Icons.Outlined.Schedule, "Formato da transmissão ao vivo"),
-    Shortcut("time", "Formato de hora", Icons.Outlined.AccessTime, "Formato do relógio"),
+    Shortcut("stream", "Formato de transmissão", Icons.Outlined.Schedule, "Formato de transmissão"),
+    Shortcut("time", "Formato de hora", Icons.Outlined.AccessTime, "Formato de hora"),
     Shortcut("automation", "Automação", Icons.Outlined.Sync, "Automação"),
     Shortcut("parental", "Controle parental", Icons.Outlined.VerifiedUser, "Controle parental"),
     Shortcut("player", "Seleção de player", Icons.Outlined.PlayCircleOutline, "Seleção de player"),
@@ -54,28 +52,18 @@ private val shortcuts = listOf(
     Shortcut("vpn", "VPN", Icons.Outlined.Security, "VPN"),
     Shortcut("device", "Tipo de dispositivo", Icons.Outlined.Devices, "Tipo de dispositivo"),
     Shortcut("account", "Informações da conta", Icons.Outlined.AccountCircle, "Dados da conta"),
+    Shortcut("connection", "Conexão Xtream", Icons.Outlined.Link, "Conta Xtream Codes"),
+    Shortcut("storage", "Armazenamento", Icons.Outlined.Storage, "Armazenamento"),
     Shortcut("profiles", "Perfis", Icons.Outlined.People, "Perfis"),
 )
 
+/** Labels no longer act as scroll destinations: one destination is composed at a time. */
 @Composable
-internal fun rememberSettingsAnchors(): Map<String, SettingsAnchor> = remember {
-    shortcuts.map { it.target }.distinct().associateWith { SettingsAnchor() }
-}
-
-/** A shortcut scrolls to and focuses the real setting rather than opening an inert card. */
-@OptIn(ExperimentalFoundationApi::class)
-@Composable
-internal fun settingsAnchor(name: String): Modifier {
-    val anchor = LocalSettingsAnchors.current[name] ?: return Modifier
-    return Modifier.bringIntoViewRequester(anchor.bringIntoView).focusRequester(anchor.focus)
-        .focusGlow(RoundedCornerShape(6.dp), zoom = 1f).focusable()
-}
+internal fun settingsAnchor(name: String): Modifier = Modifier
 
 @OptIn(ExperimentalLayoutApi::class, ExperimentalFoundationApi::class)
 @Composable
-internal fun SettingsShortcuts() {
-    val anchors = LocalSettingsAnchors.current
-    val scope = rememberCoroutineScope()
+internal fun SettingsShortcuts(onSelect: (String) -> Unit) {
     BoxWithConstraints(Modifier.widthIn(max = 1000.dp).fillMaxWidth().testTag("settings-shortcuts")) {
         val columns = if (maxWidth < 440.dp) 2 else 3
         val width = (maxWidth - 10.dp * (columns - 1)) / columns
@@ -86,12 +74,7 @@ internal fun SettingsShortcuts() {
                 Column(Modifier.width(width).height(104.dp).testTag("setting-shortcut-${shortcut.id}")
                     .focusGlow(shape, zoom = 1f).clip(shape).background(XColors.Panel)
                     .border(1.dp, XColors.Line, shape).combinedClickable {
-                        anchors[shortcut.target]?.let { anchor ->
-                            scope.launch {
-                                anchor.bringIntoView.bringIntoView()
-                                runCatching { anchor.focus.requestFocus() }
-                            }
-                        }
+                        onSelect(shortcut.target)
                     }.padding(8.dp), horizontalAlignment = Alignment.CenterHorizontally,
                     verticalArrangement = Arrangement.Center) {
                     Icon(shortcut.icon, null, tint = Color(0xFF79ACF6), modifier = Modifier.size(35.dp))

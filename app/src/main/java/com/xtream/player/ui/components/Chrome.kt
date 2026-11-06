@@ -94,6 +94,7 @@ fun Sidebar(selected: Tab, onSelect: (Tab) -> Unit, compact: Boolean, modifier: 
             Column(Modifier.fillMaxSize().padding(vertical = 4.dp), horizontalAlignment = Alignment.CenterHorizontally,
                 verticalArrangement = Arrangement.SpaceEvenly) {
                 primary.forEach { SideButton(it, selected == it, itemSize) { onSelect(it) } }
+                IconAction(Icons.Outlined.Settings, "Configurações", onClick = { onSelect(Tab.Settings) })
             }
         }
     }
@@ -109,10 +110,11 @@ fun IconAction(icon: ImageVector, label: String, modifier: Modifier = Modifier, 
     }
 }
 
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
 fun TopBar(
     tab: Tab, query: String, onQuery: (String) -> Unit,
-    searchFocus: FocusRequester, compact: Boolean, onRefresh: () -> Unit, onOpenSettings: () -> Unit,
+    searchFocus: FocusRequester, compact: Boolean, session: com.xtream.player.data.Session?, onRefresh: () -> Unit, onOpenSettings: () -> Unit,
 ) {
     val hideKeyboard = rememberHideKeyboard()
     Row(Modifier.fillMaxWidth().height(56.dp).background(XColors.Sidebar).padding(horizontal = if (compact) 10.dp else 20.dp),
@@ -146,6 +148,18 @@ fun TopBar(
             }
         } else Spacer(Modifier.weight(1f))
         if (!compact) IconAction(Icons.Outlined.Refresh, "Atualizar catálogo", onClick = onRefresh)
-        IconAction(Icons.Outlined.Settings, "Configurações", onClick = onOpenSettings)
+        val accountShape = RoundedCornerShape(12.dp)
+        Row(Modifier.widthIn(max = if (compact) 190.dp else 300.dp)
+            .focusGlow(accountShape, zoom = 1f).clip(accountShape).background(XColors.Panel)
+            .combinedClickable(onClick = onOpenSettings).testTag("account-summary")
+            .padding(horizontal = 12.dp, vertical = 6.dp), verticalAlignment = Alignment.CenterVertically) {
+            Icon(Icons.Outlined.AccountCircle, null, tint = XColors.Accent, modifier = Modifier.size(28.dp))
+            Column(Modifier.padding(start = 8.dp)) {
+                Text(session?.username.orEmpty().ifBlank { "Minha conta" }, color = XColors.Text,
+                    fontWeight = FontWeight.SemiBold, fontSize = 13.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                Text("${session?.status ?: "—"} · ${session?.expDate?.let { com.xtream.player.util.fmtDateTime(it, true).substringBefore(" ") } ?: "Sem vencimento informado"}",
+                    color = XColors.TextDim, fontSize = 10.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            }
+        }
     }
 }

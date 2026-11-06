@@ -31,7 +31,7 @@ internal fun DeviceTools() {
             Toast.makeText(context, "Nenhum aplicativo compatível encontrado neste dispositivo.", Toast.LENGTH_LONG).show()
         }
     }
-    SettingsPanel("Ferramentas do dispositivo", "Ações do Android e serviços externos disponíveis neste aparelho.") {
+    SettingsPanel("Teste de velocidade", "Serviço externo disponível neste aparelho.") {
         SettingLabel("Teste de velocidade")
         Text("Abre um teste externo de velocidade no navegador. O resultado e a política de privacidade são do serviço escolhido.",
             color = XColors.Body, fontSize = 12.sp)
@@ -39,12 +39,16 @@ internal fun DeviceTools() {
         GlowButton("Abrir teste de velocidade", ringAlways = false, modifier = Modifier.testTag("setting-speed-test")) {
             open(Intent(Intent.ACTION_VIEW, Uri.parse("https://fast.com/")))
         }
+    }
+    SettingsPanel("VPN", "Configurações do sistema Android.") {
         SettingLabel("VPN")
         Text("Abra as configurações de VPN do Android. O aplicativo não fornece uma VPN própria.", color = XColors.Body, fontSize = 12.sp)
         Spacer(Modifier.height(8.dp))
         GlowButton("Configurar VPN no Android", ringAlways = false, modifier = Modifier.testTag("setting-vpn")) {
             open(Intent(Settings.ACTION_VPN_SETTINGS))
         }
+    }
+    SettingsPanel("Tipo de dispositivo") {
         SettingLabel("Tipo de dispositivo")
         Text("${if (tv) "Android TV" else "Celular ou tablet Android"}  ·  ${Build.MANUFACTURER} ${Build.MODEL}  ·  Android ${Build.VERSION.RELEASE}",
             color = XColors.TextDim, fontSize = 13.sp, modifier = Modifier.testTag("setting-device-type"))

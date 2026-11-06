@@ -39,13 +39,22 @@ fun AdvancedSettings(settings: UserSettings, epgChannels: Int, epgUpdatedAt: Lon
         "O catálogo e o guia salvos serão removidos. Credenciais, perfis, favoritos e histórico serão mantidos.",
         onDismiss = { confirmClear = false }, onConfirm = { confirmClear = false; actions.clearCache() })
 
-    SettingsPanel("Configurações gerais", "As alterações são aplicadas aos próximos vídeos.") {
+    SettingsPanel("Formato de transmissão") {
         SettingLabel("Formato da transmissão ao vivo")
         FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
             StreamFormat.entries.forEach { format ->
                 CategoryChip(format.label, settings.streamFormat == format) { actions.updateSettings(settings.copy(streamFormat = format)) }
             }
         }
+    }
+    SettingsPanel("Formato de hora") {
+        SettingLabel("Formato do relógio")
+        FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            CategoryChip("24 horas", settings.time24Hour) { actions.updateSettings(settings.copy(time24Hour = true)) }
+            CategoryChip("12 horas", !settings.time24Hour) { actions.updateSettings(settings.copy(time24Hour = false)) }
+        }
+    }
+    SettingsPanel("Configurações gerais", "As alterações são aplicadas aos próximos vídeos.") {
         SettingLabel("Decodificador")
         FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
             VideoDecoder.entries.forEach { decoder ->
@@ -80,7 +89,6 @@ fun AdvancedSettings(settings: UserSettings, epgChannels: Int, epgUpdatedAt: Lon
             GlowButton("Padrão", ringAlways = false) { agent = DEFAULT_USER_AGENT; actions.updateSettings(settings.copy(userAgent = DEFAULT_USER_AGENT)) }
         }
     }
-    Spacer(Modifier.height(18.dp))
     SettingsPanel("Seleção de player", "Escolha o player interno ou outro aplicativo para cada tipo de conteúdo.") {
         PlayerChoice("TV ao vivo", settings.livePlayer) { actions.updateSettings(settings.copy(livePlayer = it)) }
         PlayerChoice("Filmes", settings.moviePlayer) { actions.updateSettings(settings.copy(moviePlayer = it)) }
@@ -88,7 +96,6 @@ fun AdvancedSettings(settings: UserSettings, epgChannels: Int, epgUpdatedAt: Lon
         Text("Ao usar outro aplicativo, o endereço do vídeo e as credenciais nele contidas serão compartilhados com o aplicativo escolhido.",
             color = XColors.TextDim, fontSize = 12.sp, modifier = Modifier.padding(top = 12.dp))
     }
-    Spacer(Modifier.height(18.dp))
     SettingsPanel("Automação", "Abra o conteúdo salvo imediatamente e atualize o catálogo em segundo plano.") {
         SettingLabel("Atualização do conteúdo")
         FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -102,7 +109,6 @@ fun AdvancedSettings(settings: UserSettings, epgChannels: Int, epgUpdatedAt: Lon
         Text("Padrão: 3 dias. O Android pode adiar atualizações por economia de bateria ou falta de rede.",
             color = XColors.Body, fontSize = 12.sp, modifier = Modifier.padding(top = 8.dp))
     }
-    Spacer(Modifier.height(18.dp))
     SettingsPanel("Guia de programação (EPG)", "Última atualização: ${epgUpdatedAt?.let { fmtDateTime(it, settings.time24Hour) } ?: "Nunca"}  ·  $epgChannels canais") {
         SettingToggle("Atualizar EPG automaticamente", settings.autoUpdateEpg, "setting-epg-auto") {
             actions.updateSettings(settings.copy(autoUpdateEpg = it))
@@ -136,11 +142,6 @@ fun AdvancedSettings(settings: UserSettings, epgChannels: Int, epgUpdatedAt: Lon
         SettingToggle("Mostrar programação completa", settings.showFullEpg, "setting-full-epg") {
             actions.updateSettings(settings.copy(showFullEpg = it))
         }
-        SettingLabel("Formato do relógio")
-        FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            CategoryChip("24 horas", settings.time24Hour) { actions.updateSettings(settings.copy(time24Hour = true)) }
-            CategoryChip("12 horas", !settings.time24Hour) { actions.updateSettings(settings.copy(time24Hour = false)) }
-        }
         SettingLabel("Fonte XMLTV personalizada (opcional)")
         PillField(xmltv, { xmltv = it }, "https://servidor/guia.xml", Modifier.fillMaxWidth().testTag("setting-xmltv-url"),
             keyboardType = KeyboardType.Uri, imeAction = ImeAction.Done,
@@ -153,7 +154,6 @@ fun AdvancedSettings(settings: UserSettings, epgChannels: Int, epgUpdatedAt: Lon
         }
         if (epgMessage != null) Text(epgMessage, color = XColors.TextDim, fontSize = 13.sp, modifier = Modifier.padding(top = 10.dp))
     }
-    Spacer(Modifier.height(18.dp))
     SettingsPanel("Armazenamento", "Libere o cache local do perfil atual sem apagar favoritos ou histórico.") {
         GlowButton("Limpar cache da conta", ringAlways = false) { confirmClear = true }
     }

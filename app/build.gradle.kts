@@ -22,8 +22,8 @@ android {
         applicationId = "com.example.iptv"
         minSdk = 24
         targetSdk = 35
-        versionCode = 8
-        versionName = "2.6.0"
+        versionCode = 9
+        versionName = "2.7.0"
         buildConfigField("String", "TMDB_API_KEY", "\"$tmdbApiKey\"")
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
 

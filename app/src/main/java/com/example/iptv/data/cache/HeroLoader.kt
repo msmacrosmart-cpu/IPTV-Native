@@ -18,7 +18,7 @@ import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 
-/** Artwork lookups are bounded to the six visible release candidates. */
+/** Artwork lookups are bounded to the 24 recent release candidates. */
 data class HeroTarget(val id: Int, val title: String, val year: String = "")
 
 private val YEAR = Regex("\\b(?:19|20)\\d{2}\\b")
@@ -26,7 +26,7 @@ private val YEAR = Regex("\\b(?:19|20)\\d{2}\\b")
 fun releaseHeroTargets(catalog: CachedCatalog): List<HeroTarget> {
     val ids = catalog.movieCategories.asSequence().filter { isReleaseCategory(it.name) }.map { it.id }.toSet()
     return catalog.movies.asSequence().filter { it.categoryId != null && ids.contains(it.categoryId) }.distinctBy(VodItem::id)
-        .sortedByDescending { it.addedAtMillis ?: Long.MIN_VALUE }.take(6)
+        .sortedByDescending { it.addedAtMillis ?: Long.MIN_VALUE }.take(24)
         .map { HeroTarget(it.id, it.name, YEAR.find(it.name)?.value.orEmpty()) }.toList()
 }
 
@@ -42,7 +42,7 @@ class HeroLoader(
 
     suspend fun prepare(credentials: PanelCredentials, requested: List<HeroTarget>): Boolean = mutex.withLock {
         val token = repository.sessionToken(credentials) ?: return@withLock false
-        val targets = requested.distinctBy { it.id }.take(6)
+        val targets = requested.distinctBy { it.id }.take(24)
         val cached = cache.loadHeroes(credentials).entries
         val now = System.currentTimeMillis()
         val apiKey = tmdbKey()
