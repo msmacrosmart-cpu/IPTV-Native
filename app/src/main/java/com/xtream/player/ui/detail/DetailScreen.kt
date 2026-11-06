@@ -27,6 +27,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.input.InputMode
 import androidx.compose.ui.platform.LocalInputModeManager
 import androidx.compose.ui.graphics.Brush
@@ -154,10 +155,16 @@ private fun DetailHero(item: VodItem, favorite: Boolean, canPlay: Boolean, loadi
                        onFavorite: () -> Unit, onPlay: () -> Unit, onTrailer: (String) -> Unit) {
     val playFocus = remember(item.favoriteKey) { FocusRequester() }
     val inputMode = LocalInputModeManager.current
+    var heroHasFocus by remember(item.favoriteKey) { mutableStateOf(false) }
     LaunchedEffect(item.favoriteKey, canPlay) {
-        if (canPlay && inputMode.inputMode != InputMode.Touch) { delay(120); runCatching { playFocus.requestFocus() } }
+        if (canPlay && inputMode.inputMode != InputMode.Touch) {
+            delay(120)
+            // Do not steal focus if the user already chose Trailer, Favorite or Back
+            // while metadata was loading or the details screen was settling.
+            if (!heroHasFocus) runCatching { playFocus.requestFocus() }
+        }
     }
-    BoxWithConstraints(Modifier.fillMaxWidth()) {
+    BoxWithConstraints(Modifier.fillMaxWidth().onFocusChanged { heroHasFocus = it.hasFocus }.focusGroup()) {
         Box(Modifier.fillMaxWidth().height(heroHeight).testTag("detail-hero")) {
             Box(Modifier.fillMaxSize().background(XColors.PanelHeader))
             WideBackdrop(item.backdrop, "detail-backdrop", "detail-backdrop-loaded", "detail-backdrop-rejected",

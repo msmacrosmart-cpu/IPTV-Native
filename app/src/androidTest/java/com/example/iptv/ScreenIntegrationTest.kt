@@ -936,8 +936,11 @@ class ScreenIntegrationTest {
         compose.onNodeWithTag("cast-rail").assertDoesNotExist()
         assertFalse("Movie details must hide the search bar", exists("search-field"))
         if (isTv) capture("screen-android-tv-detail.png")
-        compose.onNodeWithTag("detail-trailer").performSemanticsAction(SemanticsActions.RequestFocus)
-            .assertIsFocused()
+        compose.waitUntil(10_000) {
+            compose.onNodeWithTag("detail-trailer").performSemanticsAction(SemanticsActions.RequestFocus)
+            focused("detail-trailer")
+        }
+        compose.onNodeWithTag("detail-trailer").assertIsFocused()
         shell("input keyevent KEYCODE_BACK")
         compose.waitUntil(20_000) { exists("search-field") && focused("poster-vod:125") }
         compose.onNodeWithTag("catalog-category-title").assertTextContains("Lançamentos")
