@@ -43,6 +43,9 @@ jobs:
       - name: Grant execute permission to Gradle wrapper
         run: chmod +x ./gradlew
 
+      - name: Verify Gradle / Kotlin toolchain
+        run: ./gradlew --version --no-daemon
+
       # Compiles every Kotlin source file, the Compose resources and the launcher icons.
       - name: Build Debug APK
         run: |
