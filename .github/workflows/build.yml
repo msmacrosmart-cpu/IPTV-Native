@@ -11,7 +11,7 @@ concurrency:
   cancel-in-progress: true
 
 permissions:
-  contents: read
+  contents: write
 
 jobs:
   build:
@@ -43,18 +43,18 @@ jobs:
       - name: Grant execute permission to Gradle wrapper
         run: chmod +x ./gradlew
 
-      - name: Verify Gradle / Kotlin toolchain
-        run: |
-          ./gradlew --version --no-daemon
-
       # Compiles every Kotlin source file, the Compose resources and the launcher icons.
       - name: Build Debug APK
-        run: ./gradlew assembleDebug --no-daemon --stacktrace
+        run: |
+          set -o pipefail
+          ./gradlew assembleDebug --stacktrace --no-daemon 2>&1 | tee build-debug.log
 
       # Same signing config as debug (see app/build.gradle.kts), so the artifact is installable
       # straight from the Actions run.
       - name: Build Release APK
-        run: ./gradlew assembleRelease --no-daemon --stacktrace
+        run: |
+          set -o pipefail
+          ./gradlew assembleRelease --stacktrace --no-daemon 2>&1 | tee build-release.log
 
       - name: Collect APKs
         run: |
@@ -84,7 +84,29 @@ jobs:
         with:
           name: build-reports
           path: |
+            build-debug.log
+            build-release.log
             app/build/reports/**
             **/build/reports/**
           retention-days: 7
           if-no-files-found: ignore
+
+      # Makes the compiler output readable from the outside even when the Actions log API
+      # is not reachable (the tail of the log is stored as a commit comment).
+      - name: Publish build log on failure
+        if: failure()
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          LOG="(debug log unavailable)"
+          if [ -f build-debug.log ]; then
+            LOG=$(tail -n 160 build-debug.log)
+          elif [ -f build-release.log ]; then
+            LOG=$(tail -n 160 build-release.log)
+          fi
+          jq -n --arg body "$LOG" '{body: $body}' > payload.json
+          curl -sS -X POST \
+            -H "Authorization: Bearer $GH_TOKEN" \
+            -H "Accept: application/vnd.github+json" \
+            "$GITHUB_API_URL/repos/${{ github.repository }}/commits/${{ github.sha }}/comments" \
+            -d @payload.json || true
