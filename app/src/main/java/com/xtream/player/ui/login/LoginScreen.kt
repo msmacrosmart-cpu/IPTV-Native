@@ -1,5 +1,6 @@
 package com.xtream.player.ui.login
 
+import androidx.compose.foundation.focusable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -28,6 +29,7 @@ import androidx.compose.ui.unit.sp
 import com.xtream.player.ui.components.GlassPanel
 import com.xtream.player.ui.components.GlowButton
 import com.xtream.player.ui.components.PillField
+import com.xtream.player.ui.components.focusGlow
 import com.xtream.player.ui.components.rememberHideKeyboard
 import com.xtream.player.ui.theme.XColors
 import kotlinx.coroutines.delay
@@ -46,10 +48,17 @@ fun LoginScreen(loading: Boolean, error: String?, onLogin: (server: String, user
             onLogin(server, user, pass)
         }
     }
-    val firstField = remember { FocusRequester() }
+    // Start remote navigation on the heading: focusing a text field opens the TV keyboard
+    // immediately and hides most of the form. Down moves to the server field; the device's
+    // native IME is shown when the user chooses a field, not when the screen first opens.
+    val initialHeading = remember { FocusRequester() }
     val inputMode = LocalInputModeManager.current
     LaunchedEffect(Unit) {
-        if (inputMode.inputMode != InputMode.Touch) { delay(100); runCatching { firstField.requestFocus() } }
+        if (inputMode.inputMode != InputMode.Touch) {
+            delay(100)
+            runCatching { initialHeading.requestFocus() }
+            hideKeyboard()
+        }
     }
     BoxWithConstraints(Modifier.fillMaxSize()) {
         // Landscape phones and small TV viewports have much less vertical room. Keep
@@ -62,11 +71,13 @@ fun LoginScreen(loading: Boolean, error: String?, onLogin: (server: String, user
             contentAlignment = Alignment.Center) {
             GlassPanel(Modifier.widthIn(max = if (compact) 460.dp else 500.dp).fillMaxWidth().testTag("login-panel"), RoundedCornerShape(18.dp)) {
                 Column(Modifier.fillMaxWidth().padding(if (compact) 14.dp else 26.dp)) {
-                    Text("Adicionar conexão", color = XColors.Text, fontSize = if (compact) 22.sp else 27.sp, fontWeight = FontWeight.SemiBold)
+                    Text("Adicionar conexão", color = XColors.Text, fontSize = if (compact) 22.sp else 27.sp,
+                        fontWeight = FontWeight.SemiBold, modifier = Modifier.focusRequester(initialHeading)
+                            .testTag("login-heading").focusGlow(RoundedCornerShape(6.dp), zoom = 1f).focusable())
                     Text("Entre com sua conta Xtream Codes", color = XColors.TextDim, fontSize = if (compact) 12.sp else 14.sp,
                         modifier = Modifier.padding(top = if (compact) 2.dp else 6.dp))
                     Spacer(Modifier.height(if (compact) 8.dp else 22.dp))
-                    PillField(server, { server = it }, "Servidor Xtream", Modifier.fillMaxWidth().focusRequester(firstField),
+                    PillField(server, { server = it }, "Servidor Xtream", Modifier.fillMaxWidth(),
                         keyboardType = KeyboardType.Uri, minHeight = fieldHeight)
                     Spacer(Modifier.height(gap))
                     PillField(user, { user = it }, "Usuário", Modifier.fillMaxWidth(), minHeight = fieldHeight)
@@ -77,7 +88,8 @@ fun LoginScreen(loading: Boolean, error: String?, onLogin: (server: String, user
                     Spacer(Modifier.height(if (compact) 8.dp else 22.dp))
                     Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End, verticalAlignment = Alignment.CenterVertically) {
                         if (loading) CircularProgressIndicator(Modifier.padding(end = 12.dp).size(22.dp), color = XColors.Accent, strokeWidth = 2.dp)
-                        GlowButton("Entrar", Icons.Filled.Link, Modifier.testTag("login-submit").semantics { contentDescription = "Entrar" }, onClick = submit)
+                        GlowButton("Entrar", Icons.Filled.Link, Modifier.testTag("login-submit")
+                            .semantics { contentDescription = "Entrar" }, onClick = submit)
                     }
                     Text("Use demo no servidor para explorar a interface.", color = XColors.Body, fontSize = 12.sp,
                         modifier = Modifier.padding(top = if (compact) 6.dp else 18.dp))

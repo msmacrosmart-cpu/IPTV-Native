@@ -419,7 +419,9 @@ class ScreenIntegrationTest {
             }
             compose.onNodeWithTag("app-background", useUnmergedTree = true).assertExists()
             assertLoginFitsAndIsCentered()
+            compose.waitUntil(15_000) { !keyboardIsVisible() && !systemImeShown() }
             capture("screen-phone-login.png")
+            assertFalse("The keyboard must not cover the initial login", keyboardIsVisible() || systemImeShown())
             compose.onNodeWithText("Servidor Xtream").performScrollTo().performTextInput(server.url("/").toString())
             compose.onNodeWithText("Usuário").performScrollTo().performTextInput("alice")
             compose.onNodeWithText("Senha").performScrollTo().performTextInput("senha")
@@ -472,6 +474,18 @@ class ScreenIntegrationTest {
     @Test fun largeScreenRemoteNavigationAndOverscanAreUsable() {
         val isTv = (compose.activity.resources.configuration.uiMode and Configuration.UI_MODE_TYPE_MASK) == Configuration.UI_MODE_TYPE_TELEVISION
         assertLoginFitsAndIsCentered()
+        if (isTv) {
+            compose.waitUntil(15_000) {
+                runCatching { compose.onNodeWithTag("login-heading").assertIsFocused() }.isSuccess &&
+                    !keyboardIsVisible() && !systemImeShown()
+            }
+            capture("screen-android-tv-login.png")
+            assertFalse("The keyboard must not cover the initial TV login", keyboardIsVisible() || systemImeShown())
+            // The first remote Down goes straight from the heading to the server field.
+            compose.onNodeWithTag("login-heading").performKeyInput { pressKey(Key.DirectionDown) }
+            compose.waitUntil(10_000) { runCatching { compose.onNodeWithText("Servidor Xtream").assertIsFocused() }.isSuccess }
+            compose.waitUntil(15_000) { keyboardIsVisible() || systemImeShown() }
+        }
         compose.onNodeWithText("Servidor Xtream").performScrollTo().performTextInput(server.url("/").toString())
         compose.onNodeWithText("Usuário").performScrollTo().performTextInput("alice")
         compose.onNodeWithText("Senha").performScrollTo().performTextInput("senha")
