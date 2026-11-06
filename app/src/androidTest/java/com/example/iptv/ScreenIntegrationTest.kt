@@ -1179,7 +1179,7 @@ class ScreenIntegrationTest {
         val snapshot = runBlocking { disk.load(credentials) }!!
         assertEquals(30, snapshot.movies.size)
         assertEquals(2, snapshot.channels.size)
-        assertEquals(6, runBlocking { disk.loadHeroes(credentials) }.entries.size)
+        assertEquals(24, runBlocking { disk.loadHeroes(credentials) }.entries.size)
         assertTrue(runBlocking { disk.loadShortGuide(credentials) }.entries.containsKey("sports"))
         assertTrue(runBlocking { disk.load(credentials.copy(username = "other")) } == null)
         val xml = XmltvRepository(app.cacheDir, ApiClient.httpClient())
