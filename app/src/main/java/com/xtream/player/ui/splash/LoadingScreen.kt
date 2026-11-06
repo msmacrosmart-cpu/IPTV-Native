@@ -22,7 +22,8 @@ import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.testTag
-import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.res.imageResource
+import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
@@ -43,7 +44,7 @@ fun LoadingScreen(message: String) {
         // The supplied widescreen artwork belongs exclusively to the loading screen.
         // Fit preserves its proportions on both TV and wide landscape phones; the
         // surrounding black matches the image and avoids stretching the logo.
-        Image(painterResource(R.drawable.splash_art), contentDescription = "IPTV Native",
+        Image(ImageBitmap.imageResource(R.drawable.splash_art), contentDescription = "IPTV Native",
             contentScale = ContentScale.Fit, filterQuality = FilterQuality.High,
             modifier = Modifier.widthIn(max = 960.dp).fillMaxWidth(.85f)
                 .fillMaxHeight(.75f).testTag("loading-art"))

@@ -1,0 +1,35 @@
+name: Inspect supplied UI reference
+on:
+  workflow_dispatch:
+permissions:
+  contents: write
+jobs:
+  inspect:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Inspect only graphical resources of supplied reference
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          curl -fL --retry 2 'https://github.com/smartmacro77-gif/apps/releases/download/v1.0/MakroTV.XtreamYT.apk' -o "$RUNNER_TEMP/reference.apk"
+          "$ANDROID_HOME/build-tools/35.0.0/aapt" dump resources "$RUNNER_TEMP/reference.apk" > "$RUNNER_TEMP/resources.txt"
+          python3 - <<'PY'
+          import os,zipfile,io,json,base64,subprocess
+          root=os.environ['RUNNER_TEMP']
+          output=io.BytesIO()
+          with zipfile.ZipFile(root+'/reference.apk') as apk, zipfile.ZipFile(output,'w',zipfile.ZIP_DEFLATED) as bundle:
+              bundle.writestr('files.txt','\n'.join(apk.namelist()))
+              bundle.write(root+'/resources.txt','resources.txt')
+              for info in apk.infolist():
+                  if info.filename.endswith(('.png','.webp','.jpg','.svg')) and info.file_size < 100000:
+                      bundle.writestr(info.filename,apk.read(info.filename))
+          chunks=[]
+          data=output.getvalue()
+          for offset in range(0,len(data),2*1024*1024):
+              payload=json.dumps({'content':base64.b64encode(data[offset:offset+2*1024*1024]).decode(),'encoding':'base64'})
+              p=subprocess.run(['gh','api',f"repos/{os.environ['GITHUB_REPOSITORY']}/git/blobs",'--method','POST','--input','-','--jq','.sha'],input=payload,text=True,capture_output=True,check=True)
+              chunks.append(p.stdout.strip())
+          body='UI_REFERENCE_RESOURCES_V1\nblobs='+','.join(chunks)
+          subprocess.run(['gh','api',f"repos/{os.environ['GITHUB_REPOSITORY']}/commits/{os.environ['GITHUB_SHA']}/comments",'--method','POST','-f','body='+body],check=True)
+          PY
