@@ -2,12 +2,9 @@ package com.example.iptv.ui.screens
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
-import androidx.compose.foundation.clickable
-import androidx.compose.foundation.focusable
-import androidx.compose.foundation.interaction.MutableInteractionSource
-import androidx.compose.foundation.interaction.collectIsFocusedAsState
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -16,326 +13,119 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.BasicTextField
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ExitToApp
-import androidx.compose.material.icons.filled.Cloud
 import androidx.compose.material.icons.filled.Delete
-import androidx.compose.material.icons.filled.LiveTv
 import androidx.compose.material.icons.filled.Refresh
-import androidx.compose.material.icons.filled.Speed
-import androidx.compose.material.icons.filled.Storage
-import androidx.compose.material3.Icon
+import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.Slider
 import androidx.compose.material3.SliderDefaults
+import androidx.compose.material3.Switch
+import androidx.compose.material3.SwitchDefaults
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.ImeAction
+import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.iptv.BuildConfig
+import com.example.iptv.data.epg.EpgGuide
+import com.example.iptv.data.epg.EpgUpdateState
+import com.example.iptv.data.model.AccountInfo
 import com.example.iptv.data.model.StreamFormat
+import com.example.iptv.data.model.UserSettings
 import com.example.iptv.data.model.VideoDecoder
-import com.example.iptv.ui.components.AppLogo
-import com.example.iptv.ui.components.GlassCard
-import com.example.iptv.ui.components.PrimaryButton
+import com.example.iptv.ui.components.GlassPanel
+import com.example.iptv.ui.components.ScreenHeader
+import com.example.iptv.ui.components.SunsetButton
+import com.example.iptv.ui.components.SunsetFocusable
+import com.example.iptv.ui.components.SunsetProgressBar
 import com.example.iptv.ui.components.TopographicBackground
-import com.example.iptv.ui.theme.AccentCoral
-import com.example.iptv.ui.theme.LiveRed
-import com.example.iptv.ui.theme.SuccessGreen
-import com.example.iptv.ui.theme.TextMuted
-import com.example.iptv.ui.theme.TextPrimary
-import com.example.iptv.ui.theme.TextSecondary
+import com.example.iptv.ui.components.formatDate
+import com.example.iptv.ui.components.formatDateTime
+import com.example.iptv.ui.components.rememberNowMs
+import com.example.iptv.ui.theme.SunsetColors
 import com.example.iptv.util.CacheUtils
-import com.example.iptv.util.FormatUtils
 import com.example.iptv.viewmodel.MainTvViewModel
-import kotlinx.coroutines.delay
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
+import java.util.concurrent.TimeUnit
 
-/**
- * Settings: real account data, stream format, buffer, decoder preference, EPG refresh,
- * latency test, cache cleanup and logout.
- */
+/** The new account/plan/EPG layout, retaining the existing playback and storage controls. */
 @Composable
-fun SettingsScreen(
-    viewModel: MainTvViewModel,
-    onLogout: () -> Unit
-) {
+fun SettingsScreen(viewModel: MainTvViewModel, onLogout: () -> Unit) {
     val account by viewModel.account.collectAsState()
     val settings by viewModel.settings.collectAsState()
+    val guide by viewModel.epgGuide.collectAsState()
+    val epgState by viewModel.epgUpdateState.collectAsState()
+    val accountRefreshing by viewModel.accountRefreshing.collectAsState()
     val latency by viewModel.pingLatencyMillis.collectAsState()
     val pingLoading by viewModel.pingLoading.collectAsState()
-    val epgSyncLabel by viewModel.epgSyncLabel.collectAsState()
-
+    val now = rememberNowMs(60_000L)
     val context = LocalContext.current
-    var cacheMessage by remember { mutableStateOf<String?>(null) }
+    val scope = rememberCoroutineScope()
     var confirmLogout by remember { mutableStateOf(false) }
-    val cacheSizeKb = remember(cacheMessage) { CacheUtils.approximateSizeKb(context) }
-
-    LaunchedEffect(cacheMessage) {
-        if (cacheMessage != null) {
-            delay(3_000)
-            cacheMessage = null
-        }
-    }
+    var clearing by remember { mutableStateOf(false) }
+    var cacheMessage by remember { mutableStateOf<String?>(null) }
 
     TopographicBackground {
-        Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.TopCenter) {
-            Column(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .verticalScroll(rememberScrollState())
-                    .padding(horizontal = 20.dp, vertical = 16.dp)
-            ) {
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        AppLogo(markSize = 38)
+        BoxWithConstraints(Modifier.fillMaxSize()) {
+            val compact = maxWidth < 900.dp || maxHeight < 500.dp
+            val padding = if (compact) 14.dp else 28.dp
+            val gap = if (compact) 8.dp else 16.dp
+            Column(Modifier.fillMaxSize().padding(horizontal = padding, vertical = if (compact) 12.dp else 24.dp)) {
+                ScreenHeader("CONFIGURAÇÕES", "Gerencie sua conta e a guia de programação", compact)
+                Spacer(Modifier.height(if (compact) 8.dp else 16.dp))
+                Row(Modifier.fillMaxSize(), horizontalArrangement = Arrangement.spacedBy(gap)) {
+                    Column(Modifier.weight(1f).fillMaxSize().verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(gap)) {
+                        AccountCard(account, now)
+                        PlanCard(account, now)
+                        PlaybackCard(settings, viewModel)
                     }
-                    Text(
-                        text = "Versão ${BuildConfig.VERSION_NAME}",
-                        color = TextMuted,
-                        fontSize = 11.sp
-                    )
-                }
-
-                Spacer(modifier = Modifier.height(18.dp))
-
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(16.dp)
-                ) {
-                    // ------------------------------------------------- left column
-                    Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(16.dp)) {
-                        SettingsCard(icon = Icons.Default.LiveTv, title = "Conta Xtream") {
-                            InfoRow("Usuário", account?.username?.ifBlank { "—" } ?: "—")
-                            InfoRow(
-                                "Status",
-                                account?.statusLabel ?: "—",
-                                valueColor = when {
-                                    account?.isActive != true -> LiveRed
-                                    account?.statusLabel == "Ativa" -> SuccessGreen
-                                    else -> AccentCoral
+                    Column(Modifier.weight(1f).fillMaxSize().verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(gap)) {
+                        EpgCard(settings, guide, epgState, viewModel)
+                        SessionCard(
+                            refreshing = accountRefreshing,
+                            confirmLogout = confirmLogout,
+                            onRefresh = viewModel::refreshAccount,
+                            onLogout = { if (confirmLogout) onLogout() else confirmLogout = true },
+                            onCancel = { confirmLogout = false }
+                        )
+                        NetworkCard(latency, pingLoading, viewModel::testLatency)
+                        StorageCard(cacheMessage, clearing, onClear = {
+                            if (!clearing) {
+                                clearing = true
+                                viewModel.clearEpgCache()
+                                scope.launch {
+                                    val success = withContext(Dispatchers.IO) { CacheUtils.clear(context) }
+                                    cacheMessage = if (success) "Cache limpo com sucesso." else "Não foi possível limpar o cache."
+                                    clearing = false
                                 }
-                            )
-                            InfoRow(
-                                "Expira em",
-                                account?.expiresAtMillis?.let { millis ->
-                                    val days = FormatUtils.remainingDays(millis)
-                                    val suffix = if (days != null && days >= 0) " ($days dias)" else ""
-                                    FormatUtils.formatDate(millis) + suffix
-                                } ?: "Ilimitado"
-                            )
-                            InfoRow(
-                                "Conexões",
-                                "${account?.activeConnections ?: 0} de ${account?.maxConnections ?: 0} em uso"
-                            )
-                            InfoRow("Servidor", account?.panelUrl?.ifBlank { "—" } ?: "—", maxLines = 1)
-                            InfoRow("Protocolo", account?.serverProtocol?.uppercase() ?: "—")
-                            InfoRow("Fuso do painel", account?.timezone ?: "—")
-                            InfoRow("Formatos", account?.allowedFormats?.joinToString(", ")?.ifBlank { "—" } ?: "—")
-                        }
-
-                        SettingsCard(icon = Icons.Default.Speed, title = "Rede e EPG") {
-                            Row(
-                                modifier = Modifier.fillMaxWidth(),
-                                verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.SpaceBetween
-                            ) {
-                                Column {
-                                    Text("Latência do painel", color = TextSecondary, fontSize = 12.sp)
-                                    Text(
-                                        text = latency?.let { "$it ms" } ?: "Não testado",
-                                        color = if (latency != null) SuccessGreen else TextMuted,
-                                        fontSize = 15.sp,
-                                        fontWeight = FontWeight.Bold
-                                    )
-                                }
-                                SmallButton(
-                                    label = if (pingLoading) "Testando…" else "Testar",
-                                    onClick = { viewModel.testLatency() },
-                                    enabled = !pingLoading
-                                )
                             }
-
-                            Spacer(modifier = Modifier.height(14.dp))
-
-                            Row(
-                                modifier = Modifier.fillMaxWidth(),
-                                verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.SpaceBetween
-                            ) {
-                                Column(modifier = Modifier.weight(1f)) {
-                                    Text("Guia de programação (EPG)", color = TextSecondary, fontSize = 12.sp)
-                                    Text(
-                                        text = "Última atualização: $epgSyncLabel",
-                                        color = TextMuted,
-                                        fontSize = 11.sp
-                                    )
-                                }
-                                SmallButton(
-                                    label = "Atualizar",
-                                    onClick = { viewModel.refreshEpg() }
-                                )
-                            }
-                        }
+                        })
                     }
-
-                    // ------------------------------------------------ right column
-                    Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(16.dp)) {
-                        SettingsCard(icon = Icons.Default.Cloud, title = "Reprodução") {
-                            Text(
-                                text = "Formato do stream",
-                                color = TextSecondary,
-                                fontSize = 12.sp
-                            )
-                            Spacer(modifier = Modifier.height(6.dp))
-                            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                                StreamFormat.entries.forEach { format ->
-                                    OptionChip(
-                                        label = format.label,
-                                        isSelected = settings.streamFormat == format,
-                                        onClick = { viewModel.updateStreamFormat(format) }
-                                    )
-                                }
-                            }
-                            Text(
-                                text = "Use HLS (m3u8) caso o canal fique em tela preta no formato padrão.",
-                                color = TextMuted,
-                                fontSize = 10.5.sp,
-                                modifier = Modifier.padding(top = 6.dp)
-                            )
-
-                            Spacer(modifier = Modifier.height(14.dp))
-
-                            Row(
-                                modifier = Modifier.fillMaxWidth(),
-                                horizontalArrangement = Arrangement.SpaceBetween
-                            ) {
-                                Text("Buffer de reprodução", color = TextSecondary, fontSize = 12.sp)
-                                Text("${settings.bufferSeconds}s", color = AccentCoral, fontSize = 12.sp, fontWeight = FontWeight.Bold)
-                            }
-                            Slider(
-                                value = settings.bufferSeconds.toFloat(),
-                                onValueChange = { viewModel.updateBufferSeconds(it.toInt()) },
-                                valueRange = 5f..60f,
-                                steps = 10,
-                                colors = SliderDefaults.colors(
-                                    thumbColor = AccentCoral,
-                                    activeTrackColor = AccentCoral,
-                                    inactiveTrackColor = Color.White.copy(alpha = 0.18f)
-                                )
-                            )
-
-                            Spacer(modifier = Modifier.height(6.dp))
-
-                            Text("Decodificador de vídeo", color = TextSecondary, fontSize = 12.sp)
-                            Spacer(modifier = Modifier.height(6.dp))
-                            Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                                VideoDecoder.entries.forEach { decoder ->
-                                    DecoderRow(
-                                        decoder = decoder,
-                                        isSelected = settings.decoder == decoder,
-                                        onClick = { viewModel.updateDecoder(decoder) }
-                                    )
-                                }
-                            }
-                        }
-
-                        SettingsCard(icon = Icons.Default.Storage, title = "Armazenamento") {
-                            Row(
-                                modifier = Modifier.fillMaxWidth(),
-                                verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.SpaceBetween
-                            ) {
-                                Column(modifier = Modifier.weight(1f)) {
-                                    Text("Cache de imagens e streams", color = TextSecondary, fontSize = 12.sp)
-                                    Text(
-                                        text = "$cacheSizeKb KB em uso",
-                                        color = TextMuted,
-                                        fontSize = 11.sp
-                                    )
-                                    cacheMessage?.let {
-                                        Text(text = it, color = AccentCoral, fontSize = 11.sp)
-                                    }
-                                }
-                                SmallButton(
-                                    label = "Limpar",
-                                    onClick = {
-                                        val ok = CacheUtils.clear(context)
-                                        cacheMessage = if (ok) "Cache limpo com sucesso" else "Não foi possível limpar"
-                                    },
-                                    icon = Icons.Default.Delete
-                                )
-                            }
-
-                            Spacer(modifier = Modifier.height(14.dp))
-
-                            Text(
-                                text = "IPTV Native ${BuildConfig.VERSION_NAME} · player_api.php · " +
-                                    "Media3 ExoPlayer · Kotlin + Jetpack Compose",
-                                color = TextMuted,
-                                fontSize = 10.5.sp
-                            )
-                        }
-
-                        SettingsCard(icon = Icons.AutoMirrored.Filled.ExitToApp, title = "Sessão") {
-                            Text(
-                                text = if (confirmLogout) {
-                                    "Ao sair, login, senha e catálogo serão removidos deste dispositivo."
-                                } else {
-                                    "Sua sessão está salva com criptografia AES no Android Keystore."
-                                },
-                                color = TextMuted,
-                                fontSize = 11.sp
-                            )
-                            Spacer(modifier = Modifier.height(10.dp))
-                            Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                                PrimaryButton(
-                                    label = if (confirmLogout) "Confirmar saída" else "Sair da conta",
-                                    onClick = {
-                                        if (confirmLogout) onLogout() else confirmLogout = true
-                                    },
-                                    modifier = Modifier.width(200.dp)
-                                )
-                                if (confirmLogout) {
-                                    SmallButton(
-                                        label = "Cancelar",
-                                        onClick = { confirmLogout = false }
-                                    )
-                                }
-                            }
-                        }
-                    }
-                }
-
-                Spacer(modifier = Modifier.height(20.dp))
-
-                if (confirmLogout) {
-                    Text(
-                        text = "Toque em \"Confirmar saída\" para desconectar desta conta.",
-                        color = AccentCoral,
-                        fontSize = 11.sp
-                    )
                 }
             }
         }
@@ -343,184 +133,187 @@ fun SettingsScreen(
 }
 
 @Composable
-private fun SettingsCard(
-    icon: androidx.compose.ui.graphics.vector.ImageVector,
-    title: String,
-    content: @Composable () -> Unit
-) {
-    GlassCard(modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(18.dp)) {
-        Column(modifier = Modifier.fillMaxWidth().padding(16.dp)) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Box(
-                    modifier = Modifier
-                        .size(28.dp)
-                        .clip(RoundedCornerShape(8.dp))
-                        .background(Color(0x26FF6B5B)),
-                    contentAlignment = Alignment.Center
-                ) {
-                    Icon(imageVector = icon, contentDescription = null, tint = AccentCoral, modifier = Modifier.size(15.dp))
-                }
-                Spacer(modifier = Modifier.width(9.dp))
-                Text(text = title, color = TextPrimary, fontSize = 14.sp, fontWeight = FontWeight.Bold)
-            }
-            Spacer(modifier = Modifier.height(12.dp))
+private fun CardColumn(title: String, content: @Composable () -> Unit) {
+    GlassPanel(Modifier.fillMaxWidth()) {
+        Column(Modifier.fillMaxWidth().padding(18.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+            Text(title, color = SunsetColors.TextPrimary, fontSize = 19.sp, fontWeight = FontWeight.Bold)
             content()
         }
     }
 }
 
 @Composable
-private fun InfoRow(
-    label: String,
-    value: String,
-    valueColor: Color = TextPrimary,
-    maxLines: Int = 2
-) {
-    Row(
-        modifier = Modifier.fillMaxWidth().padding(vertical = 3.dp),
-        horizontalArrangement = Arrangement.SpaceBetween
-    ) {
-        Text(text = label, color = TextMuted, fontSize = 11.5.sp)
-        Spacer(modifier = Modifier.width(12.dp))
-        Text(
-            text = value,
-            color = valueColor,
-            fontSize = 11.5.sp,
-            fontWeight = FontWeight.Medium,
-            maxLines = maxLines,
-            overflow = TextOverflow.Ellipsis,
-            modifier = Modifier.widthIn(max = 260.dp)
-        )
+private fun InfoRow(label: String, value: String, valueColor: Color = SunsetColors.TextPrimary) {
+    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+        Text(label, color = SunsetColors.TextSecondary, fontSize = 13.sp, modifier = Modifier.weight(0.43f))
+        Text(value, color = valueColor, fontSize = 13.sp, fontWeight = FontWeight.Medium,
+            maxLines = 2, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(0.57f))
     }
 }
 
 @Composable
-private fun OptionChip(
-    label: String,
-    isSelected: Boolean,
-    onClick: () -> Unit
-) {
-    val interactionSource = remember { MutableInteractionSource() }
-    val isFocused by interactionSource.collectIsFocusedAsState()
-
-    Box(
-        modifier = Modifier
-            .height(36.dp)
-            .clip(RoundedCornerShape(11.dp))
-            .background(
-                when {
-                    isSelected -> AccentCoral
-                    isFocused -> Color(0x33FFFFFF)
-                    else -> Color(0x1AFFFFFF)
-                }
-            )
-            .border(
-                1.dp,
-                if (isFocused) Color.White else Color.White.copy(alpha = 0.12f),
-                RoundedCornerShape(11.dp)
-            )
-            .focusable(interactionSource = interactionSource)
-            .clickable(interactionSource = interactionSource, indication = null, onClick = onClick)
-            .padding(horizontal = 16.dp),
-        contentAlignment = Alignment.Center
-    ) {
-        Text(
-            text = label,
-            color = if (isSelected) Color.White else TextSecondary,
-            fontSize = 12.sp,
-            fontWeight = FontWeight.SemiBold
-        )
-    }
-}
-
-@Composable
-private fun DecoderRow(
-    decoder: VideoDecoder,
-    isSelected: Boolean,
-    onClick: () -> Unit
-) {
-    val interactionSource = remember { MutableInteractionSource() }
-    val isFocused by interactionSource.collectIsFocusedAsState()
-
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .height(38.dp)
-            .clip(RoundedCornerShape(10.dp))
-            .background(if (isSelected) Color(0x26FF6B5B) else Color(0x14FFFFFF))
-            .border(
-                1.dp,
-                if (isSelected) AccentCoral else Color.White.copy(alpha = 0.08f),
-                RoundedCornerShape(10.dp)
-            )
-            .focusable(interactionSource = interactionSource)
-            .clickable(interactionSource = interactionSource, indication = null, onClick = onClick)
-            .padding(horizontal = 12.dp),
-        verticalAlignment = Alignment.CenterVertically
-    ) {
-        Box(
-            modifier = Modifier
-                .size(12.dp)
-                .clip(CircleShape)
-                .background(if (isSelected) AccentCoral else Color.Transparent)
-                .border(1.5.dp, if (isSelected) AccentCoral else Color.White.copy(alpha = 0.3f), CircleShape)
-        )
-        Spacer(modifier = Modifier.width(10.dp))
-        Text(
-            text = decoder.label,
-            color = if (isSelected || isFocused) TextPrimary else TextSecondary,
-            fontSize = 11.5.sp,
-            fontWeight = if (isSelected) FontWeight.SemiBold else FontWeight.Normal
-        )
-    }
-}
-
-@Composable
-private fun SmallButton(
-    label: String,
-    onClick: () -> Unit,
-    enabled: Boolean = true,
-    icon: androidx.compose.ui.graphics.vector.ImageVector? = null,
-    modifier: Modifier = Modifier
-) {
-    val interactionSource = remember { MutableInteractionSource() }
-    val isFocused by interactionSource.collectIsFocusedAsState()
-
-    Row(
-        modifier = modifier
-            .height(34.dp)
-            .clip(RoundedCornerShape(10.dp))
-            .background(
-                when {
-                    !enabled -> Color(0x14FFFFFF)
-                    isFocused -> AccentCoral
-                    else -> Color(0x26FFFFFF)
-                }
-            )
-            .border(
-                1.dp,
-                if (isFocused) Color.White else Color.White.copy(alpha = 0.14f),
-                RoundedCornerShape(10.dp)
-            )
-            .focusable(interactionSource = interactionSource, enabled = enabled)
-            .clickable(interactionSource = interactionSource, indication = null, enabled = enabled, onClick = onClick)
-            .padding(horizontal = 12.dp),
-        verticalAlignment = Alignment.CenterVertically
-    ) {
-        if (icon != null) {
-            Icon(
-                imageVector = icon,
-                contentDescription = null,
-                tint = if (enabled) Color.White else TextMuted,
-                modifier = Modifier.size(13.dp)
-            )
-            Spacer(modifier = Modifier.width(5.dp))
+private fun AccountCard(info: AccountInfo?, now: Long) {
+    CardColumn("Conta") {
+        if (info == null) {
+            Text("Dados da conta indisponíveis.", color = SunsetColors.TextSecondary, fontSize = 13.sp)
+        } else {
+            val expired = info.expiresAtMillis?.let { it <= now } == true
+            val active = info.isActive && !expired
+            InfoRow("Usuário", info.username.ifBlank { "—" })
+            InfoRow("Servidor", info.panelUrl.ifBlank { "—" })
+            InfoRow("Status", if (expired) "EXPIRADA" else info.statusLabel.uppercase(), if (active) SunsetColors.Success else SunsetColors.Danger)
+            InfoRow("Conexões", "${info.activeConnections} / ${info.maxConnections}")
+            info.createdAtMillis?.let { InfoRow("Criada em", formatDate(it)) }
+            InfoRow("Período de teste", if (info.isTrial) "Sim" else "Não")
+            InfoRow("Fuso do servidor", info.timezone.ifBlank { "—" })
+            if (info.allowedFormats.isNotEmpty()) InfoRow("Formatos", info.allowedFormats.joinToString(", "))
         }
-        Text(
-            text = label,
-            color = if (enabled) Color.White else TextMuted,
-            fontSize = 11.sp,
-            fontWeight = FontWeight.SemiBold
-        )
+    }
+}
+
+@Composable
+private fun PlanCard(info: AccountInfo?, now: Long) {
+    CardColumn("Plano") {
+        if (info == null) {
+            Text("Dados do plano indisponíveis.", color = SunsetColors.TextSecondary, fontSize = 13.sp)
+        } else {
+            val expiry = info.expiresAtMillis
+            if (expiry == null) {
+                Text("Plano ilimitado", color = SunsetColors.Success, fontSize = 23.sp, fontWeight = FontWeight.Bold)
+                Text("Sem data de expiração", color = SunsetColors.TextSecondary, fontSize = 13.sp)
+            } else {
+                val days = TimeUnit.MILLISECONDS.toDays((expiry - now).coerceAtLeast(0))
+                val expired = expiry <= now
+                val headline = when {
+                    expired -> "Plano expirado"
+                    days == 0L -> "Expira hoje"
+                    days == 1L -> "Expira em 1 dia"
+                    else -> "Expira em $days dias"
+                }
+                Text(headline, color = if (expired || days <= 7) SunsetColors.Danger else SunsetColors.TextPrimary,
+                    fontSize = 23.sp, fontWeight = FontWeight.Bold)
+                Text("Vencimento: ${formatDateTime(expiry)}", color = SunsetColors.TextSecondary, fontSize = 13.sp)
+                info.createdAtMillis?.takeIf { expiry > it }?.let { created ->
+                    val remaining = ((expiry - now).toFloat() / (expiry - created)).coerceIn(0f, 1f)
+                    SunsetProgressBar(remaining, Modifier.fillMaxWidth())
+                    Text("${(remaining * 100).toInt()}% do período restante", color = SunsetColors.TextSecondary, fontSize = 12.sp)
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun EpgCard(settings: UserSettings, guide: EpgGuide, state: EpgUpdateState, viewModel: MainTvViewModel) {
+    val busy = state is EpgUpdateState.Downloading || state is EpgUpdateState.Parsing
+    CardColumn("Guia de programação (EPG)") {
+        when (state) {
+            is EpgUpdateState.Downloading -> {
+                Text(state.progress?.let { "Baixando guia… ${(it * 100).toInt()}%" } ?: "Baixando guia…", color = SunsetColors.TextPrimary, fontSize = 13.sp)
+                if (state.progress == null) LinearProgressIndicator(Modifier.fillMaxWidth(), color = SunsetColors.Coral, trackColor = Color(0x33FFFFFF))
+                else SunsetProgressBar(state.progress, Modifier.fillMaxWidth())
+            }
+            EpgUpdateState.Parsing -> {
+                Text("Processando a programação…", color = SunsetColors.TextPrimary, fontSize = 13.sp)
+                LinearProgressIndicator(Modifier.fillMaxWidth(), color = SunsetColors.Coral, trackColor = Color(0x33FFFFFF))
+            }
+            is EpgUpdateState.Error -> Text(state.message, color = SunsetColors.Danger, fontSize = 13.sp)
+            EpgUpdateState.Idle -> Unit
+        }
+        InfoRow("Última atualização", settings.lastEpgSyncMillis.takeIf { it > 0 }?.let(::formatDateTime) ?: "Nunca")
+        InfoRow("Canais com EPG", guide.channelCount.toString())
+        InfoRow("Programas carregados", guide.programCount.toString())
+        SunsetButton(if (busy) "Atualizando…" else "Atualizar EPG agora", onClick = { viewModel.refreshEpg() },
+            icon = Icons.Filled.Refresh, enabled = !busy, modifier = Modifier.fillMaxWidth())
+        SunsetFocusable(onClick = { viewModel.updateAutoEpg(!settings.autoUpdateEpg) }, modifier = Modifier.fillMaxWidth()) {
+            Row(Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 6.dp), verticalAlignment = Alignment.CenterVertically) {
+                Text("Atualizar automaticamente ao abrir (a cada 12 h)", color = SunsetColors.TextPrimary, fontSize = 13.sp, modifier = Modifier.weight(1f))
+                Switch(checked = settings.autoUpdateEpg, onCheckedChange = null,
+                    colors = SwitchDefaults.colors(checkedTrackColor = SunsetColors.Coral, checkedThumbColor = Color.White))
+            }
+        }
+        Text("Fonte XMLTV personalizada (opcional)", color = SunsetColors.TextSecondary, fontSize = 12.sp)
+        SunsetUrlField(settings.customXmltvUrl, viewModel::updateCustomXmltvUrl)
+        Text("Deixe vazio para usar o guia do servidor. Depois de alterar a fonte, atualize o EPG.", color = SunsetColors.TextSecondary, fontSize = 11.sp)
+    }
+}
+
+@Composable
+private fun SunsetUrlField(value: String, onValueChange: (String) -> Unit) {
+    var focused by remember { mutableStateOf(false) }
+    val shape = RoundedCornerShape(16.dp)
+    BasicTextField(value = value, onValueChange = onValueChange, singleLine = true,
+        textStyle = TextStyle(color = SunsetColors.TextPrimary, fontSize = 13.sp), cursorBrush = SolidColor(SunsetColors.Coral),
+        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Uri, imeAction = ImeAction.Done),
+        modifier = Modifier.fillMaxWidth().onFocusChanged { focused = it.isFocused },
+        decorationBox = { inner ->
+            Box(Modifier.fillMaxWidth().clip(shape).background(if (focused) Color(0x33FFFFFF) else Color(0x14FFFFFF))
+                .border(if (focused) 2.dp else 1.dp, if (focused) SunsetColors.Orange else Color(0x1AFFFFFF), shape)
+                .padding(horizontal = 14.dp, vertical = 12.dp)) {
+                if (value.isEmpty()) Text("Usar xmltv.php do servidor", color = SunsetColors.TextSecondary, fontSize = 13.sp, maxLines = 1)
+                inner()
+            }
+        })
+}
+
+@Composable
+private fun SessionCard(refreshing: Boolean, confirmLogout: Boolean, onRefresh: () -> Unit, onLogout: () -> Unit, onCancel: () -> Unit) {
+    CardColumn("Sessão") {
+        Text(if (confirmLogout) "Ao sair, as credenciais, o catálogo e o guia serão removidos deste dispositivo." else "Gerencie os dados e a sessão desta conta.",
+            color = SunsetColors.TextSecondary, fontSize = 12.sp)
+        SunsetButton(if (refreshing) "Atualizando conta…" else "Atualizar dados da conta", onRefresh,
+            icon = Icons.Filled.Refresh, enabled = !refreshing, modifier = Modifier.fillMaxWidth())
+        SunsetButton(if (confirmLogout) "Confirmar saída" else "Sair da conta", onLogout,
+            icon = Icons.AutoMirrored.Filled.ExitToApp, danger = true, modifier = Modifier.fillMaxWidth())
+        if (confirmLogout) SunsetButton("Cancelar", onCancel, modifier = Modifier.fillMaxWidth())
+    }
+}
+
+@Composable
+private fun PlaybackCard(settings: UserSettings, viewModel: MainTvViewModel) {
+    CardColumn("Reprodução") {
+        Text("Formato do stream", color = SunsetColors.TextSecondary, fontSize = 13.sp)
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            StreamFormat.entries.forEach { format ->
+                SunsetFocusable(onClick = { viewModel.updateStreamFormat(format) }, selected = settings.streamFormat == format,
+                    shape = RoundedCornerShape(50), modifier = Modifier.weight(1f)) {
+                    Text(format.label, color = SunsetColors.TextPrimary, fontSize = 12.sp, maxLines = 1, overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier.padding(horizontal = 10.dp, vertical = 10.dp))
+                }
+            }
+        }
+        Text("Use HLS se um canal não reproduzir em MPEG-TS.", color = SunsetColors.TextSecondary, fontSize = 11.sp)
+        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+            Text("Buffer de reprodução", color = SunsetColors.TextSecondary, fontSize = 13.sp)
+            Text("${settings.bufferSeconds}s", color = SunsetColors.Coral, fontSize = 13.sp, fontWeight = FontWeight.Bold)
+        }
+        Slider(value = settings.bufferSeconds.toFloat(), onValueChange = { viewModel.updateBufferSeconds(it.toInt()) }, valueRange = 5f..60f, steps = 10,
+            colors = SliderDefaults.colors(thumbColor = SunsetColors.Coral, activeTrackColor = SunsetColors.Coral, inactiveTrackColor = Color.White.copy(alpha = 0.18f)))
+        Text("Decodificador de vídeo", color = SunsetColors.TextSecondary, fontSize = 13.sp)
+        VideoDecoder.entries.forEach { decoder ->
+            SunsetFocusable(onClick = { viewModel.updateDecoder(decoder) }, selected = settings.decoder == decoder,
+                modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(12.dp)) {
+                Text(decoder.label, color = SunsetColors.TextPrimary, fontSize = 13.sp, modifier = Modifier.padding(horizontal = 12.dp, vertical = 10.dp))
+            }
+        }
+    }
+}
+
+@Composable
+private fun NetworkCard(latency: Long?, loading: Boolean, onTest: () -> Unit) {
+    CardColumn("Rede") {
+        InfoRow("Latência do painel", latency?.let { "$it ms" } ?: "Não testada")
+        SunsetButton(if (loading) "Testando…" else "Testar conexão", onTest, enabled = !loading, modifier = Modifier.fillMaxWidth())
+    }
+}
+
+@Composable
+private fun StorageCard(message: String?, clearing: Boolean, onClear: () -> Unit) {
+    CardColumn("Armazenamento") {
+        Text("Limpa imagens, streams temporários e o guia XMLTV salvo.", color = SunsetColors.TextSecondary, fontSize = 12.sp)
+        message?.let { Text(it, color = SunsetColors.TextPrimary, fontSize = 12.sp) }
+        SunsetButton(if (clearing) "Limpando…" else "Limpar cache", onClear, icon = Icons.Filled.Delete,
+            enabled = !clearing, modifier = Modifier.fillMaxWidth())
+        Text("IPTV Native ${BuildConfig.VERSION_NAME} · Media3 ExoPlayer", color = SunsetColors.TextSecondary, fontSize = 11.sp)
     }
 }

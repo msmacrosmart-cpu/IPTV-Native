@@ -1,23 +1,26 @@
-# SunsetTV — Live TV + Configurações (Kotlin / Jetpack Compose)
+# IPTV Native
 
-Pacote base: `com.sunsettv.app` (troque por o do seu projeto com "Refactor > Rename").
+Aplicativo Android e Android TV em Kotlin/Jetpack Compose para contas Xtream Codes. O projeto mantém o identificador `com.example.iptv`, a sessão existente e as seções Início, TV ao Vivo, Filmes, Séries e Configurações.
 
-## O que substituir / copiar
-- `AndroidManifest.xml` → mescle com o seu (todas as Activities com `sensorLandscape`).
-- `app/build.gradle.kts` → confira as dependências (Media3 1.4.1, Coil 2.7, OkHttp 4.12, Compose BOM 2024.10).
-- `SunsetApp.kt` → `ServiceLocator.init(this)` (registre em `android:name`).
-- `core/` , `domain/`, `data/` → camada de dados (Xtream API, XMLTV, cache de EPG).
-- `ui/theme`, `ui/components` → tema e componentes (glass, foco neon, botões).
-- `ui/live` → `LiveTvScreen(onOpenPlayer = { canal -> ... })`
-- `ui/settings` → `SettingsScreen(onLogout = { ... })`
+## Telas integradas
 
-## Integração
-```kotlin
-// dentro do conteúdo ao lado do seu menu lateral de ícones:
-when (destino) {
-    Destino.LiveTv   -> LiveTvScreen(onOpenPlayer = { ch -> abrirPlayer(ch.streamUrl, ch.name) })
-    Destino.Settings -> SettingsScreen(onLogout = { voltarParaLogin() })
-}
+As referências em `IPTV Native Telas/` correspondem às telas de **TV ao Vivo** e **Configurações**. As versões integradas estão em `app/src/main/java/com/example/iptv/ui/screens/` e usam o mesmo repositório e a mesma sessão do restante do aplicativo; a pasta de referência não é um segundo módulo do Gradle.
+
+- TV ao Vivo: categorias e busca, foco pelo controle remoto, prévia, reprodução em tela cheia, troca de canais e programação.
+- Configurações: conta e plano, atualização manual/automática do EPG, fonte XMLTV opcional, sessão e os controles existentes de reprodução, rede e cache.
+- O EPG usa `xmltv.php` do painel (ou uma URL HTTP(S) personalizada), aceita XML e XML compactado com gzip e mantém apenas uma janela de programação em memória. Quando o XMLTV não contém o canal, o app consulta `get_short_epg` do painel. A atualização automática é verificada ao abrir o app depois de 12 horas; não é uma tarefa periódica em segundo plano.
+- As credenciais continuam no armazenamento de sessão existente; não são duplicadas para as novas telas. A saída limpa o guia em cache e a sessão. O armazenamento de senha usa Android Keystore quando disponível, com o fallback já existente para aparelhos incompatíveis.
+
+É necessária uma conta válida e um serviço que ofereça os conteúdos e a programação. A disponibilidade e o formato dos dados dependem do provedor.
+
+## Build e testes
+
+Requisitos: JDK 17, Android SDK 35 e acesso aos repositórios configurados no Gradle.
+
+```sh
+./gradlew testDebugUnitTest
+./gradlew assembleDebug
+./gradlew assembleRelease
 ```
-- Salve as credenciais no login com `ServiceLocator.session.save(XtreamCredentials(servidor, usuario, senha))`
-  (ou ajuste `SessionStore.get()` para ler de onde você já guarda).
+
+O APK de debug fica em `app/build/outputs/apk/debug/`. O workflow de CI também disponibiliza os APKs como artifacts. A configuração `release` atual usa a chave de **debug**, apenas para testes: para distribuir uma versão definitiva ou atualizar uma instalação assinada com outra chave, configure a assinatura de produção correspondente.

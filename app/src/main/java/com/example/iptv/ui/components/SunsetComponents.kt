@@ -1,4 +1,4 @@
-package com.sunsettv.app.ui.components
+package com.example.iptv.ui.components
 
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
@@ -42,7 +42,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import com.sunsettv.app.ui.theme.SunsetColors
+import com.example.iptv.ui.theme.SunsetColors
 import kotlinx.coroutines.delay
 import java.text.SimpleDateFormat
 import java.util.Date
@@ -78,6 +78,7 @@ fun SunsetFocusable(
     focusScale: Float = 1.03f,
     idleColor: Color = Color(0x14FFFFFF),
     onFocused: () -> Unit = {},
+    enabled: Boolean = true,
     content: @Composable BoxScope.(focused: Boolean) -> Unit,
 ) {
     var focused by remember { mutableStateOf(false) }
@@ -96,7 +97,7 @@ fun SunsetFocusable(
         modifier
             .onFocusChanged {
                 focused = it.isFocused
-                if (it.isFocused) onFocused()
+                if (enabled && it.isFocused) onFocused()
             }
             .graphicsLayer { scaleX = scale; scaleY = scale }
             .shadow(
@@ -112,6 +113,7 @@ fun SunsetFocusable(
             .clickable(
                 interactionSource = remember { MutableInteractionSource() },
                 indication = null,
+                enabled = enabled,
                 onClick = onClick,
             ),
     ) { content(focused) }
@@ -128,7 +130,8 @@ fun SunsetButton(
 ) {
     val tint = if (danger) SunsetColors.Danger else SunsetColors.Coral
     SunsetFocusable(
-        onClick = { if (enabled) onClick() },
+        onClick = onClick,
+        enabled = enabled,
         modifier = modifier.alpha(if (enabled) 1f else 0.5f),
         shape = RoundedCornerShape(50),
         idleColor = tint.copy(alpha = 0.22f),
@@ -146,16 +149,16 @@ fun SunsetButton(
 }
 
 @Composable
-fun ScreenHeader(title: String, subtitle: String) {
+fun ScreenHeader(title: String, subtitle: String, compact: Boolean = false) {
     Column {
         Text(
             title,
             color = SunsetColors.TextPrimary,
-            fontSize = 34.sp,
+            fontSize = if (compact) 24.sp else 34.sp,
             fontWeight = FontWeight.Bold,
             letterSpacing = 1.sp,
         )
-        Text(subtitle, color = SunsetColors.TextSecondary, fontSize = 14.sp)
+        Text(subtitle, color = SunsetColors.TextSecondary, fontSize = if (compact) 12.sp else 14.sp)
     }
 }
 
@@ -194,7 +197,7 @@ fun CenteredLoading(modifier: Modifier = Modifier) {
 }
 
 @Composable
-fun ErrorState(message: String, onRetry: () -> Unit, modifier: Modifier = Modifier) {
+fun SunsetErrorState(message: String, onRetry: () -> Unit, modifier: Modifier = Modifier) {
     Column(
         modifier.fillMaxWidth().padding(top = 48.dp),
         horizontalAlignment = Alignment.CenterHorizontally,

@@ -5,6 +5,11 @@ on:
     branches: ["**"]
   pull_request:
   workflow_dispatch:
+    inputs:
+      export_apk:
+        description: "Transferir APK de teste via API Git para ambientes sem acesso aos artifacts"
+        type: boolean
+        default: false
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
@@ -52,6 +57,11 @@ jobs:
           set -o pipefail
           ./gradlew assembleDebug --stacktrace --no-daemon 2>&1 | tee build-debug.log
 
+      - name: Run unit tests
+        run: |
+          set -o pipefail
+          ./gradlew testDebugUnitTest --no-daemon 2>&1 | tee build-tests.log
+
       # Same signing config as debug (see app/build.gradle.kts), so the artifact is installable
       # straight from the Actions run.
       - name: Build Release APK
@@ -81,6 +91,33 @@ jobs:
           path: app/build/outputs/apk/release/*.apk
           retention-days: 30
 
+      # Optional transport for restricted environments that cannot reach Actions artifact storage.
+      # Git blobs are unreferenced; APKs are never committed to the source tree.
+      - name: Export APK through Git data API
+        if: ${{ github.event_name == 'workflow_dispatch' && inputs.export_apk }}
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          python3 - <<'PYCODE'
+          import base64, hashlib, json, os, pathlib, subprocess
+          apk = next(pathlib.Path('app/build/outputs/apk/release').glob('*.apk'))
+          data = apk.read_bytes()
+          repo = os.environ['GITHUB_REPOSITORY']
+          shas = []
+          for offset in range(0, len(data), 2 * 1024 * 1024):
+              chunk = data[offset:offset + 2 * 1024 * 1024]
+              payload = json.dumps({'content': base64.b64encode(chunk).decode(), 'encoding': 'base64'})
+              result = subprocess.run(['gh', 'api', f'repos/{repo}/git/blobs', '--method', 'POST',
+                                       '--input', '-', '--jq', '.sha'], input=payload, text=True,
+                                      capture_output=True, check=True)
+              shas.append(result.stdout.strip())
+          comment = ('APK_BLOB_TRANSFER_V1\nrun=' + os.environ['GITHUB_RUN_ID'] +
+                     '\nsha256=' + hashlib.sha256(data).hexdigest() + '\nsize=' + str(len(data)) +
+                     '\nblobs=' + ','.join(shas))
+          subprocess.run(['gh', 'api', f"repos/{repo}/commits/{os.environ['GITHUB_SHA']}/comments",
+                          '--method', 'POST', '-f', 'body=' + comment], check=True)
+          PYCODE
+
       - name: Upload reports on failure
         if: failure()
         uses: actions/upload-artifact@v4
@@ -88,6 +125,7 @@ jobs:
           name: build-reports
           path: |
             build-debug.log
+            build-tests.log
             build-release.log
             app/build/reports/**
             **/build/reports/**
@@ -101,12 +139,13 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          LOG="(debug log unavailable)"
-          if [ -f build-debug.log ]; then
-            LOG=$(tail -n 160 build-debug.log)
-          elif [ -f build-release.log ]; then
-            LOG=$(tail -n 160 build-release.log)
-          fi
+          LOG="(build log unavailable)"
+          for FILE in build-release.log build-tests.log build-debug.log; do
+            if [ -f "$FILE" ]; then
+              LOG=$( { grep -E '(^e: | error: |^FAILURE:|^\* What went wrong:|^> | FAILED|tests? (completed|failed))' "$FILE" || true; tail -n 90 "$FILE"; } | tail -n 160)
+              break
+            fi
+          done
           jq -n --arg body "$LOG" '{body: $body}' > payload.json
           curl -sS -X POST \
             -H "Authorization: Bearer $GH_TOKEN" \

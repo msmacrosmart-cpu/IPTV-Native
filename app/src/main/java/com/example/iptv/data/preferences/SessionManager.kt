@@ -105,7 +105,9 @@ class SessionManager(context: Context) {
             streamFormat = format,
             bufferSeconds = prefs.getInt(KEY_BUFFER_SECONDS, 15).coerceIn(5, 60),
             decoder = decoder,
-            lastEpgSyncMillis = prefs.getLong(KEY_EPG_SYNC, 0L)
+            lastEpgSyncMillis = prefs.getLong(KEY_EPG_SYNC, 0L),
+            autoUpdateEpg = prefs.getBoolean(KEY_EPG_AUTO, true),
+            customXmltvUrl = prefs.getString(KEY_EPG_URL, "").orEmpty()
         )
     }
 
@@ -115,6 +117,8 @@ class SessionManager(context: Context) {
             .putString(KEY_DECODER, settings.decoder.name)
             .putInt(KEY_BUFFER_SECONDS, settings.bufferSeconds)
             .putLong(KEY_EPG_SYNC, settings.lastEpgSyncMillis)
+            .putBoolean(KEY_EPG_AUTO, settings.autoUpdateEpg)
+            .putString(KEY_EPG_URL, settings.customXmltvUrl)
             .apply()
     }
 
@@ -213,5 +217,7 @@ class SessionManager(context: Context) {
         private const val KEY_DECODER = "setting_decoder"
         private const val KEY_BUFFER_SECONDS = "setting_buffer_seconds"
         private const val KEY_EPG_SYNC = "setting_epg_sync"
+        private const val KEY_EPG_AUTO = "setting_epg_auto"
+        private const val KEY_EPG_URL = "setting_epg_url"
     }
 }

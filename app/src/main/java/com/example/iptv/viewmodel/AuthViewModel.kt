@@ -6,6 +6,7 @@ import androidx.lifecycle.viewModelScope
 import com.example.iptv.data.model.AccountInfo
 import com.example.iptv.data.model.ApiResult
 import com.example.iptv.data.repository.XtreamRepository
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -36,6 +37,9 @@ class AuthViewModel(private val repository: XtreamRepository) : ViewModel() {
 
     private val _warningMessage = MutableStateFlow<String?>(null)
     val warningMessage: StateFlow<String?> = _warningMessage.asStateFlow()
+
+    private var restoreJob: Job? = null
+    private var loginJob: Job? = null
 
     init {
         repository.currentCredentials()?.let { credentials ->
@@ -76,7 +80,7 @@ class AuthViewModel(private val repository: XtreamRepository) : ViewModel() {
             _session.value = SessionState.LoggedIn(cached, offline = true)
         }
 
-        viewModelScope.launch {
+        restoreJob = viewModelScope.launch {
             when (val result = repository.restoreSession()) {
                 is ApiResult.Success -> {
                     _warningMessage.value = null
@@ -97,7 +101,7 @@ class AuthViewModel(private val repository: XtreamRepository) : ViewModel() {
 
     fun login() {
         if (_isLoading.value) return
-        viewModelScope.launch {
+        loginJob = viewModelScope.launch {
             _isLoading.value = true
             _errorMessage.value = null
             val result = repository.login(
@@ -126,12 +130,15 @@ class AuthViewModel(private val repository: XtreamRepository) : ViewModel() {
     }
 
     fun logout() {
+        restoreJob?.cancel()
+        loginJob?.cancel()
         repository.logout()
         serverInput.value = ""
         usernameInput.value = ""
         passwordInput.value = ""
         _errorMessage.value = null
         _warningMessage.value = null
+        _isLoading.value = false
         _session.value = SessionState.LoggedOut
     }
 

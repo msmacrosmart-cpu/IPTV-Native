@@ -57,12 +57,13 @@ class MainActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
 
-        val repository: XtreamRepository = (application as IPTVApplication).repository
+        val app = application as IPTVApplication
+        val repository: XtreamRepository = app.repository
 
         setContent {
             IPTVNativeTheme {
                 val authViewModel: AuthViewModel = viewModel(factory = AuthViewModel.Factory(repository))
-                val mainViewModel: MainTvViewModel = viewModel(factory = MainTvViewModel.Factory(repository))
+                val mainViewModel: MainTvViewModel = viewModel(factory = MainTvViewModel.Factory(repository, app.epgRepository))
                 IPTVNativeApp(authViewModel = authViewModel, mainViewModel = mainViewModel)
             }
         }

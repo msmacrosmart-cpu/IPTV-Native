@@ -25,6 +25,9 @@ import com.example.iptv.data.network.XtreamApiService
 import com.example.iptv.data.network.XtreamParser
 import com.example.iptv.data.preferences.SessionManager
 import com.example.iptv.util.FormatUtils
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -38,6 +41,7 @@ import java.io.IOException
 import java.net.ConnectException
 import java.net.SocketTimeoutException
 import java.net.UnknownHostException
+import java.util.concurrent.atomic.AtomicLong
 
 /**
  * Single source of truth for the Xtream Codes session and catalogue.
@@ -60,6 +64,7 @@ class XtreamRepository(private val session: SessionManager) {
     private var api: XtreamApiService? = null
 
     private val serviceLock = Any()
+    private val sessionGeneration = AtomicLong(0)
 
     // ------------------------------------------------------------------ session
 
@@ -84,6 +89,7 @@ class XtreamRepository(private val session: SessionManager) {
         rawPassword: String,
         persist: Boolean = true
     ): ApiResult<AccountInfo> = withContext(Dispatchers.IO) {
+        val generation = sessionGeneration.get()
         val parsed = PanelUrl.parse(rawServer)
         val server = parsed.baseUrl
         val username = rawUsername.trim().ifBlank { parsed.username.orEmpty() }
@@ -128,15 +134,19 @@ class XtreamRepository(private val session: SessionManager) {
             )
 
             val newCredentials = PanelCredentials(server, username, password)
-            credentials = newCredentials
-            synchronized(serviceLock) { api = service }
-            if (persist) {
-                session.saveCredentials(newCredentials)
+            currentCoroutineContext().ensureActive()
+            synchronized(serviceLock) {
+                // A late account refresh must not restore a session after the user has logged out.
+                if (generation != sessionGeneration.get()) return@withContext ApiResult.Failure("Sessão encerrada.")
+                credentials = newCredentials
+                api = service
+                if (persist) session.saveCredentials(newCredentials)
+                session.saveAccount(sanitized)
+                _account.value = sanitized
             }
-            session.saveAccount(sanitized)
-            _account.value = sanitized
-
             ApiResult.Success(sanitized)
+        } catch (e: CancellationException) {
+            throw e
         } catch (e: SocketTimeoutException) {
             ApiResult.Failure(
                 "Tempo esgotado ao conectar em $server. Verifique a porta, a internet e se o painel está online."
@@ -155,10 +165,11 @@ class XtreamRepository(private val session: SessionManager) {
         }
     }
 
-    fun logout() {
+    fun logout() = synchronized(serviceLock) {
+        sessionGeneration.incrementAndGet()
         session.clear()
         credentials = null
-        synchronized(serviceLock) { api = null }
+        api = null
         _account.value = null
         _settings.value = UserSettings()
     }
@@ -236,6 +247,18 @@ class XtreamRepository(private val session: SessionManager) {
 
     fun updateDecoder(decoder: VideoDecoder) {
         updateSettings(_settings.value.copy(decoder = decoder))
+    }
+
+    fun updateEpgAuto(enabled: Boolean) {
+        updateSettings(_settings.value.copy(autoUpdateEpg = enabled))
+    }
+
+    fun updateCustomXmltvUrl(url: String) {
+        updateSettings(_settings.value.copy(customXmltvUrl = url, lastEpgSyncMillis = 0L))
+    }
+
+    fun clearEpgSync() {
+        updateSettings(_settings.value.copy(lastEpgSyncMillis = 0L))
     }
 
     fun markEpgSynced() {
@@ -341,6 +364,8 @@ class XtreamRepository(private val session: SessionManager) {
                 ?: return@withContext ApiResult.Failure("Resposta inválida do painel (JSON malformado).")
 
             ApiResult.Success(parse(root))
+        } catch (e: CancellationException) {
+            throw e
         } catch (e: SocketTimeoutException) {
             ApiResult.Failure("O painel demorou demais para responder. Tente novamente.")
         } catch (e: UnknownHostException) {

@@ -1,4 +1,4 @@
-package com.sunsettv.app.ui.theme
+package com.example.iptv.ui.theme
 
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.material3.MaterialTheme

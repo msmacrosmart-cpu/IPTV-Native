@@ -3,6 +3,7 @@ package com.example.iptv.viewmodel
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
+import com.example.iptv.data.epg.XmltvRepository
 import com.example.iptv.data.model.ApiResult
 import com.example.iptv.data.model.Episode
 import com.example.iptv.data.model.EpgEntry
@@ -20,6 +21,7 @@ import com.example.iptv.data.repository.XtreamRepository
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.async
 import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
@@ -39,7 +41,10 @@ enum class TvNavSection(val label: String, val contentDescription: String) {
  * Holds the whole catalogue (live, VOD and series), the current filters and the playback
  * requests. All network work happens in [XtreamRepository]; this class only orchestrates state.
  */
-class MainTvViewModel(private val repository: XtreamRepository) : ViewModel() {
+class MainTvViewModel(
+    private val repository: XtreamRepository,
+    private val xmltv: XmltvRepository
+) : ViewModel() {
 
     val account = repository.account
     val settings = repository.settings
@@ -70,6 +75,9 @@ class MainTvViewModel(private val repository: XtreamRepository) : ViewModel() {
     val epgEntries = MutableStateFlow<List<EpgEntry>>(emptyList())
     val epgLoading = MutableStateFlow(false)
     val epgError = MutableStateFlow<String?>(null)
+    val epgGuide = xmltv.guide
+    val epgUpdateState = xmltv.state
+    val accountRefreshing = MutableStateFlow(false)
 
     // ---------------------------------------------------------------- filmes/VOD
 
@@ -124,16 +132,26 @@ class MainTvViewModel(private val repository: XtreamRepository) : ViewModel() {
     private var vodJob: Job? = null
     private var seriesJob: Job? = null
     private var epgJob: Job? = null
+    private var focusedChannelJob: Job? = null
+    private var epgInitJob: Job? = null
+    private var epgUpdateJob: Job? = null
+    private var accountRefreshJob: Job? = null
+    private var pingJob: Job? = null
+    private var seriesDetailJob: Job? = null
 
     // --------------------------------------------------------------- navigation
 
     fun selectSection(target: TvNavSection) {
         section.value = target
+        if (target == TvNavSection.LIVE_TV && epgEntries.value.isEmpty()) {
+            selectedChannel.value?.let { loadEpg(it) }
+        }
     }
 
     // ------------------------------------------------------------------- loading
 
     fun refreshAll() {
+        initializeEpg()
         loadLive(force = true)
         loadVod(force = true)
         loadSeries(force = true)
@@ -235,35 +253,55 @@ class MainTvViewModel(private val repository: XtreamRepository) : ViewModel() {
 
     // ------------------------------------------------------------------- live TV
 
+    /** Focusing a row previews it after a short delay; OK/touch opens it immediately. */
+    fun onChannelFocused(channel: LiveChannel) {
+        focusedChannelJob?.cancel()
+        if (selectedChannel.value?.id == channel.id) return
+        focusedChannelJob = viewModelScope.launch {
+            delay(400)
+            setChannel(channel)
+        }
+    }
+
     fun selectChannel(channel: LiveChannel) {
+        focusedChannelJob?.cancel()
+        setChannel(channel)
+    }
+
+    private fun setChannel(channel: LiveChannel) {
+        if (selectedChannel.value?.id == channel.id && preview.value != null) return
         selectedChannel.value = channel
         preview.value = livePlaybackRequest(channel)
         loadEpg(channel)
     }
 
     fun selectCategory(categoryId: String?) {
-        liveCategoryFilter.value = categoryId
+        if (liveCategoryFilter.value != categoryId) liveCategoryFilter.value = categoryId
     }
 
     fun loadEpg(channel: LiveChannel) {
         epgJob?.cancel()
+        epgError.value = null
+        val cached = xmltv.guide.value.forChannel(channel).filter { it.endMillis > System.currentTimeMillis() }
+        if (cached.isNotEmpty()) {
+            epgEntries.value = cached
+            epgLoading.value = false
+            return
+        }
+        epgEntries.value = emptyList()
         epgJob = viewModelScope.launch {
             epgLoading.value = true
-            epgError.value = null
-            epgEntries.value = emptyList()
-            val result = repository.shortEpg(channel.id)
-            if (selectedChannel.value?.id == channel.id) {
-                when (result) {
-                    is ApiResult.Success -> {
-                        epgEntries.value = result.data
-                        repository.markEpgSynced()
-                        epgSyncLabel.value = repository.epgSyncLabel()
+            try {
+                val result = repository.shortEpg(channel.id)
+                if (selectedChannel.value?.id == channel.id) {
+                    when (result) {
+                        is ApiResult.Success -> epgEntries.value = result.data
+                        is ApiResult.Failure -> epgError.value = result.message
                     }
-
-                    is ApiResult.Failure -> epgError.value = result.message
                 }
+            } finally {
+                if (selectedChannel.value?.id == channel.id) epgLoading.value = false
             }
-            epgLoading.value = false
         }
     }
 
@@ -343,7 +381,8 @@ class MainTvViewModel(private val repository: XtreamRepository) : ViewModel() {
         seriesSeasons.value = emptyList()
         seriesDetailError.value = null
         seriesDetailLoading.value = true
-        viewModelScope.launch {
+        seriesDetailJob?.cancel()
+        seriesDetailJob = viewModelScope.launch {
             val result = repository.seriesInfo(series.id)
             if (selectedSeries.value?.id != series.id) {
                 seriesDetailLoading.value = false
@@ -364,6 +403,7 @@ class MainTvViewModel(private val repository: XtreamRepository) : ViewModel() {
     }
 
     fun closeSeriesDetail() {
+        seriesDetailJob?.cancel()
         selectedSeries.value = null
         seriesSeasons.value = emptyList()
         seriesDetailError.value = null
@@ -418,31 +458,101 @@ class MainTvViewModel(private val repository: XtreamRepository) : ViewModel() {
         repository.updateDecoder(decoder)
     }
 
-    fun refreshEpg() {
-        selectedChannel.value?.let { loadEpg(it) }
-        repository.markEpgSynced()
+    private fun initializeEpg() {
+        epgInitJob?.cancel()
+        val credentials = repository.currentCredentials() ?: return
+        epgInitJob = viewModelScope.launch {
+            val preferences = settings.value
+            val loaded = xmltv.loadFromDisk(credentials, preferences.customXmltvUrl)
+            if (loaded) selectedChannel.value?.let { loadEpg(it) }
+            val stale = System.currentTimeMillis() - preferences.lastEpgSyncMillis >= 12 * 60 * 60 * 1000L
+            if (preferences.autoUpdateEpg && (!loaded || stale)) refreshEpg(showSuccess = false)
+        }
+    }
+
+    fun refreshEpg(showSuccess: Boolean = true) {
+        if (epgUpdateJob?.isActive == true) return
+        val credentials = repository.currentCredentials()
+        if (credentials == null) {
+            alert.value = "Sessão não encontrada. Faça login novamente."
+            return
+        }
+        val source = settings.value.customXmltvUrl
+        epgUpdateJob = viewModelScope.launch {
+            if (xmltv.refresh(credentials, source)) {
+                repository.markEpgSynced()
+                epgSyncLabel.value = repository.epgSyncLabel()
+                selectedChannel.value?.let { loadEpg(it) }
+                if (showSuccess) alert.value = "Guia de programação atualizado."
+            }
+        }
+    }
+
+    fun updateAutoEpg(enabled: Boolean) {
+        repository.updateEpgAuto(enabled)
+        if (enabled && settings.value.lastEpgSyncMillis == 0L) refreshEpg(showSuccess = false)
+    }
+
+    fun updateCustomXmltvUrl(url: String) {
+        if (settings.value.customXmltvUrl == url) return
+        epgInitJob?.cancel()
+        epgUpdateJob?.cancel()
+        epgJob?.cancel()
+        xmltv.invalidate()
+        repository.updateCustomXmltvUrl(url)
         epgSyncLabel.value = repository.epgSyncLabel()
+        epgEntries.value = emptyList()
+        epgLoading.value = false
+        epgError.value = null
+    }
+
+    fun clearEpgCache() {
+        epgInitJob?.cancel()
+        epgUpdateJob?.cancel()
+        xmltv.clear()
+        repository.clearEpgSync()
+        epgSyncLabel.value = repository.epgSyncLabel()
+        selectedChannel.value?.let { loadEpg(it) }
+    }
+
+    fun refreshAccount() {
+        if (accountRefreshJob?.isActive == true) return
+        accountRefreshJob = viewModelScope.launch {
+            accountRefreshing.value = true
+            try {
+                when (val result = repository.restoreSession()) {
+                    is ApiResult.Success -> alert.value = "Dados da conta atualizados."
+                    is ApiResult.Failure -> alert.value = result.message
+                }
+            } finally {
+                accountRefreshing.value = false
+            }
+        }
     }
 
     fun testLatency() {
         if (pingLoading.value) return
-        viewModelScope.launch {
+        pingJob = viewModelScope.launch {
             pingLoading.value = true
-            when (val result = repository.ping()) {
-                is ApiResult.Success -> {
-                    pingLatencyMillis.value = result.data
-                    alert.value = "Latência do painel: ${result.data} ms"
+            try {
+                when (val result = repository.ping()) {
+                    is ApiResult.Success -> {
+                        pingLatencyMillis.value = result.data
+                        alert.value = "Latência do painel: ${result.data} ms"
+                    }
+                    is ApiResult.Failure -> alert.value = result.message
                 }
-
-                is ApiResult.Failure -> alert.value = result.message
+            } finally {
+                pingLoading.value = false
             }
-            pingLoading.value = false
         }
     }
 
     fun logout() {
-        repository.logout()
         reset()
+        xmltv.clear()
+        repository.logout()
+        epgSyncLabel.value = repository.epgSyncLabel()
     }
 
     /** Clears every cached flow so a new login never shows the previous account's content. */
@@ -451,6 +561,12 @@ class MainTvViewModel(private val repository: XtreamRepository) : ViewModel() {
         vodJob?.cancel()
         seriesJob?.cancel()
         epgJob?.cancel()
+        focusedChannelJob?.cancel()
+        epgInitJob?.cancel()
+        epgUpdateJob?.cancel()
+        accountRefreshJob?.cancel()
+        pingJob?.cancel()
+        seriesDetailJob?.cancel()
 
         liveCategories.value = emptyList()
         liveAll.value = emptyList()
@@ -461,6 +577,10 @@ class MainTvViewModel(private val repository: XtreamRepository) : ViewModel() {
         preview.value = null
         epgEntries.value = emptyList()
         epgError.value = null
+        epgLoading.value = false
+        accountRefreshing.value = false
+        pingLoading.value = false
+        epgSyncLabel.value = repository.epgSyncLabel()
 
         vodCategories.value = emptyList()
         vodAll.value = emptyList()
@@ -483,11 +603,14 @@ class MainTvViewModel(private val repository: XtreamRepository) : ViewModel() {
         section.value = TvNavSection.HOME
     }
 
-    class Factory(private val repository: XtreamRepository) : ViewModelProvider.Factory {
+    class Factory(
+        private val repository: XtreamRepository,
+        private val xmltv: XmltvRepository
+    ) : ViewModelProvider.Factory {
         @Suppress("UNCHECKED_CAST")
         override fun <T : ViewModel> create(modelClass: Class<T>): T {
             if (modelClass.isAssignableFrom(MainTvViewModel::class.java)) {
-                return MainTvViewModel(repository) as T
+                return MainTvViewModel(repository, xmltv) as T
             }
             throw IllegalArgumentException("ViewModel desconhecido: ${modelClass.name}")
         }

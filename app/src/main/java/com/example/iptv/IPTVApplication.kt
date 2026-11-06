@@ -1,6 +1,8 @@
 package com.example.iptv
 
 import android.app.Application
+import com.example.iptv.data.epg.XmltvRepository
+import com.example.iptv.data.network.ApiClient
 import com.example.iptv.data.preferences.SessionManager
 import com.example.iptv.data.repository.XtreamRepository
 
@@ -16,12 +18,16 @@ class IPTVApplication : Application() {
     lateinit var sessionManager: SessionManager
         private set
 
+    lateinit var epgRepository: XmltvRepository
+        private set
+
     lateinit var repository: XtreamRepository
         private set
 
     override fun onCreate() {
         super.onCreate()
         sessionManager = SessionManager(this)
+        epgRepository = XmltvRepository(cacheDir, ApiClient.httpClient())
         repository = XtreamRepository(sessionManager)
     }
 }

@@ -1,578 +1,344 @@
 package com.example.iptv.ui.screens
 
-import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.foundation.background
-import androidx.compose.foundation.border
-import androidx.compose.foundation.clickable
-import androidx.compose.foundation.focusable
-import androidx.compose.foundation.interaction.MutableInteractionSource
-import androidx.compose.foundation.interaction.collectIsFocusedAsState
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Fullscreen
-import androidx.compose.material.icons.filled.LiveTv
-import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Refresh
-import androidx.compose.material.icons.filled.Schedule
-import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.key
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
+import androidx.compose.ui.ExperimentalComposeUiApi
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.draw.scale
+import androidx.compose.ui.focus.focusRestorer
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.painter.ColorPainter
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import coil.compose.AsyncImage
+import com.example.iptv.data.epg.EpgGuide
 import com.example.iptv.data.model.EpgEntry
+import com.example.iptv.data.model.LiveCategory
 import com.example.iptv.data.model.LiveChannel
+import com.example.iptv.data.model.PlaybackRequest
+import com.example.iptv.data.model.UserSettings
 import com.example.iptv.player.PreviewPlayer
-import com.example.iptv.ui.components.CategoryRow
-import com.example.iptv.ui.components.ChannelLogo
-import com.example.iptv.ui.components.EmptyState
-import com.example.iptv.ui.components.ErrorState
-import com.example.iptv.ui.components.GlassCard
-import com.example.iptv.ui.components.LoadingState
-import com.example.iptv.ui.components.PrimaryButton
+import com.example.iptv.ui.components.CenteredLoading
+import com.example.iptv.ui.components.SunsetErrorState
+import com.example.iptv.ui.components.GlassPanel
+import com.example.iptv.ui.components.LiveBadge
+import com.example.iptv.ui.components.ScreenHeader
 import com.example.iptv.ui.components.SearchField
-import com.example.iptv.ui.components.SelectAllChip
+import com.example.iptv.ui.components.SunsetFocusable
+import com.example.iptv.ui.components.SunsetProgressBar
 import com.example.iptv.ui.components.TopographicBackground
-import com.example.iptv.ui.theme.AccentCoral
-import com.example.iptv.ui.theme.LiveRed
-import com.example.iptv.ui.theme.TextMuted
-import com.example.iptv.ui.theme.TextPrimary
-import com.example.iptv.ui.theme.TextSecondary
-import com.example.iptv.util.FormatUtils
+import com.example.iptv.ui.components.formatClock
+import com.example.iptv.ui.components.rememberNowMs
+import com.example.iptv.ui.theme.SunsetColors
 import com.example.iptv.viewmodel.MainTvViewModel
-import kotlinx.coroutines.delay
 
-/**
- * Live TV in three columns (IPTV Smarters style):
- *  1. categories + search;
- *  2. channel list (logo, name, number);
- *  3. Media3 preview player + full EPG card of the selected channel.
- */
+/** Reference layout, connected to the app's existing catalogue, session and Media3 player. */
 @Composable
 fun LiveTvScreen(viewModel: MainTvViewModel) {
     val categories by viewModel.liveCategories.collectAsState()
+    val allChannels by viewModel.liveAll.collectAsState()
     val channels by viewModel.liveChannels.collectAsState()
     val loading by viewModel.liveLoading.collectAsState()
     val error by viewModel.liveError.collectAsState()
-    val categoryFilter by viewModel.liveCategoryFilter.collectAsState()
+    val category by viewModel.liveCategoryFilter.collectAsState()
     val query by viewModel.liveQuery.collectAsState()
-    val selectedChannel by viewModel.selectedChannel.collectAsState()
+    val selected by viewModel.selectedChannel.collectAsState()
     val preview by viewModel.preview.collectAsState()
-    val epgEntries by viewModel.epgEntries.collectAsState()
+    val settings by viewModel.settings.collectAsState()
+    val guide by viewModel.epgGuide.collectAsState()
+    val entries by viewModel.epgEntries.collectAsState()
     val epgLoading by viewModel.epgLoading.collectAsState()
     val epgError by viewModel.epgError.collectAsState()
-    val settings by viewModel.settings.collectAsState()
-    val allChannels by viewModel.liveAll.collectAsState()
-
-    var now by remember { mutableStateOf(System.currentTimeMillis()) }
-    LaunchedEffect(Unit) {
-        while (true) {
-            now = System.currentTimeMillis()
-            delay(20_000)
-        }
-    }
+    val now = rememberNowMs()
+    val counts = remember(allChannels) { allChannels.groupingBy { it.categoryId }.eachCount() }
 
     TopographicBackground {
-        Row(
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(14.dp),
-            horizontalArrangement = Arrangement.spacedBy(14.dp)
-        ) {
-            // ---------------------------------------------------------- column 1
-            GlassCard(
-                modifier = Modifier.width(250.dp).fillMaxHeight(),
-                shape = RoundedCornerShape(20.dp)
-            ) {
-                Column(
-                    modifier = Modifier.fillMaxSize().padding(12.dp)
-                ) {
-                    SearchField(
-                        value = query,
-                        onValueChange = { viewModel.liveQuery.value = it },
-                        placeholder = "Buscar canal…"
-                    )
-
-                    Spacer(modifier = Modifier.height(10.dp))
-
-                    SelectAllChip(
-                        label = "Todos os canais (${allChannels.size})",
-                        isSelected = categoryFilter == null,
-                        onClick = { viewModel.selectCategory(null) }
-                    )
-
-                    Spacer(modifier = Modifier.height(10.dp))
-
-                    Text(
-                        text = "CATEGORIAS",
-                        color = TextMuted,
-                        fontSize = 10.sp,
-                        fontWeight = FontWeight.Bold,
-                        letterSpacing = 1.sp,
-                        modifier = Modifier.padding(start = 8.dp, bottom = 6.dp)
-                    )
-
-                    if (loading && categories.isEmpty()) {
-                        LoadingState(message = "Carregando…", modifier = Modifier.weight(1f))
-                    } else {
-                        LazyColumn(
-                            modifier = Modifier.weight(1f),
-                            verticalArrangement = Arrangement.spacedBy(4.dp)
-                        ) {
-                            items(categories, key = { it.id }) { category ->
-                                CategoryRow(
-                                    label = category.name,
-                                    isSelected = category.id == categoryFilter,
-                                    onClick = { viewModel.selectCategory(category.id) }
-                                )
-                            }
-                        }
-                    }
-                }
-            }
-
-            // ---------------------------------------------------------- column 2
-            GlassCard(
-                modifier = Modifier.width(330.dp).fillMaxHeight(),
-                shape = RoundedCornerShape(20.dp)
-            ) {
-                Column(modifier = Modifier.fillMaxSize().padding(12.dp)) {
-                    Row(
-                        modifier = Modifier.fillMaxWidth().padding(horizontal = 4.dp, vertical = 2.dp),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Text(
-                            text = "${channels.size} canais",
-                            color = TextSecondary,
-                            fontSize = 11.5.sp,
-                            fontWeight = FontWeight.Medium
+        BoxWithConstraints(Modifier.fillMaxSize()) {
+            val compact = maxWidth < 900.dp || maxHeight < 500.dp
+            val sidePadding = if (compact) 14.dp else 28.dp
+            val gap = if (compact) 8.dp else 16.dp
+            Column(Modifier.fillMaxSize().padding(horizontal = sidePadding, vertical = if (compact) 12.dp else 24.dp)) {
+                ScreenHeader("TV AO VIVO", "Navegue pelas categorias e pré-visualize os canais", compact)
+                Spacer(Modifier.height(if (compact) 8.dp else 16.dp))
+                when {
+                    loading && allChannels.isEmpty() -> CenteredLoading()
+                    error != null && allChannels.isEmpty() -> SunsetErrorState(error.orEmpty(), onRetry = { viewModel.loadLive(force = true) })
+                    else -> Row(Modifier.fillMaxSize(), horizontalArrangement = Arrangement.spacedBy(gap)) {
+                        CategoriesColumn(
+                            categories = categories,
+                            counts = counts,
+                            total = allChannels.size,
+                            selectedCategory = category,
+                            query = query,
+                            onQueryChange = { viewModel.liveQuery.value = it },
+                            onSelect = viewModel::selectCategory,
+                            modifier = Modifier.weight(0.24f)
                         )
-                        IconButton(
-                            onClick = { viewModel.loadLive(force = true) },
-                            modifier = Modifier.size(30.dp)
-                        ) {
-                            Icon(
-                                imageVector = Icons.Default.Refresh,
-                                contentDescription = "Atualizar canais",
-                                tint = TextMuted,
-                                modifier = Modifier.size(17.dp)
-                            )
-                        }
-                    }
-
-                    when {
-                        loading && channels.isEmpty() -> LoadingState(
-                            message = "Carregando canais…",
-                            modifier = Modifier.weight(1f)
+                        ChannelsColumn(
+                            channels = channels,
+                            category = category,
+                            selected = selected,
+                            guide = guide,
+                            selectedEntries = entries,
+                            now = now,
+                            onFocused = viewModel::onChannelFocused,
+                            onOpen = viewModel::playChannelFullscreen,
+                            onRefresh = { viewModel.loadLive(force = true) },
+                            modifier = Modifier.weight(0.39f)
                         )
-
-                        error != null && channels.isEmpty() -> ErrorState(
-                            message = error.orEmpty(),
-                            onRetry = { viewModel.loadLive(force = true) },
-                            modifier = Modifier.weight(1f)
+                        PreviewColumn(
+                            selected = selected,
+                            preview = preview,
+                            settings = settings,
+                            entries = entries,
+                            loading = epgLoading,
+                            error = epgError,
+                            now = now,
+                            onRetry = viewModel::retryEpg,
+                            onOpen = viewModel::openPreviewFullscreen,
+                            modifier = Modifier.weight(0.37f)
                         )
-
-                        channels.isEmpty() -> EmptyState(
-                            title = "Nenhum canal encontrado",
-                            message = "Ajuste a busca ou selecione outra categoria.",
-                            icon = Icons.Default.LiveTv,
-                            modifier = Modifier.weight(1f)
-                        )
-
-                        else -> LazyColumn(
-                            modifier = Modifier.weight(1f),
-                            verticalArrangement = Arrangement.spacedBy(6.dp)
-                        ) {
-                            items(channels, key = { it.id }) { channel ->
-                                ChannelRow(
-                                    channel = channel,
-                                    isSelected = channel.id == selectedChannel?.id,
-                                    onClick = { viewModel.selectChannel(channel) },
-                                    onLongClickPlay = { viewModel.playChannelFullscreen(channel) }
-                                )
-                            }
-                        }
                     }
-                }
-            }
-
-            // ---------------------------------------------------------- column 3
-            Column(
-                modifier = Modifier.weight(1f).fillMaxHeight(),
-                verticalArrangement = Arrangement.spacedBy(14.dp)
-            ) {
-                GlassCard(
-                    modifier = Modifier.fillMaxWidth().weight(1.25f),
-                    shape = RoundedCornerShape(22.dp)
-                ) {
-                    Box(modifier = Modifier.fillMaxSize().background(Color.Black)) {
-                        PreviewPlayer(
-                            request = preview,
-                            decoder = settings.decoder,
-                            bufferSeconds = settings.bufferSeconds,
-                            modifier = Modifier.fillMaxSize()
-                        ) {
-                            Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                                Icon(
-                                    imageVector = Icons.Default.LiveTv,
-                                    contentDescription = null,
-                                    tint = Color.White.copy(alpha = 0.25f),
-                                    modifier = Modifier.size(48.dp)
-                                )
-                                Spacer(modifier = Modifier.height(8.dp))
-                                Text(
-                                    text = "Selecione um canal para pré-visualizar",
-                                    color = Color.White.copy(alpha = 0.45f),
-                                    fontSize = 13.sp
-                                )
-                            }
-                        }
-
-                        if (selectedChannel != null) {
-                            Row(
-                                modifier = Modifier
-                                    .align(Alignment.TopStart)
-                                    .padding(12.dp)
-                                    .clip(RoundedCornerShape(7.dp))
-                                    .background(Color(0xCC000000))
-                                    .padding(horizontal = 9.dp, vertical = 4.dp),
-                                verticalAlignment = Alignment.CenterVertically
-                            ) {
-                                Box(
-                                    modifier = Modifier.size(7.dp).clip(CircleShape).background(LiveRed)
-                                )
-                                Spacer(modifier = Modifier.width(6.dp))
-                                Text(
-                                    text = selectedChannel?.name.orEmpty(),
-                                    color = Color.White,
-                                    fontSize = 11.sp,
-                                    fontWeight = FontWeight.SemiBold,
-                                    maxLines = 1,
-                                    overflow = TextOverflow.Ellipsis
-                                )
-                            }
-
-                            IconButton(
-                                onClick = { viewModel.openPreviewFullscreen() },
-                                modifier = Modifier
-                                    .align(Alignment.TopEnd)
-                                    .padding(8.dp)
-                                    .size(36.dp)
-                                    .clip(CircleShape)
-                                    .background(Color(0x99000000))
-                            ) {
-                                Icon(
-                                    imageVector = Icons.Default.Fullscreen,
-                                    contentDescription = "Tela cheia",
-                                    tint = Color.White,
-                                    modifier = Modifier.size(19.dp)
-                                )
-                            }
-                        }
-                    }
-                }
-
-                GlassCard(
-                    modifier = Modifier.fillMaxWidth().weight(0.95f),
-                    shape = RoundedCornerShape(20.dp)
-                ) {
-                    EpgPanel(
-                        channel = selectedChannel,
-                        entries = epgEntries,
-                        isLoading = epgLoading,
-                        error = epgError,
-                        now = now,
-                        onRetry = viewModel::retryEpg,
-                        onFullscreen = { selectedChannel?.let { viewModel.playChannelFullscreen(it) } }
-                    )
                 }
             }
         }
     }
 }
 
+@OptIn(ExperimentalComposeUiApi::class)
 @Composable
-private fun ChannelRow(
-    channel: LiveChannel,
-    isSelected: Boolean,
-    onClick: () -> Unit,
-    onLongClickPlay: () -> Unit
+private fun CategoriesColumn(
+    categories: List<LiveCategory>,
+    counts: Map<String?, Int>,
+    total: Int,
+    selectedCategory: String?,
+    query: String,
+    onQueryChange: (String) -> Unit,
+    onSelect: (String?) -> Unit,
+    modifier: Modifier
 ) {
-    val interactionSource = remember { MutableInteractionSource() }
-    val isFocused by interactionSource.collectIsFocusedAsState()
-
-    val borderColor = when {
-        isSelected -> AccentCoral
-        isFocused -> Color.White.copy(alpha = 0.75f)
-        else -> Color.White.copy(alpha = 0.07f)
-    }
-    val background = when {
-        isSelected -> Color(0x33FF6B5B)
-        isFocused -> Color(0x332A2F3D)
-        else -> Color(0x1A161922)
-    }
-
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .height(62.dp)
-            .clip(RoundedCornerShape(13.dp))
-            .background(background)
-            .border(if (isSelected || isFocused) 1.6.dp else 1.dp, borderColor, RoundedCornerShape(13.dp))
-            .focusable(interactionSource = interactionSource)
-            .clickable(interactionSource = interactionSource, indication = null, onClick = onClick)
-            .padding(horizontal = 10.dp),
-        verticalAlignment = Alignment.CenterVertically
-    ) {
-        ChannelLogo(url = channel.icon, name = channel.name, size = 42)
-
-        Spacer(modifier = Modifier.width(10.dp))
-
-        Column(modifier = Modifier.weight(1f)) {
-            Text(
-                text = channel.name,
-                color = TextPrimary,
-                fontSize = 13.sp,
-                fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis
-            )
-            Text(
-                text = buildString {
-                    if (channel.streamNumber > 0) append("#").append(channel.streamNumber)
-                    if (channel.hasArchive) {
-                        if (isNotEmpty()) append("  ·  ")
-                        append("ARQUIVO")
+    GlassPanel(modifier.fillMaxHeight()) {
+        Column(Modifier.fillMaxSize().padding(8.dp)) {
+            SearchField(value = query, onValueChange = onQueryChange, placeholder = "Buscar canal…")
+            Spacer(Modifier.height(8.dp))
+            LazyColumn(
+                Modifier.weight(1f).fillMaxWidth().focusRestorer(),
+                contentPadding = PaddingValues(3.dp),
+                verticalArrangement = Arrangement.spacedBy(6.dp)
+            ) {
+                item(key = "__all_channels__") {
+                    CategoryPill("Todos os canais", total, selectedCategory == null) { onSelect(null) }
+                }
+                items(categories.distinctBy { it.id }, key = { "category:${it.id}" }) { category ->
+                    CategoryPill(category.name, counts[category.id] ?: 0, category.id == selectedCategory) {
+                        onSelect(category.id)
                     }
-                    if (isEmpty()) append("Ao vivo")
-                },
-                color = TextMuted,
-                fontSize = 10.5.sp,
-                maxLines = 1
-            )
-        }
-
-        if (isSelected || isFocused) {
-            IconButton(onClick = onLongClickPlay, modifier = Modifier.size(30.dp)) {
-                Icon(
-                    imageVector = Icons.Default.PlayArrow,
-                    contentDescription = "Assistir em tela cheia",
-                    tint = AccentCoral,
-                    modifier = Modifier.size(19.dp)
-                )
+                }
             }
         }
     }
 }
 
 @Composable
-private fun EpgPanel(
-    channel: LiveChannel?,
+private fun CategoryPill(name: String, count: Int, selected: Boolean, onSelect: () -> Unit) {
+    SunsetFocusable(
+        onClick = onSelect,
+        onFocused = onSelect,
+        selected = selected,
+        shape = RoundedCornerShape(50),
+        modifier = Modifier.fillMaxWidth()
+    ) {
+        Row(Modifier.fillMaxWidth().padding(horizontal = 10.dp, vertical = 11.dp), verticalAlignment = Alignment.CenterVertically) {
+            Text(
+                name, modifier = Modifier.weight(1f), color = SunsetColors.TextPrimary,
+                fontSize = 13.sp, maxLines = 1, overflow = TextOverflow.Ellipsis,
+                fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Normal
+            )
+            Text(count.toString(), color = SunsetColors.TextSecondary, fontSize = 11.sp)
+        }
+    }
+}
+
+@OptIn(ExperimentalComposeUiApi::class)
+@Composable
+private fun ChannelsColumn(
+    channels: List<LiveChannel>,
+    category: String?,
+    selected: LiveChannel?,
+    guide: EpgGuide,
+    selectedEntries: List<EpgEntry>,
+    now: Long,
+    onFocused: (LiveChannel) -> Unit,
+    onOpen: (LiveChannel) -> Unit,
+    onRefresh: () -> Unit,
+    modifier: Modifier
+) {
+    GlassPanel(modifier.fillMaxHeight()) {
+        Column(Modifier.fillMaxSize().padding(8.dp)) {
+            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                Text("${channels.size} canais", color = SunsetColors.TextSecondary, fontSize = 12.sp, modifier = Modifier.weight(1f).padding(start = 6.dp))
+                IconButton(onClick = onRefresh, modifier = Modifier.size(34.dp)) {
+                    Icon(Icons.Default.Refresh, contentDescription = "Atualizar canais", tint = SunsetColors.TextSecondary)
+                }
+            }
+            if (channels.isEmpty()) {
+                Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                    Text("Nenhum canal encontrado. Ajuste a busca ou a categoria.", color = SunsetColors.TextSecondary, fontSize = 13.sp, textAlign = TextAlign.Center, modifier = Modifier.padding(12.dp))
+                }
+            } else {
+                key(category) {
+                    LazyColumn(
+                        Modifier.fillMaxSize().focusRestorer(),
+                        contentPadding = PaddingValues(3.dp),
+                        verticalArrangement = Arrangement.spacedBy(6.dp)
+                    ) {
+                        itemsIndexed(channels, key = { index, channel -> "${channel.id}:$index" }) { _, channel ->
+                            val program = guide.forChannel(channel).firstOrNull { it.isCurrent(now) }
+                                ?: selectedEntries.takeIf { selected?.id == channel.id }?.firstOrNull { it.isCurrent(now) || it.isNowPlaying }
+                            ChannelRow(channel, selected?.id == channel.id, program, now,
+                                onFocused = { onFocused(channel) }, onOpen = { onOpen(channel) })
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun ChannelRow(channel: LiveChannel, playing: Boolean, program: EpgEntry?, now: Long, onFocused: () -> Unit, onOpen: () -> Unit) {
+    SunsetFocusable(
+        onClick = onOpen, onFocused = onFocused, selected = playing,
+        shape = RoundedCornerShape(18.dp), modifier = Modifier.fillMaxWidth().height(72.dp)
+    ) {
+        Row(Modifier.fillMaxSize().padding(horizontal = 8.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(7.dp)) {
+            Text(if (channel.streamNumber > 0) channel.streamNumber.toString() else "—", modifier = Modifier.width(27.dp), textAlign = TextAlign.Center,
+                color = SunsetColors.TextSecondary, fontSize = 12.sp, fontWeight = FontWeight.SemiBold, maxLines = 1)
+            Box(Modifier.size(40.dp).clip(RoundedCornerShape(10.dp)).background(Color(0x22FFFFFF))) {
+                AsyncImage(model = channel.icon, contentDescription = null, contentScale = ContentScale.Fit,
+                    placeholder = ColorPainter(Color.Transparent), error = ColorPainter(Color.Transparent), fallback = ColorPainter(Color.Transparent),
+                    modifier = Modifier.fillMaxSize().padding(4.dp))
+            }
+            Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
+                Text(channel.name, color = SunsetColors.TextPrimary, fontSize = 14.sp, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                Text(program?.title ?: "Sem programação", color = SunsetColors.TextSecondary, fontSize = 11.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                if (program != null) SunsetProgressBar(program.progress(now), Modifier.fillMaxWidth())
+            }
+        }
+    }
+}
+
+@Composable
+private fun PreviewColumn(
+    selected: LiveChannel?,
+    preview: PlaybackRequest?,
+    settings: UserSettings,
     entries: List<EpgEntry>,
-    isLoading: Boolean,
+    loading: Boolean,
     error: String?,
     now: Long,
     onRetry: () -> Unit,
-    onFullscreen: () -> Unit
+    onOpen: () -> Unit,
+    modifier: Modifier
 ) {
-    if (channel == null) {
-        EmptyState(
-            title = "Nenhum canal selecionado",
-            message = "Escolha um canal na lista para ver a programação e a pré-visualização.",
-            icon = Icons.Default.Schedule,
-            modifier = Modifier.fillMaxSize()
-        )
-        return
-    }
-
-    val current = entries.firstOrNull { it.isCurrent(now) }
-        ?: entries.firstOrNull { it.isNowPlaying }
-        ?: entries.firstOrNull()
-    val next = entries.firstOrNull { it.startMillis >= (current?.endMillis ?: now) }
-
-    Column(
-        modifier = Modifier
-            .fillMaxSize()
-            .verticalScroll(rememberScrollState())
-            .padding(horizontal = 18.dp, vertical = 14.dp)
-    ) {
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.SpaceBetween,
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            Column(modifier = Modifier.weight(1f)) {
-                Text(
-                    text = channel.name,
-                    color = TextPrimary,
-                    fontSize = 16.sp,
-                    fontWeight = FontWeight.Bold,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis
-                )
-                Text(
-                    text = when {
-                        isLoading -> "Carregando EPG…"
-                        current != null -> "${FormatUtils.formatTime(current.startMillis)} – ${FormatUtils.formatTime(current.endMillis)}"
-                        else -> "Sem grade de programação"
-                    },
-                    color = AccentCoral,
-                    fontSize = 11.sp,
-                    fontWeight = FontWeight.Medium
-                )
-            }
-
-            PrimaryButton(
-                label = "Assistir",
-                onClick = onFullscreen,
-                modifier = Modifier.width(124.dp),
-                icon = Icons.Default.PlayArrow
-            )
-        }
-
-        Spacer(modifier = Modifier.height(10.dp))
-
-        when {
-            isLoading -> LinearProgressIndicator(
-                modifier = Modifier.fillMaxWidth().height(3.dp),
-                color = AccentCoral,
-                trackColor = Color.White.copy(alpha = 0.1f)
-            )
-
-            error != null -> Row(
-                modifier = Modifier.fillMaxWidth(),
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Text(
-                    text = error,
-                    color = TextMuted,
-                    fontSize = 11.sp,
-                    modifier = Modifier.weight(1f)
-                )
-                IconButton(onClick = onRetry, modifier = Modifier.size(28.dp)) {
-                    Icon(Icons.Default.Refresh, contentDescription = "Recarregar EPG", tint = AccentCoral, modifier = Modifier.size(15.dp))
+    val current = entries.firstOrNull { it.isCurrent(now) } ?: entries.firstOrNull { it.isNowPlaying }
+    val upcoming = entries.filter { it.startMillis >= (current?.endMillis ?: now) }.sortedBy { it.startMillis }.take(3)
+    BoxWithConstraints(modifier.fillMaxHeight()) {
+        val maxPreviewHeight = maxHeight * 0.52f
+        Column(Modifier.fillMaxSize(), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+            SunsetFocusable(
+                onClick = onOpen, enabled = preview != null, shape = RoundedCornerShape(20.dp), focusScale = 1.01f,
+                modifier = Modifier.fillMaxWidth().heightIn(max = maxPreviewHeight).aspectRatio(16f / 9f)
+            ) { focused ->
+                PreviewPlayer(request = preview, decoder = settings.decoder, bufferSeconds = settings.bufferSeconds, modifier = Modifier.fillMaxSize()) {
+                    Text("Selecione um canal", color = SunsetColors.TextSecondary, fontSize = 13.sp)
+                }
+                if (focused && preview != null) {
+                    Box(Modifier.align(Alignment.BottomCenter).fillMaxWidth()
+                        .background(Brush.verticalGradient(listOf(Color.Transparent, Color(0xCC000000)))).padding(vertical = 8.dp),
+                        contentAlignment = Alignment.Center) {
+                        Text("OK para tela cheia", color = Color.White, fontSize = 12.sp)
+                    }
                 }
             }
-
-            current != null -> {
-                Text(
-                    text = current.title,
-                    color = TextPrimary,
-                    fontSize = 14.sp,
-                    fontWeight = FontWeight.SemiBold,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis
-                )
-
-                Spacer(modifier = Modifier.height(6.dp))
-
-                val progress = current.progress(now)
-                val animated by animateFloatAsState(targetValue = progress, label = "epgProgress")
-                LinearProgressIndicator(
-                    progress = { animated },
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .height(4.dp)
-                        .clip(RoundedCornerShape(2.dp)),
-                    color = AccentCoral,
-                    trackColor = Color.White.copy(alpha = 0.12f)
-                )
-
-                Spacer(modifier = Modifier.height(4.dp))
-
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween
-                ) {
-                    Text(
-                        text = "${((progress * 100).toInt()).coerceIn(0, 100)}% decorrido",
-                        color = TextMuted,
-                        fontSize = 10.sp
-                    )
-                    Text(
-                        text = "Termina às ${FormatUtils.formatTime(current.endMillis)}",
-                        color = TextMuted,
-                        fontSize = 10.sp
-                    )
+            GlassPanel(Modifier.fillMaxWidth().weight(1f)) {
+                Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(14.dp), verticalArrangement = Arrangement.spacedBy(7.dp)) {
+                    if (selected == null) {
+                        Text("Selecione um canal", color = SunsetColors.TextSecondary)
+                    } else {
+                        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            Text(selected.name, modifier = Modifier.weight(1f), color = SunsetColors.TextPrimary, fontSize = 17.sp,
+                                fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                            LiveBadge()
+                        }
+                        when {
+                            loading -> LinearProgressIndicator(Modifier.fillMaxWidth(), color = SunsetColors.Coral, trackColor = Color(0x33FFFFFF))
+                            error != null && current == null -> {
+                                Text(error, color = SunsetColors.TextSecondary, fontSize = 12.sp)
+                                SunsetFocusable(onClick = onRetry, shape = RoundedCornerShape(50)) {
+                                    Text("Tentar novamente", color = SunsetColors.TextPrimary, fontSize = 12.sp, modifier = Modifier.padding(horizontal = 12.dp, vertical = 7.dp))
+                                }
+                            }
+                            current == null -> Text("Sem informação de programação", color = SunsetColors.TextSecondary, fontSize = 13.sp)
+                            else -> {
+                                Text(current.title, color = SunsetColors.TextPrimary, fontSize = 15.sp, fontWeight = FontWeight.SemiBold, maxLines = 2, overflow = TextOverflow.Ellipsis)
+                                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                    Text(formatClock(current.startMillis), color = SunsetColors.TextSecondary, fontSize = 11.sp)
+                                    SunsetProgressBar(current.progress(now), Modifier.weight(1f))
+                                    Text(formatClock(current.endMillis), color = SunsetColors.TextSecondary, fontSize = 11.sp)
+                                }
+                                if (current.description.isNotBlank()) Text(current.description, color = SunsetColors.TextSecondary, fontSize = 12.sp, maxLines = 4, overflow = TextOverflow.Ellipsis)
+                            }
+                        }
+                        if (upcoming.isNotEmpty()) {
+                            Text("A seguir", color = SunsetColors.TextPrimary, fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
+                            upcoming.forEach { program ->
+                                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                    Text(formatClock(program.startMillis), color = SunsetColors.Orange, fontSize = 11.sp)
+                                    Text(program.title, color = SunsetColors.TextSecondary, fontSize = 11.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                                }
+                            }
+                        }
+                    }
                 }
-
-                if (current.description.isNotBlank()) {
-                    Spacer(modifier = Modifier.height(6.dp))
-                    Text(
-                        text = current.description,
-                        color = TextSecondary,
-                        fontSize = 11.5.sp,
-                        lineHeight = 16.sp,
-                        maxLines = 3,
-                        overflow = TextOverflow.Ellipsis
-                    )
-                }
-            }
-
-            else -> Text(
-                text = "Este painel não enviou informações de EPG para este canal.",
-                color = TextMuted,
-                fontSize = 11.5.sp
-            )
-        }
-
-        next?.let { following ->
-            Spacer(modifier = Modifier.height(10.dp))
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .clip(RoundedCornerShape(9.dp))
-                    .background(Color(0x261F2330))
-                    .padding(horizontal = 11.dp, vertical = 7.dp),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.SpaceBetween
-            ) {
-                Text(
-                    text = "A SEGUIR · ${following.title}",
-                    color = TextSecondary,
-                    fontSize = 11.sp,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                    modifier = Modifier.weight(1f)
-                )
-                Text(
-                    text = FormatUtils.formatTime(following.startMillis),
-                    color = TextMuted,
-                    fontSize = 10.5.sp
-                )
             }
         }
     }

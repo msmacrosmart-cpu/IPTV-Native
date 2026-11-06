@@ -73,7 +73,7 @@ fun PreviewPlayer(
     var errorMessage by remember(request.url) { mutableStateOf<String?>(null) }
     var triedFallback by remember(request.url) { mutableStateOf(false) }
 
-    val player = remember { PlayerFactory.create(context, decoder, bufferSeconds) }
+    val player = remember(context, decoder, bufferSeconds) { PlayerFactory.create(context, decoder, bufferSeconds) }
 
     fun play(url: String) {
         errorMessage = null
@@ -83,7 +83,7 @@ fun PreviewPlayer(
         player.playWhenReady = true
     }
 
-    LaunchedEffect(request.url) {
+    LaunchedEffect(player, request.url) {
         triedFallback = false
         play(request.url)
     }
@@ -117,7 +117,7 @@ fun PreviewPlayer(
         onDispose { player.removeListener(listener) }
     }
 
-    DisposableEffect(Unit) {
+    DisposableEffect(player) {
         onDispose { player.release() }
     }
 
@@ -139,6 +139,9 @@ fun PreviewPlayer(
                 PlayerView(viewContext).apply {
                     this.player = player
                     useController = false
+                    isFocusable = false
+                    isFocusableInTouchMode = false
+                    descendantFocusability = ViewGroup.FOCUS_BLOCK_DESCENDANTS
                     layoutParams = ViewGroup.LayoutParams(
                         ViewGroup.LayoutParams.MATCH_PARENT,
                         ViewGroup.LayoutParams.MATCH_PARENT

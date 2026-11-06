@@ -57,7 +57,9 @@ data class UserSettings(
     val streamFormat: StreamFormat = StreamFormat.TS,
     val bufferSeconds: Int = 15,
     val decoder: VideoDecoder = VideoDecoder.AUTO,
-    val lastEpgSyncMillis: Long = 0L
+    val lastEpgSyncMillis: Long = 0L,
+    val autoUpdateEpg: Boolean = true,
+    val customXmltvUrl: String = ""
 )
 
 data class LiveCategory(
