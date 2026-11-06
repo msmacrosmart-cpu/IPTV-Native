@@ -1,0 +1,9 @@
+<resources>
+    <color name="bg_dark">#0B0D13</color>
+    <color name="bg_card">#161922</color>
+    <color name="accent_damask">#E55353</color>
+    <color name="accent_coral">#FF6B6B</color>
+    <color name="glass_border">#2E3346</color>
+    <color name="text_primary">#F8FAFC</color>
+    <color name="text_secondary">#94A3B8</color>
+</resources>
