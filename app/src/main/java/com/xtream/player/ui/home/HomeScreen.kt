@@ -47,12 +47,17 @@ fun HomeScreen(content: ContentState, epg: Map<String, List<Programme>>, query: 
     var now by remember { mutableLongStateOf(System.currentTimeMillis()) }
     LaunchedEffect(Unit) { while (true) { delay(30_000); now = System.currentTimeMillis() } }
     val all = remember(content.movies, content.series) { content.movies + content.series }
-    val matching = all.filter { it.title.contains(query, true) }
-    val continuing = matching.filter { it.progress > 0f }
-    val favoriteVod = matching.filter { it.favoriteKey in favorites }
-    val favoriteChannels = content.channels.filter { "ch:${it.id}" in favorites && it.name.contains(query, true) }
-    val slides = (listOfNotNull(content.hero) + favoriteVod + continuing + matching)
-        .filter { it.title.contains(query, true) }.distinctBy { it.favoriteKey }.take(6)
+    val favoriteSet = favorites.toSet()
+    val matching = remember(all, query) { all.filter { it.title.contains(query, true) } }
+    val continuing = remember(matching) { matching.filter { it.progress > 0f } }
+    val favoriteVod = remember(matching, favoriteSet) { matching.filter { it.favoriteKey in favoriteSet } }
+    val favoriteChannels = remember(content.channels, favoriteSet, query) {
+        content.channels.filter { "ch:${it.id}" in favoriteSet && it.name.contains(query, true) }
+    }
+    val slides = remember(content.hero, favoriteVod, continuing, matching, query) {
+        (sequenceOf(content.hero).filterNotNull() + favoriteVod.asSequence() + continuing.asSequence() + matching.asSequence())
+            .filter { it.title.contains(query, true) }.distinctBy { it.favoriteKey }.take(6).toList()
+    }
 
     BoxWithConstraints(Modifier.fillMaxSize().background(XColors.Bg)) {
         val compact = maxWidth < 640.dp

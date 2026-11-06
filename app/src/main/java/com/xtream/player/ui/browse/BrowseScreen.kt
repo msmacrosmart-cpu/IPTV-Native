@@ -50,7 +50,8 @@ fun BrowseScreen(title: String, categories: List<Category>, items: List<VodItem>
     LaunchedEffect(category, query) { page = 0 }
     LaunchedEffect(pages) { if (page >= pages) page = pages - 1 }
     val safePage = page.coerceIn(0, pages - 1)
-    val visible = filtered.drop(safePage * PAGE_SIZE).take(PAGE_SIZE)
+    val from = (safePage * PAGE_SIZE).coerceAtMost(filtered.size)
+    val visible = filtered.subList(from, minOf(from + PAGE_SIZE, filtered.size))
     val categoryTitle = categories.firstOrNull { it.id == category }?.name ?: "Todos os itens"
     BoxWithConstraints(Modifier.fillMaxSize().background(XColors.Bg)) {
         val wide = maxWidth >= 800.dp

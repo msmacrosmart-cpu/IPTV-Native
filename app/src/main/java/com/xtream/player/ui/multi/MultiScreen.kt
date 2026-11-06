@@ -155,7 +155,7 @@ private fun MultiTile(index: Int, channel: Channel, active: Boolean, enabled: Bo
 private fun MultiPlayer(index: Int, channel: Channel, active: Boolean, modifier: Modifier = Modifier) {
     val context = LocalContext.current
     val owner = LocalLifecycleOwner.current
-    val player = remember(channel.id, channel.url) {
+    val player = remember(channel.id, channel.url, channel.fallbackUrl) {
         buildPlayer(context, handleAudioFocus = false).apply {
             volume = 0f; setMediaItem(MediaItem.fromUri(channel.url)); prepare(); playWhenReady = true
         }

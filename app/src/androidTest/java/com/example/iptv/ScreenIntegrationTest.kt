@@ -261,7 +261,8 @@ class ScreenIntegrationTest {
         val count = guideRequests.get()
         compose.onNodeWithText("Atualizar EPG").performScrollTo().performClick()
         compose.waitUntil(30_000) { guideRequests.get() > count && !vm.epgLoading && vm.epgUpdatedAt != null }
-        compose.onNodeWithTag("credential-user").performScrollTo().performTextClearance().performTextInput("bob")
+        compose.onNodeWithTag("credential-user").performScrollTo().performTextClearance()
+        compose.onNodeWithTag("credential-user").performTextInput("bob")
         compose.onNodeWithText("Salvar e conectar").performScrollTo().performClick()
         compose.waitUntil(30_000) { vm.session?.username == "bob" && !vm.loading }
         assertEquals("bob", app.repository.currentCredentials()?.username)

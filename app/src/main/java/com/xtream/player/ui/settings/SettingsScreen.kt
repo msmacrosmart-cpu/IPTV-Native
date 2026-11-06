@@ -8,6 +8,7 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.AccountCircle
 import androidx.compose.material.icons.filled.Logout
+import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Save
 import androidx.compose.material3.CircularProgressIndicator
@@ -17,6 +18,8 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardType
@@ -41,6 +44,23 @@ fun SettingsScreen(session: Session?, content: ContentState, epg: Map<String, Li
     // Never save the password in saved instance state or a log.
     var password by remember(session?.password) { mutableStateOf(session?.password.orEmpty()) }
     val save = { if (!loading) onSave(server, user, password) }
+    var showLicenses by remember { mutableStateOf(false) }
+    val context = LocalContext.current
+    val licenses = remember {
+        listOf("IPTVnator-MIT.txt", "DM-Sans-OFL.txt").joinToString("\n\n") { name ->
+            runCatching { context.assets.open("licenses/$name").bufferedReader().use { it.readText() } }.getOrDefault(name)
+        }
+    }
+    if (showLicenses) Dialog(onDismissRequest = { showLicenses = false }) {
+        GlassPanel(Modifier.fillMaxWidth().widthIn(max = 620.dp).heightIn(max = 600.dp), RoundedCornerShape(16.dp)) {
+            Column(Modifier.padding(20.dp)) {
+                Text("Licenças de terceiros", color = XColors.Text, fontSize = 20.sp, fontWeight = FontWeight.SemiBold)
+                Text(licenses, color = XColors.TextDim, fontSize = 12.sp, lineHeight = 18.sp,
+                    modifier = Modifier.weight(1f, fill = false).verticalScroll(rememberScrollState()).padding(vertical = 14.dp))
+                GlowButton("Fechar", ringAlways = false) { showLicenses = false }
+            }
+        }
+    }
     BoxWithConstraints(Modifier.fillMaxSize().background(XColors.Bg)) {
         val gutter = if (maxWidth < 600.dp) 16.dp else 32.dp
         Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(horizontal = gutter, vertical = 26.dp)) {
@@ -89,6 +109,8 @@ fun SettingsScreen(session: Session?, content: ContentState, epg: Map<String, Li
             GlowButton("Atualizar catálogo", Icons.Filled.Refresh, ringAlways = false, onClick = onRefreshContent)
             Spacer(Modifier.height(10.dp))
             GlowButton("Sair da conta", Icons.Filled.Logout, ringAlways = false, onClick = onLogout)
+            Spacer(Modifier.height(10.dp))
+            GlowButton("Licenças de terceiros", Icons.Filled.Info, ringAlways = false) { showLicenses = true }
             Text("IPTV Native ${com.example.iptv.BuildConfig.VERSION_NAME}", color = XColors.Body, fontSize = 12.sp, modifier = Modifier.padding(top = 20.dp, bottom = 20.dp))
         }
     }

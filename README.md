@@ -1,19 +1,23 @@
 # IPTV Native
 
-Aplicativo Android/Android TV em Kotlin, Jetpack Compose e Media3 para contas Xtream Codes. O aplicativo mantém o identificador `com.example.iptv` e pode reutilizar a sessão salva por versões anteriores.
+Aplicativo Android/Android TV nativo em Kotlin, Jetpack Compose e Media3 para contas Xtream Codes. A interface segue o design system escuro do [IPTVnator](https://github.com/4gray/iptvnator); não usa WebView. O identificador `com.example.iptv` e a sessão existente foram mantidos.
 
 ## Interface e funcionamento
 
-As referências completas estão em `IPTV Native Telas/XtreamTV/`. O aplicativo real usa essas telas em `app/src/main/java/com/xtream/player/`; a pasta de referência não é um módulo do build principal.
+O mapeamento dos componentes e estilos da referência está em [docs/IPTVNATOR_DESIGN_MAP.md](docs/IPTVNATOR_DESIGN_MAP.md). A navegação principal possui apenas:
 
-- Login, Início, Filmes, Séries, TV ao vivo, Favoritos, Configurações e player usam o mesmo repositório e a mesma sessão. Na busca do catálogo, os filtros de categoria e texto são locais ao conteúdo carregado.
-- Em Séries, selecione um episódio para reproduzir. Um toque longo ou OK prolongado marca filmes, séries e canais como favoritos. Favoritos e posições de reprodução são guardados por conta no dispositivo.
-- A TV ao vivo inclui programação, prévia inicialmente sem som, tela cheia e troca de canais. A prévia é liberada ao entrar no player. O player tenta o formato alternativo de transmissão ao ocorrer um erro, quando disponível.
-- O EPG usa `xmltv.php` do painel, aceita XML e XML compactado com gzip e mantém uma janela limitada de programação em memória. Se o XMLTV não contiver o canal selecionado, consulta `get_short_epg`. A tela de Configurações permite atualização manual; a atualização automática é verificada ao abrir o aplicativo depois de 12 horas, não por uma tarefa periódica em segundo plano. URLs XMLTV personalizadas salvas anteriormente continuam sendo usadas, mas a interface fornecida não possui um campo para editá-las.
-- As credenciais são armazenadas pela sessão existente. O Android Keystore é usado quando disponível; aparelhos incompatíveis usam o fallback de ofuscação já existente. Ao sair, a sessão e o cache XMLTV são removidos; favoritos e progresso permanecem associados à conta no dispositivo.
-- Para visualizar os dados de demonstração, digite `demo` como servidor e preencha usuário e senha. O modo de demonstração é temporário; os vídeos dependem dos servidores de exemplo.
+- **Início:** hero rotativo, continuar assistindo e favoritos de canais, filmes e séries.
+- **TV:** categorias, busca, canais, prévia e programação EPG. Toque longo ou OK prolongado adiciona/remova um favorito; o ícone de estrela também funciona.
+- **Filmes:** categorias, busca e grade paginada. Abra o cartaz para ver detalhes, favoritar ou reproduzir.
+- **Séries:** categorias, cartazes, detalhes, temporadas e episódios do painel.
+- **Multitela:** até quatro canais simultâneos, com áudio apenas na tela selecionada. Os players são liberados ao sair da tela. A quantidade efetiva depende do limite de conexões do provedor e dos decodificadores do aparelho.
+- **Configurações:** editar URL, usuário e senha Xtream; atualizar catálogo e EPG; sair da conta.
 
-Uma conta válida e um serviço que ofereça os conteúdos e a programação são necessários para uso real. A disponibilidade e os formatos dependem do provedor. Prefira HTTPS quando disponível: HTTP transmite dados sem criptografia.
+A interface adapta-se a celulares em retrato/paisagem e à TV, com controles focáveis por D-pad. Campos usam o teclado nativo do dispositivo, não um teclado próprio. O player Media3 mantém troca de canal, legendas, faixas de áudio, velocidade e retomada. Favoritos e posições são armazenados por conta no dispositivo.
+
+O EPG usa `xmltv.php` do painel, suporta XML e gzip com cache limitado e consulta `get_short_epg` quando necessário. A atualização automática é verificada ao abrir o aplicativo após 12 horas; também é possível atualizar manualmente. URLs XMLTV personalizadas previamente salvas continuam sendo usadas. Credenciais usam Android Keystore quando disponível; aparelhos incompatíveis usam o fallback de ofuscação existente. Prefira HTTPS, pois HTTP transmite dados sem criptografia.
+
+Para visualizar a interface com conteúdo **fictício**, digite `demo` como servidor e preencha usuário e senha. Os cartazes de demonstração são locais; os vídeos de demonstração dependem de servidores externos. Uma conta válida é necessária para conteúdo real, cuja disponibilidade depende do provedor.
 
 ## Build e testes
 
@@ -21,10 +25,15 @@ Requisitos: JDK 17, Android SDK 35 e acesso aos repositórios configurados no Gr
 
 ```sh
 ./gradlew testDebugUnitTest
-# Com um emulador ou dispositivo conectado:
-./gradlew connectedDebugAndroidTest
+./gradlew connectedDebugAndroidTest # com emulador ou dispositivo
 ./gradlew assembleDebug
 ./gradlew assembleRelease
 ```
 
-O workflow de CI verifica o build e os testes e disponibiliza os APKs como artifacts. O `release` atual é assinado com uma **chave de debug**, apenas para testes. Para distribuição definitiva ou atualização de uma instalação assinada com outra chave, configure a chave de produção correspondente.
+O CI testa login, catálogos paginados, detalhes de séries, EPG, favoritos, player, navegação D-pad, tela de celular e dois players simultâneos com um painel/streams simulados. A reprodução com um provedor real depende da conta, formatos, rede e aparelho do usuário.
+
+O `release` atual é assinado com uma **chave de debug**, somente para testes. Para distribuir ou atualizar uma instalação assinada com outra chave, configure a chave de produção correspondente.
+
+## Créditos
+
+IPTVnator: copyright 2019–2026 4gray, licença MIT. Os dados e imagens locais são parte do mock de demonstração ficcional do projeto de origem. DM Sans está sob SIL Open Font License. Os avisos completos estão em [`LICENSES/`](LICENSES/) e em Configurações > Licenças de terceiros. O nome e o logotipo IPTVnator são marcas do respectivo proprietário; este aplicativo mantém sua identidade própria.

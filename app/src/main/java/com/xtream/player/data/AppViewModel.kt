@@ -36,6 +36,7 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
     private var detailJob: Job? = null
     private var restoreJob: Job? = null
     private var generation = 0
+    private var detailGeneration = 0
     private val shortGuide = mutableMapOf<String, List<Programme>>()
     private val shortGuideFetchedAt = mutableMapOf<String, Long>()
 
@@ -101,6 +102,7 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
             loginError = null
             try {
                 if (server.trim().equals("demo", true)) {
+                    repository.logout()
                     cancelActiveWork()
                     xmltv.invalidate()
                     library.select(null)
@@ -287,6 +289,7 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
 
     fun openDetails(item: VodItem) {
         detailJob?.cancel(); episodeJob?.cancel()
+        val detailToken = ++detailGeneration
         detailItem = item
         episodeSelection = null
         episodeError = null
@@ -303,16 +306,16 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
             episodeJob = viewModelScope.launch {
                 try {
                     when (val result = repository.seriesInfo(id)) {
-                        is ApiResult.Success -> if (generation == token && detailItem?.favoriteKey == item.favoriteKey) {
+                        is ApiResult.Success -> if (generation == token && detailGeneration == detailToken && detailItem?.favoriteKey == item.favoriteKey) {
                             val choices = result.data.flatMap { it.episodes }.map { EpisodeChoice(it, repository.episodeStreamUrl(it)) }
                                 .sortedWith(compareBy({ it.episode.season }, { it.episode.number }))
                             episodeSelection = EpisodeSelection(item, choices)
                             if (choices.isEmpty()) episodeError = "Nenhum episódio disponível para esta série."
                         }
-                        is ApiResult.Failure -> if (generation == token && detailItem?.favoriteKey == item.favoriteKey) episodeError = result.message
+                        is ApiResult.Failure -> if (generation == token && detailGeneration == detailToken && detailItem?.favoriteKey == item.favoriteKey) episodeError = result.message
                     }
                 } finally {
-                    if (generation == token && detailItem?.favoriteKey == item.favoriteKey) episodeLoading = false
+                    if (generation == token && detailGeneration == detailToken && detailItem?.favoriteKey == item.favoriteKey) episodeLoading = false
                 }
             }
         } else if (session?.isDemo != true) {
@@ -320,7 +323,7 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
             val token = generation
             detailJob = viewModelScope.launch {
                 val details = repository.vodDetails(id).getOrNull()
-                if (details != null && generation == token && detailItem?.favoriteKey == item.favoriteKey) {
+                if (details != null && generation == token && detailGeneration == detailToken && detailItem?.favoriteKey == item.favoriteKey) {
                     detailItem = item.copy(plot = details.plot ?: item.plot, genre = details.genre ?: item.genre,
                         year = details.releaseDate?.take(4) ?: item.year, backdrop = details.backdrop ?: item.backdrop,
                         rating = details.rating?.toDoubleOrNull() ?: item.rating)
@@ -330,6 +333,7 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     fun closeDetails() {
+        detailGeneration++
         detailJob?.cancel(); episodeJob?.cancel()
         detailItem = null; episodeSelection = null; episodeLoading = false; episodeError = null
     }
@@ -392,7 +396,7 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     private fun cancelActiveWork() {
-        generation++
+        generation++; detailGeneration++
         catalogueJob?.cancel(); guideJob?.cancel(); shortEpgJob?.cancel(); episodeJob?.cancel()
         detailJob?.cancel()
         detailItem = null; episodeSelection = null; episodeLoading = false; episodeError = null
