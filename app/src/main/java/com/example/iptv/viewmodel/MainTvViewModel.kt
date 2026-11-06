@@ -123,6 +123,7 @@ class MainTvViewModel(
     // ------------------------------------------------------------------ playback
 
     val fullscreen = MutableStateFlow<PlaybackRequest?>(null)
+    val restoreLiveFocus = MutableStateFlow(false)
     val alert = MutableStateFlow<String?>(null)
     val pingLatencyMillis = MutableStateFlow<Long?>(null)
     val pingLoading = MutableStateFlow(false)
@@ -276,7 +277,15 @@ class MainTvViewModel(
     }
 
     fun selectCategory(categoryId: String?) {
-        if (liveCategoryFilter.value != categoryId) liveCategoryFilter.value = categoryId
+        if (liveCategoryFilter.value != categoryId) {
+            focusedChannelJob?.cancel()
+            liveCategoryFilter.value = categoryId
+        }
+    }
+
+    fun updateLiveQuery(query: String) {
+        focusedChannelJob?.cancel()
+        liveQuery.value = query
     }
 
     fun loadEpg(channel: LiveChannel) {
@@ -436,7 +445,12 @@ class MainTvViewModel(
     // ------------------------------------------------------------------ playback
 
     fun closeFullscreen() {
+        restoreLiveFocus.value = fullscreen.value?.isLive == true && section.value == TvNavSection.LIVE_TV
         fullscreen.value = null
+    }
+
+    fun consumeLiveFocusRestore() {
+        restoreLiveFocus.value = false
     }
 
     fun consumeAlert() {
@@ -598,6 +612,11 @@ class MainTvViewModel(
         seriesDetailError.value = null
 
         fullscreen.value = null
+        restoreLiveFocus.value = false
+        liveLoading.value = false
+        vodLoading.value = false
+        seriesLoading.value = false
+        seriesDetailLoading.value = false
         alert.value = null
         pingLatencyMillis.value = null
         section.value = TvNavSection.HOME

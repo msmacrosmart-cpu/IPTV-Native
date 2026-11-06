@@ -20,6 +20,7 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
@@ -30,14 +31,18 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.key
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.ExperimentalComposeUiApi
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.focusRestorer
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
@@ -84,6 +89,7 @@ fun LiveTvScreen(viewModel: MainTvViewModel) {
     val selected by viewModel.selectedChannel.collectAsState()
     val preview by viewModel.preview.collectAsState()
     val settings by viewModel.settings.collectAsState()
+    val restoreFocus by viewModel.restoreLiveFocus.collectAsState()
     val guide by viewModel.epgGuide.collectAsState()
     val entries by viewModel.epgEntries.collectAsState()
     val epgLoading by viewModel.epgLoading.collectAsState()
@@ -109,7 +115,7 @@ fun LiveTvScreen(viewModel: MainTvViewModel) {
                             total = allChannels.size,
                             selectedCategory = category,
                             query = query,
-                            onQueryChange = { viewModel.liveQuery.value = it },
+                            onQueryChange = viewModel::updateLiveQuery,
                             onSelect = viewModel::selectCategory,
                             modifier = Modifier.weight(0.24f)
                         )
@@ -123,6 +129,8 @@ fun LiveTvScreen(viewModel: MainTvViewModel) {
                             onFocused = viewModel::onChannelFocused,
                             onOpen = viewModel::playChannelFullscreen,
                             onRefresh = { viewModel.loadLive(force = true) },
+                            restoreFocus = restoreFocus,
+                            onFocusRestored = viewModel::consumeLiveFocusRestore,
                             modifier = Modifier.weight(0.39f)
                         )
                         PreviewColumn(
@@ -210,6 +218,8 @@ private fun ChannelsColumn(
     onFocused: (LiveChannel) -> Unit,
     onOpen: (LiveChannel) -> Unit,
     onRefresh: () -> Unit,
+    restoreFocus: Boolean,
+    onFocusRestored: () -> Unit,
     modifier: Modifier
 ) {
     GlassPanel(modifier.fillMaxHeight()) {
@@ -221,13 +231,28 @@ private fun ChannelsColumn(
                 }
             }
             if (channels.isEmpty()) {
+                LaunchedEffect(restoreFocus) { if (restoreFocus) onFocusRestored() }
                 Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                     Text("Nenhum canal encontrado. Ajuste a busca ou a categoria.", color = SunsetColors.TextSecondary, fontSize = 13.sp, textAlign = TextAlign.Center, modifier = Modifier.padding(12.dp))
                 }
             } else {
                 key(category) {
+                    val listState = rememberLazyListState()
+                    val selectedFocus = remember(selected?.id) { FocusRequester() }
+                    val selectedIndex = remember(channels, selected?.id) { channels.indexOfFirst { it.id == selected?.id } }
+                    LaunchedEffect(restoreFocus, selectedIndex) {
+                        if (restoreFocus) {
+                            if (selectedIndex >= 0) {
+                                listState.scrollToItem(selectedIndex)
+                                withFrameNanos { }
+                                runCatching { selectedFocus.requestFocus() }
+                            }
+                            onFocusRestored()
+                        }
+                    }
                     LazyColumn(
                         Modifier.fillMaxSize().focusRestorer(),
+                        state = listState,
                         contentPadding = PaddingValues(3.dp),
                         verticalArrangement = Arrangement.spacedBy(6.dp)
                     ) {
@@ -235,7 +260,8 @@ private fun ChannelsColumn(
                             val program = guide.forChannel(channel).firstOrNull { it.isCurrent(now) }
                                 ?: selectedEntries.takeIf { selected?.id == channel.id }?.firstOrNull { it.isCurrent(now) || it.isNowPlaying }
                             ChannelRow(channel, selected?.id == channel.id, program, now,
-                                onFocused = { onFocused(channel) }, onOpen = { onOpen(channel) })
+                                onFocused = { onFocused(channel) }, onOpen = { onOpen(channel) },
+                                modifier = if (selected?.id == channel.id) Modifier.focusRequester(selectedFocus) else Modifier)
                         }
                     }
                 }
@@ -245,10 +271,10 @@ private fun ChannelsColumn(
 }
 
 @Composable
-private fun ChannelRow(channel: LiveChannel, playing: Boolean, program: EpgEntry?, now: Long, onFocused: () -> Unit, onOpen: () -> Unit) {
+private fun ChannelRow(channel: LiveChannel, playing: Boolean, program: EpgEntry?, now: Long, onFocused: () -> Unit, onOpen: () -> Unit, modifier: Modifier = Modifier) {
     SunsetFocusable(
         onClick = onOpen, onFocused = onFocused, selected = playing,
-        shape = RoundedCornerShape(18.dp), modifier = Modifier.fillMaxWidth().height(72.dp).testTag("channel-${channel.id}")
+        shape = RoundedCornerShape(18.dp), modifier = modifier.fillMaxWidth().height(72.dp).testTag("channel-${channel.id}")
     ) {
         Row(Modifier.fillMaxSize().padding(horizontal = 8.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(7.dp)) {
             Text(if (channel.streamNumber > 0) channel.streamNumber.toString() else "—", modifier = Modifier.width(27.dp), textAlign = TextAlign.Center,

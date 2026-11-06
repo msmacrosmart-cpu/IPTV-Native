@@ -110,6 +110,7 @@ object XmltvParser {
         }
 
         val factory = SAXParserFactory.newInstance().apply { isNamespaceAware = false }
+        runCatching { factory.setFeature("http://javax.xml.XMLConstants/feature/secure-processing", true) }
         // Many XMLTV feeds contain a DOCTYPE. Allow it, but never fetch external entities/DTDs.
         listOf(
             "http://xml.org/sax/features/external-general-entities",

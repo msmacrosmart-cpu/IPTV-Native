@@ -107,7 +107,7 @@ class SessionManager(context: Context) {
             decoder = decoder,
             lastEpgSyncMillis = prefs.getLong(KEY_EPG_SYNC, 0L),
             autoUpdateEpg = prefs.getBoolean(KEY_EPG_AUTO, true),
-            customXmltvUrl = prefs.getString(KEY_EPG_URL, "").orEmpty()
+            customXmltvUrl = readSecret(prefs.getString(KEY_EPG_URL, "")).orEmpty()
         )
     }
 
@@ -118,7 +118,7 @@ class SessionManager(context: Context) {
             .putInt(KEY_BUFFER_SECONDS, settings.bufferSeconds)
             .putLong(KEY_EPG_SYNC, settings.lastEpgSyncMillis)
             .putBoolean(KEY_EPG_AUTO, settings.autoUpdateEpg)
-            .putString(KEY_EPG_URL, settings.customXmltvUrl)
+            .putString(KEY_EPG_URL, settings.customXmltvUrl.takeIf { it.isNotBlank() }?.let(::encrypt).orEmpty())
             .apply()
     }
 
@@ -128,8 +128,11 @@ class SessionManager(context: Context) {
 
     // --------------------------------------------------------------- password
 
-    private fun readPassword(): String? {
-        val stored = prefs.getString(KEY_PASSWORD, null)?.takeIf { it.isNotBlank() } ?: return null
+    private fun readPassword(): String? = readSecret(prefs.getString(KEY_PASSWORD, null))
+
+    // Custom XMLTV URLs may also contain credentials or tokens.
+    private fun readSecret(value: String?): String? {
+        val stored = value?.takeIf { it.isNotBlank() } ?: return null
         return try {
             when {
                 stored.startsWith(ENC_PREFIX) -> decrypt(stored.removePrefix(ENC_PREFIX))

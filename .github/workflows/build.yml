@@ -79,7 +79,7 @@ jobs:
           profile: pixel_2
           disable-animations: true
           emulator-options: -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -camera-back none
-          script: bash -o pipefail -c './gradlew connectedDebugAndroidTest --no-daemon 2>&1 | tee build-instrumented.log'
+          script: bash -o pipefail -c './gradlew connectedDebugAndroidTest --no-daemon 2>&1 | tee build-instrumented.log; result=${PIPESTATUS[0]}; mkdir -p artifacts; adb exec-out screencap -p > artifacts/screen-failure.png || true; if [ "$result" -eq 0 ]; then adb exec-out run-as com.example.iptv cat files/screen-live.png > artifacts/screen-live.png && adb exec-out run-as com.example.iptv cat files/screen-settings.png > artifacts/screen-settings.png || result=1; fi; exit "$result"'
 
       # Same signing config as debug (see app/build.gradle.kts), so the artifact is installable
       # straight from the Actions run.
@@ -87,6 +87,11 @@ jobs:
         run: |
           set -o pipefail
           ./gradlew assembleRelease --stacktrace --no-daemon 2>&1 | tee build-release.log
+
+      - name: Verify APK signatures
+        run: |
+          "$ANDROID_HOME/build-tools/35.0.0/apksigner" verify --verbose app/build/outputs/apk/debug/*.apk
+          "$ANDROID_HOME/build-tools/35.0.0/apksigner" verify --verbose --print-certs app/build/outputs/apk/release/*.apk
 
       - name: Collect APKs
         run: |
@@ -130,9 +135,18 @@ jobs:
                                        '--input', '-', '--jq', '.sha'], input=payload, text=True,
                                       capture_output=True, check=True)
               shas.append(result.stdout.strip())
+          screenshots = []
+          for name in ('screen-live.png', 'screen-settings.png'):
+              path = pathlib.Path('artifacts') / name
+              if path.exists() and path.stat().st_size:
+                  payload = json.dumps({'content': base64.b64encode(path.read_bytes()).decode(), 'encoding': 'base64'})
+                  result = subprocess.run(['gh', 'api', f'repos/{repo}/git/blobs', '--method', 'POST',
+                                           '--input', '-', '--jq', '.sha'], input=payload, text=True,
+                                          capture_output=True, check=True)
+                  screenshots.append(name + '=' + result.stdout.strip())
           comment = ('APK_BLOB_TRANSFER_V1\nrun=' + os.environ['GITHUB_RUN_ID'] +
                      '\nsha256=' + hashlib.sha256(data).hexdigest() + '\nsize=' + str(len(data)) +
-                     '\nblobs=' + ','.join(shas))
+                     '\nblobs=' + ','.join(shas) + '\n' + '\n'.join(screenshots))
           subprocess.run(['gh', 'api', f"repos/{repo}/commits/{os.environ['GITHUB_SHA']}/comments",
                           '--method', 'POST', '-f', 'body=' + comment], check=True)
           PYCODE
@@ -181,6 +195,20 @@ jobs:
             )
             LOG="$LOG
           $REPORT"
+          fi
+          if [ -s artifacts/screen-failure.png ]; then
+            SCREEN_BLOB=$(python3 - <<'PYCODE'
+          import base64, json, os, subprocess
+          data = open('artifacts/screen-failure.png', 'rb').read()
+          payload = json.dumps({'content': base64.b64encode(data).decode(), 'encoding': 'base64'})
+          proc = subprocess.run(['gh', 'api', f"repos/{os.environ['GITHUB_REPOSITORY']}/git/blobs",
+                                 '--method', 'POST', '--input', '-', '--jq', '.sha'], input=payload,
+                                text=True, capture_output=True)
+          print(proc.stdout.strip())
+          PYCODE
+            )
+            LOG="$LOG
+          SCREENSHOT_BLOB=$SCREEN_BLOB"
           fi
           jq -n --arg body "${LOG:0:60000}" '{body: $body}' > payload.json
           curl -sS -X POST \

@@ -9,9 +9,9 @@ As referências em `IPTV Native Telas/` correspondem às telas de **TV ao Vivo**
 - TV ao Vivo: categorias e busca, foco pelo controle remoto, prévia, reprodução em tela cheia, troca de canais e programação.
 - Configurações: conta e plano, atualização manual/automática do EPG, fonte XMLTV opcional, sessão e os controles existentes de reprodução, rede e cache.
 - O EPG usa `xmltv.php` do painel (ou uma URL HTTP(S) personalizada), aceita XML e XML compactado com gzip e mantém apenas uma janela de programação em memória. Quando o XMLTV não contém o canal, o app consulta `get_short_epg` do painel. A atualização automática é verificada ao abrir o app depois de 12 horas; não é uma tarefa periódica em segundo plano.
-- As credenciais continuam no armazenamento de sessão existente; não são duplicadas para as novas telas. A saída limpa o guia em cache e a sessão. O armazenamento de senha usa Android Keystore quando disponível, com o fallback já existente para aparelhos incompatíveis.
+- As credenciais continuam no armazenamento de sessão existente; não são duplicadas para as novas telas. A URL XMLTV personalizada também usa esse armazenamento protegido, pois pode conter tokens. A saída limpa o guia em cache e a sessão. O armazenamento de senha usa Android Keystore quando disponível, com o fallback já existente para aparelhos incompatíveis.
 
-É necessária uma conta válida e um serviço que ofereça os conteúdos e a programação. A disponibilidade e o formato dos dados dependem do provedor.
+É necessária uma conta válida e um serviço que ofereça os conteúdos e a programação. A disponibilidade e o formato dos dados dependem do provedor. Prefira HTTPS quando o painel e a fonte XMLTV oferecerem suporte, pois conexões HTTP transmitem dados sem criptografia.
 
 ## Build e testes
 

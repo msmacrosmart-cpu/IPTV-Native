@@ -2,7 +2,12 @@ package com.example.iptv.data.epg
 
 import com.example.iptv.data.model.LiveChannel
 import com.example.iptv.data.model.PanelCredentials
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.cancelAndJoin
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.withTimeout
 import okhttp3.HttpUrl.Companion.toHttpUrl
 import okhttp3.OkHttpClient
 import okhttp3.mockwebserver.MockResponse
@@ -19,6 +24,7 @@ import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
 import java.util.TimeZone
+import java.util.concurrent.TimeUnit
 
 class XmltvRepositoryTest {
     @get:Rule val folder = TemporaryFolder()
@@ -80,6 +86,21 @@ class XmltvRepositoryTest {
         assertEquals(0, restored.guide.value.programCount)
         restored.clear()
         assertFalse(restored.loadFromDisk(credentials, ""))
+    }
+
+    @Test fun invalidatingSourcePreventsAnInFlightDownloadFromRestoringOldState() = runBlocking {
+        val repository = XmltvRepository(folder.root, http)
+        val slowBody = guideXml().replace("</tv>", " ".repeat(100_000) + "</tv>")
+        server.enqueue(MockResponse().setBody(slowBody).throttleBody(1024, 30, TimeUnit.MILLISECONDS))
+        val job = launch(Dispatchers.Default) { repository.refresh(credentials, "") }
+        withTimeout(10_000) {
+            while (repository.state.value !is EpgUpdateState.Downloading) delay(10)
+        }
+        repository.invalidate()
+        job.cancelAndJoin()
+        assertEquals(EpgUpdateState.Idle, repository.state.value)
+        assertEquals(0, repository.guide.value.programCount)
+        assertFalse(repository.loadFromDisk(credentials, ""))
     }
 
     private fun guideXml(): String {

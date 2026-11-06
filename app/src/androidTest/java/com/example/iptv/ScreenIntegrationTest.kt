@@ -1,7 +1,9 @@
 package com.example.iptv
 
+import android.content.Context
+import android.graphics.Bitmap
 import androidx.compose.ui.semantics.SemanticsActions
-import androidx.compose.ui.test.assertExists
+import androidx.compose.ui.test.assertIsFocused
 import androidx.compose.ui.test.assertTextEquals
 import androidx.compose.ui.test.junit4.createAndroidComposeRule
 import androidx.compose.ui.test.onAllNodesWithContentDescription
@@ -21,6 +23,7 @@ import okhttp3.mockwebserver.MockWebServer
 import okhttp3.mockwebserver.RecordedRequest
 import org.junit.After
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Rule
@@ -93,8 +96,10 @@ class ScreenIntegrationTest {
         compose.onNodeWithText("Esportes").performClick()
         compose.onNodeWithTag("channel-2").performSemanticsAction(SemanticsActions.RequestFocus)
         compose.waitUntil(10_000) { runCatching { compose.onNodeWithTag("preview-channel").assertTextEquals("Canal Esportes") }.isSuccess }
+        capture("screen-live.png")
         compose.onNodeWithTag("channel-2").performClick()
         compose.onNodeWithContentDescription("Voltar").assertExists().performClick()
+        compose.waitUntil(10_000) { runCatching { compose.onNodeWithTag("channel-2").assertIsFocused() }.isSuccess }
         compose.onNodeWithContentDescription("Configurações").performClick()
         compose.onNodeWithText("Guia de programação (EPG)").assertExists()
         compose.onNodeWithText("Plano").assertExists()
@@ -103,12 +108,16 @@ class ScreenIntegrationTest {
         assertEquals("alice", app.repository.account.value?.username)
         assertEquals(1_900_000_000_000L, app.repository.account.value?.expiresAtMillis ?: 0L)
         compose.waitUntil(30_000) { app.epgRepository.guide.value.programCount == 2 }
+        capture("screen-settings.png")
 
         val customUrl = server.url("/custom.xml").toString()
         compose.onNodeWithText("Usar xmltv.php do servidor").performScrollTo().performTextInput(customUrl)
         compose.onNodeWithText("Atualizar EPG agora").performScrollTo().performClick()
         compose.waitUntil(30_000) { customRequests.get() > 0 && app.epgRepository.guide.value.programCount == 2 && app.repository.settings.value.lastEpgSyncMillis > 0 }
         assertEquals(customUrl, app.repository.settings.value.customXmltvUrl)
+        assertEquals(customUrl, app.sessionManager.loadSettings().customXmltvUrl)
+        val storedUrl = app.getSharedPreferences("iptv_native_session", Context.MODE_PRIVATE).getString("setting_epg_url", "").orEmpty()
+        assertFalse(storedUrl.contains(customUrl))
         assertTrue(app.repository.settings.value.lastEpgSyncMillis > 0)
 
         compose.onNodeWithText("HLS (m3u8)").performScrollTo().performClick()
@@ -121,6 +130,12 @@ class ScreenIntegrationTest {
         compose.waitUntil(10_000) { runCatching { compose.onNodeWithText("Bem-vindo de volta").assertExists() }.isSuccess }
         assertTrue(app.repository.currentCredentials() == null)
         assertEquals(0, app.epgRepository.guide.value.programCount)
+    }
+
+    private fun capture(name: String) {
+        val image = InstrumentationRegistry.getInstrumentation().uiAutomation.takeScreenshot()
+        compose.activity.openFileOutput(name, Context.MODE_PRIVATE).use { image.compress(Bitmap.CompressFormat.PNG, 100, it) }
+        image.recycle()
     }
 
     private fun guide(): String {

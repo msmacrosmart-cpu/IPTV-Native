@@ -96,10 +96,10 @@ class XmltvRepository(cacheDir: File, private val http: OkHttpClient) {
                 directory.mkdirs()
                 val downloaded = File.createTempFile("guide-", ".tmp", directory)
                 temp = downloaded
-                _state.value = EpgUpdateState.Downloading(null)
+                if (!setState(token, EpgUpdateState.Downloading(null))) return@withLock false
                 download(url, downloaded, token)
                 currentCoroutineContext().ensureActive()
-                _state.value = EpgUpdateState.Parsing
+                if (!setState(token, EpgUpdateState.Parsing)) return@withLock false
                 val result = parse(downloaded)
                 currentCoroutineContext().ensureActive()
                 synchronized(stateLock) {
@@ -142,6 +142,13 @@ class XmltvRepository(cacheDir: File, private val http: OkHttpClient) {
         directory.deleteRecursively()
     }
 
+    private fun setState(token: Long, state: EpgUpdateState): Boolean = synchronized(stateLock) {
+        if (token != generation.get()) false else {
+            _state.value = state
+            true
+        }
+    }
+
     private suspend fun parse(file: File): XmltvParser.Result = withContext(Dispatchers.Default) {
         val now = System.currentTimeMillis()
         val context = currentCoroutineContext()
@@ -173,7 +180,9 @@ class XmltvRepository(cacheDir: File, private val http: OkHttpClient) {
                             if (total > 0) {
                                 val percent = ((bytes * 100 / total).coerceIn(0, 100)).toInt()
                                 if (percent != lastPercent) {
-                                    _state.value = EpgUpdateState.Downloading(percent / 100f)
+                                    if (!setState(token, EpgUpdateState.Downloading(percent / 100f))) {
+                                        throw CancellationException("Fonte de EPG alterada")
+                                    }
                                     lastPercent = percent
                                 }
                             }
