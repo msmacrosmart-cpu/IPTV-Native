@@ -88,7 +88,9 @@ class HeroLoader(
                                 TmdbResult.Unauthorized, TmdbResult.Unavailable -> Unit // retry later, never discard the panel
                             }
                         }
-                        val updatedAt = if (fresh || failed) old?.fetchedAtMillis ?: now else System.currentTimeMillis()
+                        // Do not mark a transient details failure as fresh for three days.
+                        val updatedAt = if (failed) old?.fetchedAtMillis ?: 0L
+                            else if (fresh) old!!.fetchedAtMillis else System.currentTimeMillis()
                         Fetched(target, CachedHero(updatedAt, details, checked && apiKey.isNotBlank()), true, failed)
                     }
                 }
