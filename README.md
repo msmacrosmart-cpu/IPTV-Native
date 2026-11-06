@@ -30,7 +30,7 @@ Requisitos: JDK 17, Android SDK 35 e acesso aos repositórios configurados no Gr
 ./gradlew assembleRelease
 ```
 
-O CI testa login, catálogos paginados, detalhes de séries, EPG, favoritos, player, navegação D-pad, celular em paisagem, ação Assistir no hero e dois players simultâneos com um painel/streams simulados. A reprodução com um provedor real depende da conta, formatos, rede e aparelho do usuário.
+O CI testa login, catálogos paginados, detalhes de séries, EPG, favoritos, player, navegação D-pad, celular em paisagem, ação Assistir no hero e dois players simultâneos com um painel/streams simulados. Também executa navegação por controle e verificação de área segura em um emulador Android TV. A reprodução com um provedor real depende da conta, formatos, rede e aparelho do usuário.
 
 O `release` atual é assinado com uma **chave de debug**, somente para testes. Para distribuir ou atualizar uma instalação assinada com outra chave, configure a chave de produção correspondente.
 

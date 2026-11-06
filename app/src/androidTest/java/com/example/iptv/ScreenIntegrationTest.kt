@@ -87,9 +87,15 @@ class ScreenIntegrationTest {
                 val vm = ViewModelProvider(compose.activity)[AppViewModel::class.java]
                 val nodes = compose.onAllNodes(SemanticsMatcher("all") { true }, useUnmergedTree = true)
                     .fetchSemanticsNodes().joinToString("\n") { it.config.toString() }
+                val ime = readShell("dumpsys input_method").lineSequence().filter {
+                    it.contains("mInputShown") || it.contains("mShowRequested") || it.contains("mCurFocusedWindow") ||
+                        it.contains("mCurClient") || it.contains("mCurMethodId") || it.contains("mServedView")
+                }.joinToString("\n")
                 val text = "session=${vm.session?.username} channels=${vm.content.channels.size} " +
                     "movies=${vm.content.movies.size} series=${vm.content.series.size} " +
-                    "favorites=${vm.favorites} streams=$streamPaths epg=${vm.epg.keys}\n$nodes"
+                    "favorites=${vm.favorites} streams=$streamPaths epg=${vm.epg.keys} " +
+                    "windowFocus=${compose.activity.window.decorView.hasWindowFocus()} currentFocus=${compose.activity.currentFocus?.javaClass?.simpleName} " +
+                    "imeInsets=${keyboardIsVisible()}\n$ime\n$nodes"
                 writeHostFile("ui-failure.txt", text.toByteArray())
             }
         }
@@ -492,10 +498,11 @@ class ScreenIntegrationTest {
     }
     private fun keyboardIsVisible(): Boolean =
         ViewCompat.getRootWindowInsets(compose.activity.window.decorView)?.isVisible(WindowInsetsCompat.Type.ime()) == true
-    private fun systemImeShown(): Boolean {
-        val output = InstrumentationRegistry.getInstrumentation().uiAutomation.executeShellCommand("dumpsys input_method")
-        return ParcelFileDescriptor.AutoCloseInputStream(output).bufferedReader().use { it.readText().contains("mInputShown=true") }
+    private fun readShell(command: String): String {
+        val output = InstrumentationRegistry.getInstrumentation().uiAutomation.executeShellCommand(command)
+        return ParcelFileDescriptor.AutoCloseInputStream(output).bufferedReader().use { it.readText() }
     }
+    private fun systemImeShown(): Boolean = readShell("dumpsys input_method").contains("mInputShown=true")
     private fun multiState(index: Int): String? = runCatching {
         compose.onNodeWithTag("multi-player-$index", useUnmergedTree = true).fetchSemanticsNode().config.getOrNull(SemanticsProperties.StateDescription)
     }.getOrNull()

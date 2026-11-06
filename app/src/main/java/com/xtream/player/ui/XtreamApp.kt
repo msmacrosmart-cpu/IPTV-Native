@@ -20,6 +20,7 @@ import com.xtream.player.ui.login.LoginScreen
 import com.xtream.player.ui.main.MainActions
 import com.xtream.player.ui.main.MainScreen
 import com.xtream.player.ui.player.PlayerScreen
+import kotlinx.coroutines.delay
 
 @Composable
 fun XtreamApp(vm: AppViewModel = viewModel()) {
@@ -35,6 +36,11 @@ fun XtreamApp(vm: AppViewModel = viewModel()) {
         }
     }
     LaunchedEffect(vm.notice) { vm.notice?.let { Toast.makeText(context, it, Toast.LENGTH_LONG).show(); vm.consumeNotice() } }
+    // Some TV IMEs deliver a pending show request after the login screen disappears.
+    // Repeat the hide after navigation settles; never reopen or replace the system keyboard.
+    LaunchedEffect(entry?.destination?.route) {
+        if (entry?.destination?.route == "main") { delay(200); hideKeyboard() }
+    }
     fun openPlayer(request: PlayerRequest) {
         vm.cancelHeroPlayback(); dismissKeyboard(); vm.startPlayback(request)
         nav.navigate("player") { launchSingleTop = true }
