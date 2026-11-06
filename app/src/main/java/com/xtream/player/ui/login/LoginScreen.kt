@@ -16,6 +16,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.input.InputMode
+import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.platform.LocalInputModeManager
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
@@ -27,6 +28,7 @@ import androidx.compose.ui.unit.sp
 import com.xtream.player.ui.components.GlassPanel
 import com.xtream.player.ui.components.GlowButton
 import com.xtream.player.ui.components.PillField
+import com.xtream.player.ui.components.rememberHideKeyboard
 import com.xtream.player.ui.theme.XColors
 import kotlinx.coroutines.delay
 
@@ -35,7 +37,15 @@ fun LoginScreen(loading: Boolean, error: String?, onLogin: (server: String, user
     var server by rememberSaveable { mutableStateOf("") }
     var user by rememberSaveable { mutableStateOf("") }
     var pass by remember { mutableStateOf("") }
-    val submit = { if (!loading) onLogin(server, user, pass) }
+    val hideKeyboard = rememberHideKeyboard()
+    val focus = LocalFocusManager.current
+    val submit = {
+        if (!loading) {
+            hideKeyboard()
+            focus.clearFocus(force = true)
+            onLogin(server, user, pass)
+        }
+    }
     val firstField = remember { FocusRequester() }
     val inputMode = LocalInputModeManager.current
     LaunchedEffect(Unit) {

@@ -95,13 +95,14 @@ class ScreenIntegrationTest {
                     "movies=${vm.content.movies.size} series=${vm.content.series.size} " +
                     "favorites=${vm.favorites} streams=$streamPaths epg=${vm.epg.keys} " +
                     "windowFocus=${compose.activity.window.decorView.hasWindowFocus()} currentFocus=${compose.activity.currentFocus?.javaClass?.simpleName} " +
-                    "imeInsets=${keyboardIsVisible()}\n$ime\n$nodes"
+                    "imeInsets=${keyboardIsVisible()}\n${imeTrace.joinToString("\n")}\n$ime\n$nodes"
                 writeHostFile("ui-failure.txt", text.toByteArray())
             }
         }
     }
     private lateinit var server: MockWebServer
     private val streamPaths = CopyOnWriteArrayList<String>()
+    private val imeTrace = CopyOnWriteArrayList<String>()
     private val vodInfoIds = CopyOnWriteArrayList<String>()
     private val guideRequests = AtomicInteger()
     private val shortRequests = AtomicInteger()
@@ -422,16 +423,18 @@ class ScreenIntegrationTest {
     /** Runs in both the phone emulator and a real Android-TV system-image emulator in CI. */
     @OptIn(ExperimentalTestApi::class)
     @Test fun largeScreenRemoteNavigationAndOverscanAreUsable() {
+        val isTv = (compose.activity.resources.configuration.uiMode and Configuration.UI_MODE_TYPE_MASK) == Configuration.UI_MODE_TYPE_TELEVISION
         compose.onNodeWithText("Servidor Xtream").performScrollTo().performTextInput(server.url("/").toString())
         compose.onNodeWithText("Usuário").performScrollTo().performTextInput("alice")
         compose.onNodeWithText("Senha").performScrollTo().performTextInput("senha")
+        if (isTv) traceIme("login typed")
         compose.onNodeWithContentDescription("Entrar").performScrollTo().performClick()
         compose.waitUntil(30_000) { compose.onAllNodesWithContentDescription("TV").fetchSemanticsNodes().isNotEmpty() }
         val vm = ViewModelProvider(compose.activity)[AppViewModel::class.java]
         compose.waitUntil(30_000) { vm.content.channels.size == 2 && vm.content.movies.size == 30 }
         val view = compose.activity.window.decorView
         assertTrue("The app must be in landscape", view.width > view.height)
-        val isTv = (compose.activity.resources.configuration.uiMode and Configuration.UI_MODE_TYPE_MASK) == Configuration.UI_MODE_TYPE_TELEVISION
+        if (isTv) traceIme("main opened")
         if (InstrumentationRegistry.getArguments().getString("requireTv") == "true") {
             assertTrue("This test requires an Android TV system image", isTv)
         }
@@ -440,9 +443,11 @@ class ScreenIntegrationTest {
             assertTrue("TV controls must be inset for overscan", safe.left > 0 && safe.top > 0)
         }
         useRemoteInputMode()
+        if (isTv) traceIme("remote mode")
         compose.onNodeWithContentDescription("Filmes").performSemanticsAction(SemanticsActions.RequestFocus)
             .assertIsFocused().performKeyInput { pressKey(Key.DirectionCenter) }
         compose.waitUntil(20_000) { exists("poster-vod:101") }
+        if (isTv) traceIme("movies opened")
         assertSideBySide("browse-categories-pane", "catalog-grid")
         compose.onNodeWithTag("poster-vod:101").performSemanticsAction(SemanticsActions.RequestFocus)
             .assertIsFocused().performKeyInput { pressKey(Key.DirectionRight) }
@@ -450,6 +455,7 @@ class ScreenIntegrationTest {
         compose.onNodeWithContentDescription("TV").performSemanticsAction(SemanticsActions.RequestFocus)
             .assertIsFocused().performKeyInput { pressKey(Key.DirectionCenter) }
         compose.waitUntil(20_000) { exists("channel-1") && exists("channel-2") }
+        if (isTv) traceIme("TV opened")
         assertSideBySide("tv-categories-pane", "tv-channel-pane", "tv-preview-pane")
         compose.onNodeWithTag("channel-1").performSemanticsAction(SemanticsActions.RequestFocus)
             .assertIsFocused().performKeyInput { pressKey(Key.DirectionDown) }
@@ -503,6 +509,10 @@ class ScreenIntegrationTest {
         return ParcelFileDescriptor.AutoCloseInputStream(output).bufferedReader().use { it.readText() }
     }
     private fun systemImeShown(): Boolean = readShell("dumpsys input_method").contains("mInputShown=true")
+    private fun traceIme(label: String) {
+        val flags = readShell("dumpsys input_method").lineSequence().firstOrNull { it.contains("mInputShown=") }.orEmpty().trim()
+        imeTrace.add("IME $label: insets=${keyboardIsVisible()} $flags")
+    }
     private fun multiState(index: Int): String? = runCatching {
         compose.onNodeWithTag("multi-player-$index", useUnmergedTree = true).fetchSemanticsNode().config.getOrNull(SemanticsProperties.StateDescription)
     }.getOrNull()

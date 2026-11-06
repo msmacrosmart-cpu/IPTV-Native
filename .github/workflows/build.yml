@@ -68,6 +68,17 @@ jobs:
           sudo udevadm control --reload-rules
           sudo udevadm trigger --name-match=kvm
 
+      - name: Exercise D-pad and overscan on Android TV
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 30
+          arch: x86
+          target: android-tv
+          profile: tv_1080p
+          disable-animations: true
+          emulator-options: -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim
+          script: bash -o pipefail -c 'mkdir -p artifacts; ./gradlew connectedDebugAndroidTest -Pandroid.testInstrumentationRunnerArguments.class=com.example.iptv.ScreenIntegrationTest#largeScreenRemoteNavigationAndOverscanAreUsable -Pandroid.testInstrumentationRunnerArguments.requireTv=true --no-daemon 2>&1 | tee build-tv.log; result=${PIPESTATUS[0]}; if [ "$result" -eq 0 ]; then adb exec-out cat /data/local/tmp/iptv-screen-android-tv.png > artifacts/screen-android-tv.png || result=1; else adb exec-out cat /data/local/tmp/iptv-ui-failure.png > artifacts/screen-failure.png 2>/dev/null || true; adb exec-out cat /data/local/tmp/iptv-ui-failure.txt > artifacts/diagnostics.txt 2>/dev/null || true; fi; exit "$result"'
+
       - name: Exercise the screens on an Android emulator
         uses: reactivecircus/android-emulator-runner@v2
         with:
@@ -78,17 +89,6 @@ jobs:
           disable-animations: true
           emulator-options: -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -camera-back none
           script: bash -o pipefail -c 'adb shell wm size 768x1376; adb shell wm density 160; adb shell settings put secure immersive_mode_confirmations confirmed; ./gradlew connectedDebugAndroidTest --no-daemon 2>&1 | tee build-instrumented.log; result=${PIPESTATUS[0]}; mkdir -p artifacts; if [ "$result" -ne 0 ]; then adb exec-out cat /data/local/tmp/iptv-ui-failure.png > artifacts/screen-failure.png 2>/dev/null || true; adb exec-out cat /data/local/tmp/iptv-ui-failure.txt > artifacts/diagnostics.txt 2>/dev/null || true; if [ ! -s artifacts/screen-failure.png ]; then adb exec-out screencap -p > artifacts/screen-failure.png || true; fi; else for name in login home hero-poster movies series live favorites settings player multi phone phone-home phone-tv; do adb exec-out cat /data/local/tmp/iptv-screen-$name.png > artifacts/screen-$name.png || result=1; done; fi; exit "$result"'
-
-      - name: Exercise D-pad and overscan on Android TV
-        uses: reactivecircus/android-emulator-runner@v2
-        with:
-          api-level: 30
-          arch: x86
-          target: android-tv
-          profile: tv_1080p
-          disable-animations: true
-          emulator-options: -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim
-          script: bash -o pipefail -c './gradlew connectedDebugAndroidTest -Pandroid.testInstrumentationRunnerArguments.class=com.example.iptv.ScreenIntegrationTest#largeScreenRemoteNavigationAndOverscanAreUsable -Pandroid.testInstrumentationRunnerArguments.requireTv=true --no-daemon 2>&1 | tee build-tv.log; result=${PIPESTATUS[0]}; if [ "$result" -eq 0 ]; then adb exec-out cat /data/local/tmp/iptv-screen-android-tv.png > artifacts/screen-android-tv.png || result=1; else adb exec-out cat /data/local/tmp/iptv-ui-failure.png > artifacts/screen-failure.png 2>/dev/null || true; adb exec-out cat /data/local/tmp/iptv-ui-failure.txt > artifacts/diagnostics.txt 2>/dev/null || true; fi; exit "$result"'
 
       # Same signing config as debug (see app/build.gradle.kts), so the artifact is installable
       # straight from the Actions run.
@@ -184,7 +184,7 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           LOG="(build log unavailable)"
-          for FILE in build-tv.log build-instrumented.log build-release.log build-tests.log build-debug.log; do
+          for FILE in build-release.log build-instrumented.log build-tv.log build-tests.log build-debug.log; do
             if [ -f "$FILE" ]; then
               LOG=$( { grep -E '(^e: | error: |^FAILURE:|^\* What went wrong:|^> | FAILED|tests? (completed|failed))' "$FILE" || true; tail -n 90 "$FILE"; } | tail -n 160)
               break
