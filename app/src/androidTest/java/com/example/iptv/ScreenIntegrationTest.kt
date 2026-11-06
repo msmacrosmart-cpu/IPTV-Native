@@ -759,7 +759,8 @@ class ScreenIntegrationTest {
 
             // The same criteria and directions must sort the results of a title search.
             val search = if (type == "vod") "Filme 10" else "Série 10"
-            compose.onNodeWithTag("search-field").performTextInput(search).performImeAction()
+            compose.onNodeWithTag("search-field").performTextInput(search)
+            compose.onNodeWithTag("search-field").performImeAction()
             chooseSort("rating")
             assertFirstCatalogItem("poster-$type:103")
             compose.onNodeWithTag("catalog-sort-direction").performClick()
@@ -772,7 +773,8 @@ class ScreenIntegrationTest {
             assertFirstCatalogItem("poster-$type:102")
             compose.onNodeWithTag("catalog-sort-direction").performClick()
             assertFirstCatalogItem("poster-$type:109")
-            compose.onNodeWithTag("search-field").performTextClearance().performImeAction()
+            compose.onNodeWithTag("search-field").performTextClearance()
+            compose.onNodeWithTag("search-field").performImeAction()
 
             // Open an item far down an alphabetical folder and return without resetting
             // the selected folder, sort direction, or the grid's scroll position.
