@@ -152,13 +152,14 @@ class ScreenIntegrationTest {
 
     @After fun stopPanel() { server.shutdown() }
 
+    @OptIn(ExperimentalTestApi::class)
     @Test fun nativeScreensUseRealSessionCatalogFavoritesEpgAndPlayback() {
         capture("screen-login.png")
         compose.onNodeWithText("Servidor Xtream").performScrollTo().performTextInput(server.url("/").toString())
         compose.onNodeWithText("Usuário").performScrollTo().performTextInput("alice")
         compose.onNodeWithText("Senha").performScrollTo().performTextInput("senha")
         compose.onNodeWithContentDescription("Entrar").performScrollTo().performClick()
-        compose.waitUntil(30_000) { compose.onAllNodesWithContentDescription("TV ao vivo").fetchSemanticsNodes().isNotEmpty() }
+        compose.waitUntil(30_000) { compose.onAllNodesWithContentDescription("TV").fetchSemanticsNodes().isNotEmpty() }
         compose.waitUntil(10_000) { !keyboardIsVisible() }
         val vm = ViewModelProvider(compose.activity)[AppViewModel::class.java]
         compose.waitUntil(30_000) { vm.content.channels.size == 2 && vm.content.movies.size == 30 && vm.content.series.size == 1 }
@@ -167,7 +168,7 @@ class ScreenIntegrationTest {
         compose.waitUntil(30_000) { app.epgRepository.guide.value.programCount == 1 }
         compose.runOnIdle { vm.saveProgress(com.xtream.player.data.PlayerRequest("Filme Teste", "unused", false, libraryKey = "vod:101"), 20_000, 100_000) }
         capture("screen-home.png")
-        listOf("Início", "TV ao vivo", "Filmes", "Séries", "Multitela", "Configurações").forEach {
+        listOf("Home", "TV", "Filmes", "Séries", "Multitela", "Configurações").forEach {
             compose.onNodeWithContentDescription(it).assertExists()
         }
 
@@ -205,7 +206,7 @@ class ScreenIntegrationTest {
         compose.onNodeWithText("Nenhuma faixa alternativa").performClick()
         compose.onNodeWithContentDescription("Voltar").performClick()
 
-        compose.onNodeWithContentDescription("TV ao vivo").performClick()
+        compose.onNodeWithContentDescription("TV").performClick()
         compose.waitUntil(10_000) { exists("channel-1") && exists("channel-2") }
         compose.onNodeWithTag("category-list").performScrollToNode(hasText("Esportes"))
         compose.onNodeWithText("Esportes").performClick()
@@ -232,7 +233,7 @@ class ScreenIntegrationTest {
         compose.waitUntil(10_000) { runCatching { compose.onNodeWithTag("channel-1").assertIsFocused() }.isSuccess }
         compose.onNodeWithTag("preview-channel").assertTextContains("Canal Notícias", substring = true)
 
-        compose.onNodeWithContentDescription("Início").performClick()
+        compose.onNodeWithContentDescription("Home").performClick()
         compose.onNodeWithTag("home-list").performScrollToNode(hasText("Filmes e séries favoritos"))
         compose.waitUntil(10_000) { exists("poster-vod:101") && exists("poster-series:101") }
         capture("screen-favorites.png")
@@ -297,7 +298,7 @@ class ScreenIntegrationTest {
             compose.onNodeWithContentDescription("Entrar").performScrollTo().performClick()
             compose.waitUntil(30_000) { compose.onAllNodesWithContentDescription("Multitela").fetchSemanticsNodes().isNotEmpty() }
             compose.waitUntil(10_000) { !keyboardIsVisible() }
-            listOf("Início", "TV ao vivo", "Filmes", "Séries", "Multitela", "Configurações").forEach {
+            listOf("Home", "TV", "Filmes", "Séries", "Multitela", "Configurações").forEach {
                 compose.onNodeWithContentDescription(it).assertIsDisplayed()
             }
             compose.onNodeWithContentDescription("Filmes").performTouchInput { click() }

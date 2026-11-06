@@ -6,7 +6,7 @@ Aplicativo Android/Android TV nativo em Kotlin, Jetpack Compose e Media3 para co
 
 O mapeamento dos componentes e estilos da referência está em [docs/IPTVNATOR_DESIGN_MAP.md](docs/IPTVNATOR_DESIGN_MAP.md). A navegação principal possui apenas:
 
-- **Início:** hero rotativo, continuar assistindo e favoritos de canais, filmes e séries.
+- **Home:** hero rotativo, continuar assistindo e favoritos de canais, filmes e séries.
 - **TV:** categorias, busca, canais, prévia e programação EPG. No toque, selecione um canal para a prévia e toque novamente ou use tela cheia; na TV, o foco atualiza a prévia e OK abre o player. Toque longo ou OK prolongado adiciona/remova um favorito; o ícone de estrela também funciona.
 - **Filmes:** categorias, busca e grade paginada. Abra o cartaz para ver detalhes, favoritar ou reproduzir.
 - **Séries:** categorias, cartazes, detalhes, temporadas e episódios do painel.

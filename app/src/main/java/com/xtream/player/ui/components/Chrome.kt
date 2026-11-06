@@ -35,8 +35,8 @@ import com.xtream.player.ui.theme.XColors
 
 /** The only six primary destinations requested for this app. */
 enum class Tab(val label: String, val outlined: ImageVector, val filled: ImageVector) {
-    Home("Início", Icons.Outlined.Dashboard, Icons.Filled.Dashboard),
-    Live("TV ao vivo", Icons.Outlined.LiveTv, Icons.Filled.LiveTv),
+    Home("Home", Icons.Outlined.Dashboard, Icons.Filled.Dashboard),
+    Live("TV", Icons.Outlined.LiveTv, Icons.Filled.LiveTv),
     Movies("Filmes", Icons.Outlined.Movie, Icons.Filled.Movie),
     Series("Séries", Icons.Outlined.Tv, Icons.Filled.Tv),
     Multi("Multitela", Icons.Outlined.GridView, Icons.Filled.GridView),
