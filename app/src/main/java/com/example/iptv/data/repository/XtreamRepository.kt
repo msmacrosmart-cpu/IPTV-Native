@@ -158,7 +158,7 @@ class XtreamRepository(private val session: SessionManager) {
         } catch (e: javax.net.ssl.SSLException) {
             ApiResult.Failure("Falha de segurança (SSL) ao conectar. Tente a URL com http:// ou https://.")
         } catch (e: IOException) {
-            ApiResult.Failure("Falha de rede: ${e.message ?: "verifique sua conexão"}")
+            ApiResult.Failure("Falha de rede. Verifique a conexão e o endereço do painel.")
         } catch (e: Exception) {
             Log.w(TAG, "Falha no login", e)
             ApiResult.Failure("Não foi possível autenticar: ${e.message ?: "erro desconhecido"}")
@@ -373,7 +373,7 @@ class XtreamRepository(private val session: SessionManager) {
         } catch (e: ConnectException) {
             ApiResult.Failure("Conexão recusada pelo painel. Confira a porta.")
         } catch (e: IOException) {
-            ApiResult.Failure("Falha de rede: ${e.message ?: "verifique sua conexão"}")
+            ApiResult.Failure("Falha de rede. Verifique a conexão e o endereço do painel.")
         } catch (e: Exception) {
             Log.w(TAG, "Falha ao consultar o painel", e)
             ApiResult.Failure("Erro ao consultar o painel: ${e.message ?: "desconhecido"}")

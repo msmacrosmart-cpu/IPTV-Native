@@ -26,6 +26,7 @@ import com.xtream.player.data.*
 import com.xtream.player.ui.components.*
 import com.xtream.player.ui.theme.XColors
 import com.xtream.player.util.*
+import kotlinx.coroutines.delay
 
 @Composable
 fun SettingsScreen(
@@ -39,7 +40,8 @@ fun SettingsScreen(
     onLogout: () -> Unit,
     onChannelFocused: (Channel) -> Unit = {},
 ) {
-    val now = System.currentTimeMillis()
+    var now by remember { mutableLongStateOf(System.currentTimeMillis()) }
+    LaunchedEffect(Unit) { while (true) { delay(30_000); now = System.currentTimeMillis() } }
     Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(horizontal = 26.dp, vertical = 16.dp)) {
         Text("CONFIGURAÇÕES", color = XColors.Text, fontSize = 40.sp, fontWeight = FontWeight.Bold)
         Text("Conta, plano e guia de programação (EPG)", color = XColors.TextDim, fontSize = 17.sp)

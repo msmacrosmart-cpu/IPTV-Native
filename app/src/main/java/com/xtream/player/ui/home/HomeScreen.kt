@@ -13,7 +13,7 @@ import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Star
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
-import androidx.compose.runtime.Composable
+import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -29,6 +29,7 @@ import com.xtream.player.data.*
 import com.xtream.player.ui.components.*
 import com.xtream.player.ui.theme.XColors
 import com.xtream.player.util.initials
+import kotlinx.coroutines.delay
 
 @Composable
 fun HomeScreen(
@@ -40,7 +41,8 @@ fun HomeScreen(
     onPlayChannel: (Channel) -> Unit,
     onToggleFav: (String) -> Unit,
 ) {
-    val now = System.currentTimeMillis()
+    var now by remember { mutableLongStateOf(System.currentTimeMillis()) }
+    LaunchedEffect(Unit) { while (true) { delay(30_000); now = System.currentTimeMillis() } }
     val all = (content.movies + content.series)
     val cont = all.filter { it.progress > 0f && it.title.contains(query, true) }
     val featured = content.series.filter { it.title.contains(query, true) }.take(12)

@@ -79,7 +79,7 @@ jobs:
           profile: pixel_2
           disable-animations: true
           emulator-options: -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -camera-back none
-          script: bash -o pipefail -c 'adb shell wm size 1376x768; adb shell wm density 160; ./gradlew connectedDebugAndroidTest --no-daemon 2>&1 | tee build-instrumented.log; result=${PIPESTATUS[0]}; mkdir -p artifacts; if [ "$result" -ne 0 ]; then adb exec-out cat /data/local/tmp/iptv-ui-failure.png > artifacts/screen-failure.png 2>/dev/null || true; adb exec-out cat /data/local/tmp/iptv-ui-failure.txt > artifacts/diagnostics.txt 2>/dev/null || true; if [ ! -s artifacts/screen-failure.png ]; then adb exec-out screencap -p > artifacts/screen-failure.png || true; fi; else for name in login home movies series live favorites settings player; do adb exec-out cat /data/local/tmp/iptv-screen-$name.png > artifacts/screen-$name.png || result=1; done; fi; exit "$result"'
+          script: bash -o pipefail -c 'adb shell wm size 1376x768; adb shell wm density 160; adb shell settings put secure immersive_mode_confirmations confirmed; ./gradlew connectedDebugAndroidTest --no-daemon 2>&1 | tee build-instrumented.log; result=${PIPESTATUS[0]}; mkdir -p artifacts; if [ "$result" -ne 0 ]; then adb exec-out cat /data/local/tmp/iptv-ui-failure.png > artifacts/screen-failure.png 2>/dev/null || true; adb exec-out cat /data/local/tmp/iptv-ui-failure.txt > artifacts/diagnostics.txt 2>/dev/null || true; if [ ! -s artifacts/screen-failure.png ]; then adb exec-out screencap -p > artifacts/screen-failure.png || true; fi; else for name in login home movies series live favorites settings player; do adb exec-out cat /data/local/tmp/iptv-screen-$name.png > artifacts/screen-$name.png || result=1; done; fi; exit "$result"'
 
       # Same signing config as debug (see app/build.gradle.kts), so the artifact is installable
       # straight from the Actions run.
@@ -198,7 +198,7 @@ jobs:
           fi
           if [ -s artifacts/diagnostics.txt ]; then
             LOG="$LOG
-          $(head -c 16000 artifacts/diagnostics.txt)"
+          $(head -c 40000 artifacts/diagnostics.txt)"
           fi
           if [ -s artifacts/screen-failure.png ]; then
             SCREEN_BLOB=$(python3 - <<'PYCODE'

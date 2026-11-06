@@ -174,7 +174,7 @@ class ScreenIntegrationTest {
         compose.onNodeWithTag("channel-list").performScrollToNode(hasTestTag("channel-2"))
         compose.onNodeWithTag("channel-2").performSemanticsAction(SemanticsActions.RequestFocus)
         compose.waitUntil(10_000) {
-            runCatching { compose.onNodeWithTag("preview-channel").assertTextContains("Canal Esportes") }.isSuccess
+            runCatching { compose.onNodeWithTag("preview-channel").assertTextContains("Canal Esportes", substring = true) }.isSuccess
         }
         compose.waitUntil(20_000) { shortRequests.get() > 0 && vm.epg["sports"].orEmpty().isNotEmpty() }
         compose.onNodeWithTag("channel-2").performSemanticsAction(SemanticsActions.OnLongClick)
