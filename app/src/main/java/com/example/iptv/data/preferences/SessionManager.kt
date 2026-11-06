@@ -75,8 +75,9 @@ class SessionManager(context: Context) {
             status = prefs.getString(KEY_STATUS, "Active").orEmpty(),
             isActive = prefs.getBoolean(KEY_ACTIVE, true),
             isTrial = prefs.getBoolean(KEY_TRIAL, false),
-            expiresAtMillis = prefs.getLong(KEY_EXPIRES_AT, 0L).takeIf { it > 0L },
-            createdAtMillis = prefs.getLong(KEY_CREATED_AT, 0L).takeIf { it > 0L },
+            // Older builds cached Xtream seconds as if they were milliseconds.
+            expiresAtMillis = cachedEpochMillis(KEY_EXPIRES_AT),
+            createdAtMillis = cachedEpochMillis(KEY_CREATED_AT),
             maxConnections = prefs.getInt(KEY_MAX_CONNECTIONS, 1),
             activeConnections = prefs.getInt(KEY_ACTIVE_CONNECTIONS, 0),
             allowedFormats = prefs.getString(KEY_ALLOWED_FORMATS, "")
@@ -87,6 +88,10 @@ class SessionManager(context: Context) {
             panelUrl = prefs.getString(KEY_PANEL_URL, server).orEmpty(),
             syncedAtMillis = prefs.getLong(KEY_SYNCED_AT, 0L)
         )
+    }
+
+    private fun cachedEpochMillis(key: String): Long? = prefs.getLong(key, 0L).takeIf { it > 0L }?.let {
+        if (it < 10_000_000_000L) it * 1000L else it
     }
 
     // ------------------------------------------------------------ preferences

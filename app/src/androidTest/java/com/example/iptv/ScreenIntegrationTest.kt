@@ -4,6 +4,9 @@ import android.content.Context
 import android.graphics.Bitmap
 import androidx.compose.ui.semantics.SemanticsActions
 import androidx.compose.ui.test.assertIsFocused
+import androidx.compose.ui.test.hasText
+import androidx.compose.ui.test.hasTestTag
+import androidx.compose.ui.test.SemanticsMatcher
 import androidx.compose.ui.test.assertTextEquals
 import androidx.compose.ui.test.junit4.createAndroidComposeRule
 import androidx.compose.ui.test.onAllNodesWithContentDescription
@@ -12,15 +15,20 @@ import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performScrollTo
+import androidx.compose.ui.test.performScrollToNode
 import androidx.compose.ui.test.performSemanticsAction
 import androidx.compose.ui.test.performTextInput
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
+import androidx.lifecycle.ViewModelProvider
+import com.example.iptv.viewmodel.MainTvViewModel
 import com.example.iptv.data.model.StreamFormat
+import com.example.iptv.data.model.PanelCredentials
 import okhttp3.mockwebserver.Dispatcher
 import okhttp3.mockwebserver.MockResponse
 import okhttp3.mockwebserver.MockWebServer
 import okhttp3.mockwebserver.RecordedRequest
+import okio.Buffer
 import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -29,6 +37,8 @@ import org.junit.Before
 import org.junit.Rule
 import org.junit.Test
 import org.junit.rules.ExternalResource
+import org.junit.rules.TestWatcher
+import org.junit.runner.Description
 import org.junit.runner.RunWith
 import java.text.SimpleDateFormat
 import java.util.Date
@@ -51,9 +61,29 @@ class ScreenIntegrationTest {
     @get:Rule(order = 1)
     val compose = createAndroidComposeRule<MainActivity>()
 
+    @get:Rule(order = 2)
+    val diagnostics = object : TestWatcher() {
+        override fun failed(error: Throwable, description: Description) {
+            runCatching {
+                capture("ui-failure.png")
+                val vm = ViewModelProvider(compose.activity)[MainTvViewModel::class.java]
+                val nodes = compose.onAllNodes(SemanticsMatcher("all nodes") { true }, useUnmergedTree = true)
+                    .fetchSemanticsNodes().joinToString("\n") { it.config.toString() }
+                val text = "section=${vm.section.value} categories=${vm.liveCategories.value} " +
+                    "channels=${vm.liveAll.value} filtered=${vm.liveChannels.value} " +
+                    "loading=${vm.liveLoading.value} error=${vm.liveError.value}\n$nodes"
+                compose.activity.openFileOutput("ui-failure.txt", Context.MODE_PRIVATE).use { it.write(text.toByteArray()) }
+            }
+        }
+    }
+
     private lateinit var server: MockWebServer
     private val customRequests = AtomicInteger(0)
     private val accountRequests = AtomicInteger(0)
+    private val streamRequests = AtomicInteger(0)
+    private val testStream by lazy {
+        InstrumentationRegistry.getInstrumentation().context.assets.open("test-pattern.ts").use { it.readBytes() }
+    }
 
     @Before fun startPanel() {
         server = MockWebServer()
@@ -63,6 +93,10 @@ class ScreenIntegrationTest {
                 if (url.encodedPath.endsWith("/xmltv.php") || url.encodedPath.endsWith("/custom.xml")) {
                     if (url.encodedPath.endsWith("/custom.xml")) customRequests.incrementAndGet()
                     return MockResponse().setHeader("Content-Type", "application/xml").setBody(guide())
+                }
+                if (url.encodedPath.startsWith("/live/") && url.encodedPath.endsWith(".ts")) {
+                    streamRequests.incrementAndGet()
+                    return MockResponse().setHeader("Content-Type", "video/mp2t").setBody(Buffer().write(testStream))
                 }
                 if (!url.encodedPath.endsWith("/player_api.php")) return MockResponse().setResponseCode(404)
                 val body = when (url.queryParameter("action")) {
@@ -92,14 +126,26 @@ class ScreenIntegrationTest {
 
         compose.waitUntil(30_000) { compose.onAllNodesWithContentDescription("TV ao Vivo").fetchSemanticsNodes().isNotEmpty() }
         compose.onNodeWithContentDescription("TV ao Vivo").performClick()
-        compose.waitUntil(30_000) { runCatching { compose.onNodeWithTag("channel-2").assertExists() }.isSuccess }
+        val main = ViewModelProvider(compose.activity)[MainTvViewModel::class.java]
+        compose.waitUntil(30_000) { main.liveCategories.value.size == 2 && main.liveAll.value.size == 2 }
+        compose.onNodeWithTag("category-list").performScrollToNode(hasText("Esportes"))
         compose.onNodeWithText("Esportes").performClick()
+        compose.waitUntil(10_000) { runCatching { compose.onNodeWithTag("channel-2").assertExists() }.isSuccess }
+        compose.onNodeWithTag("category-list").performScrollToNode(hasText("Todos os canais"))
+        compose.onNodeWithText("Todos os canais").performClick()
+        compose.waitUntil(10_000) { main.liveChannels.value.size == 2 }
+        compose.onNodeWithTag("channel-list").performScrollToNode(hasTestTag("channel-2"))
         compose.onNodeWithTag("channel-2").performSemanticsAction(SemanticsActions.RequestFocus)
         compose.waitUntil(10_000) { runCatching { compose.onNodeWithTag("preview-channel").assertTextEquals("Canal Esportes") }.isSuccess }
         capture("screen-live.png")
         compose.onNodeWithTag("channel-2").performClick()
+        compose.waitUntil(30_000) { compose.onAllNodesWithContentDescription("Pausar").fetchSemanticsNodes().isNotEmpty() }
+        val requestsBeforeZap = streamRequests.get()
+        compose.onNodeWithContentDescription("Próximo canal").performClick()
+        compose.waitUntil(10_000) { runCatching { compose.onNodeWithText("Canal Notícias").assertExists() }.isSuccess }
+        compose.waitUntil(30_000) { streamRequests.get() > requestsBeforeZap && compose.onAllNodesWithContentDescription("Pausar").fetchSemanticsNodes().isNotEmpty() }
         compose.onNodeWithContentDescription("Voltar").assertExists().performClick()
-        compose.waitUntil(10_000) { runCatching { compose.onNodeWithTag("channel-2").assertIsFocused() }.isSuccess }
+        compose.waitUntil(10_000) { runCatching { compose.onNodeWithTag("channel-1").assertIsFocused() }.isSuccess }
         compose.onNodeWithContentDescription("Configurações").performClick()
         compose.onNodeWithText("Guia de programação (EPG)").assertExists()
         compose.onNodeWithText("Plano").assertExists()
@@ -130,6 +176,18 @@ class ScreenIntegrationTest {
         compose.waitUntil(10_000) { runCatching { compose.onNodeWithText("Bem-vindo de volta").assertExists() }.isSuccess }
         assertTrue(app.repository.currentCredentials() == null)
         assertEquals(0, app.epgRepository.guide.value.programCount)
+    }
+
+    @Test fun oldCachedAccountDatesAreCorrectedWithoutNetwork() {
+        val app = compose.activity.application as IPTVApplication
+        app.sessionManager.saveCredentials(PanelCredentials("http://panel.example/", "alice", "senha"))
+        app.getSharedPreferences("iptv_native_session", Context.MODE_PRIVATE).edit()
+            .putLong("account_expires_at", 1_900_000_000L)
+            .putLong("account_created_at", 1_700_000_000L)
+            .commit()
+        val cached = app.sessionManager.cachedAccount()
+        assertEquals(1_900_000_000_000L, cached?.expiresAtMillis ?: 0L)
+        assertEquals(1_700_000_000_000L, cached?.createdAtMillis ?: 0L)
     }
 
     private fun capture(name: String) {

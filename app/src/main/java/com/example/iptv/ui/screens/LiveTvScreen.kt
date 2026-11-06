@@ -169,7 +169,7 @@ private fun CategoriesColumn(
             SearchField(value = query, onValueChange = onQueryChange, placeholder = "Buscar canal…")
             Spacer(Modifier.height(8.dp))
             LazyColumn(
-                Modifier.weight(1f).fillMaxWidth().focusRestorer(),
+                Modifier.weight(1f).fillMaxWidth().focusRestorer().testTag("category-list"),
                 contentPadding = PaddingValues(3.dp),
                 verticalArrangement = Arrangement.spacedBy(6.dp)
             ) {
@@ -251,7 +251,7 @@ private fun ChannelsColumn(
                         }
                     }
                     LazyColumn(
-                        Modifier.fillMaxSize().focusRestorer(),
+                        Modifier.fillMaxSize().focusRestorer().testTag("channel-list"),
                         state = listState,
                         contentPadding = PaddingValues(3.dp),
                         verticalArrangement = Arrangement.spacedBy(6.dp)

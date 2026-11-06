@@ -79,7 +79,7 @@ jobs:
           profile: pixel_2
           disable-animations: true
           emulator-options: -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -camera-back none
-          script: bash -o pipefail -c './gradlew connectedDebugAndroidTest --no-daemon 2>&1 | tee build-instrumented.log; result=${PIPESTATUS[0]}; mkdir -p artifacts; adb exec-out screencap -p > artifacts/screen-failure.png || true; if [ "$result" -eq 0 ]; then adb exec-out run-as com.example.iptv cat files/screen-live.png > artifacts/screen-live.png && adb exec-out run-as com.example.iptv cat files/screen-settings.png > artifacts/screen-settings.png || result=1; fi; exit "$result"'
+          script: bash -o pipefail -c './gradlew connectedDebugAndroidTest --no-daemon 2>&1 | tee build-instrumented.log; result=${PIPESTATUS[0]}; mkdir -p artifacts; if [ "$result" -ne 0 ]; then adb exec-out run-as com.example.iptv cat files/ui-failure.png > artifacts/screen-failure.png 2>/dev/null || true; adb exec-out run-as com.example.iptv cat files/ui-failure.txt > artifacts/diagnostics.txt 2>/dev/null || true; if [ ! -s artifacts/screen-failure.png ]; then adb exec-out screencap -p > artifacts/screen-failure.png || true; fi; else adb exec-out run-as com.example.iptv cat files/screen-live.png > artifacts/screen-live.png && adb exec-out run-as com.example.iptv cat files/screen-settings.png > artifacts/screen-settings.png || result=1; fi; exit "$result"'
 
       # Same signing config as debug (see app/build.gradle.kts), so the artifact is installable
       # straight from the Actions run.
@@ -195,6 +195,10 @@ jobs:
             )
             LOG="$LOG
           $REPORT"
+          fi
+          if [ -s artifacts/diagnostics.txt ]; then
+            LOG="$LOG
+          $(head -c 16000 artifacts/diagnostics.txt)"
           fi
           if [ -s artifacts/screen-failure.png ]; then
             SCREEN_BLOB=$(python3 - <<'PYCODE'
