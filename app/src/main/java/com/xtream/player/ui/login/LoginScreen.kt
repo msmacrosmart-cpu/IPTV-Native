@@ -43,7 +43,7 @@ fun LoginScreen(loading: Boolean, error: String?, onLogin: (server: String, user
     }
     Box(Modifier.fillMaxSize().background(XColors.Shell).verticalScroll(rememberScrollState()).padding(18.dp),
         contentAlignment = Alignment.Center) {
-        GlassPanel(Modifier.fillMaxWidth().widthIn(max = 500.dp), RoundedCornerShape(18.dp)) {
+        GlassPanel(Modifier.widthIn(max = 500.dp).fillMaxWidth(), RoundedCornerShape(18.dp)) {
             Column(Modifier.fillMaxWidth().padding(26.dp)) {
                 Text("Adicionar conexão", color = XColors.Text, fontSize = 27.sp, fontWeight = FontWeight.SemiBold)
                 Text("Entre com sua conta Xtream Codes", color = XColors.TextDim, fontSize = 14.sp, modifier = Modifier.padding(top = 6.dp))

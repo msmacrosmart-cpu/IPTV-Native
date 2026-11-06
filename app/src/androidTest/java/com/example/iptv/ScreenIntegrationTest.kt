@@ -155,6 +155,8 @@ class ScreenIntegrationTest {
     @OptIn(ExperimentalTestApi::class)
     @Test fun nativeScreensUseRealSessionCatalogFavoritesEpgAndPlayback() {
         capture("screen-login.png")
+        val loginFieldWidth = compose.onNodeWithText("Servidor Xtream").fetchSemanticsNode().boundsInRoot.width
+        assertTrue("The login form should stay compact on TV", loginFieldWidth <= 500f * compose.activity.resources.displayMetrics.density)
         compose.onNodeWithText("Servidor Xtream").performScrollTo().performTextInput(server.url("/").toString())
         compose.onNodeWithText("Usuário").performScrollTo().performTextInput("alice")
         compose.onNodeWithText("Senha").performScrollTo().performTextInput("senha")
@@ -279,6 +281,8 @@ class ScreenIntegrationTest {
         compose.waitUntil(10_000) { !keyboardIsVisible() }
         assertEquals("bob", app.repository.currentCredentials()?.username)
         compose.onNodeWithText("Configurações").performScrollTo()
+        val settingsFieldWidth = compose.onNodeWithTag("credential-server").fetchSemanticsNode().boundsInRoot.width
+        assertTrue("Settings fields should be readable on TV", settingsFieldWidth <= 1000f * compose.activity.resources.displayMetrics.density)
         capture("screen-settings.png")
         compose.onNodeWithText("Sair da conta").performScrollTo().performClick()
         compose.waitUntil(10_000) { textExists("Adicionar conexão") }
@@ -314,6 +318,12 @@ class ScreenIntegrationTest {
             compose.waitUntil(20_000) { textExists("Reproduzir") || textExists("Continuar") }
             compose.onNodeWithContentDescription("Multitela").performTouchInput { click() }
             compose.onNodeWithContentDescription("Adicionar canal 1").assertIsDisplayed()
+            shell("wm size 360x800")
+            compose.waitUntil(20_000) { compose.activity.window.decorView.width == 360 }
+            compose.waitUntil(10_000) { exists("multi-tile-1") && exists("multi-tile-2") }
+            val first = compose.onNodeWithTag("multi-tile-1").fetchSemanticsNode().boundsInRoot
+            val second = compose.onNodeWithTag("multi-tile-2").fetchSemanticsNode().boundsInRoot
+            assertTrue("Small phones must stack players so their controls fit", second.top >= first.bottom)
         } finally {
             shell("wm size 1376x768")
             compose.runOnUiThread { compose.activity.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED }

@@ -52,7 +52,7 @@ fun SettingsScreen(session: Session?, content: ContentState, epg: Map<String, Li
         }
     }
     if (showLicenses) Dialog(onDismissRequest = { showLicenses = false }) {
-        GlassPanel(Modifier.fillMaxWidth().widthIn(max = 620.dp).heightIn(max = 600.dp), RoundedCornerShape(16.dp)) {
+        GlassPanel(Modifier.widthIn(max = 620.dp).fillMaxWidth().heightIn(max = 600.dp), RoundedCornerShape(16.dp)) {
             Column(Modifier.padding(20.dp)) {
                 Text("Licenças de terceiros", color = XColors.Text, fontSize = 20.sp, fontWeight = FontWeight.SemiBold)
                 Text(licenses, color = XColors.TextDim, fontSize = 12.sp, lineHeight = 18.sp,
@@ -66,7 +66,7 @@ fun SettingsScreen(session: Session?, content: ContentState, epg: Map<String, Li
         Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(horizontal = gutter, vertical = 26.dp)) {
             Text("Configurações", color = XColors.Text, fontSize = 28.sp, fontWeight = FontWeight.SemiBold)
             Text("Gerencie sua conexão e o guia de programação", color = XColors.TextDim, fontSize = 14.sp, modifier = Modifier.padding(top = 4.dp, bottom = 24.dp))
-            GlassPanel(Modifier.fillMaxWidth().widthIn(max = 1000.dp), RoundedCornerShape(16.dp)) {
+            GlassPanel(Modifier.widthIn(max = 1000.dp).fillMaxWidth(), RoundedCornerShape(16.dp)) {
                 Column(Modifier.padding(22.dp)) {
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         Icon(Icons.Filled.AccountCircle, null, tint = XColors.Accent, modifier = Modifier.size(24.dp))
@@ -96,7 +96,7 @@ fun SettingsScreen(session: Session?, content: ContentState, epg: Map<String, Li
                 }
             }
             Spacer(Modifier.height(18.dp))
-            GlassPanel(Modifier.fillMaxWidth().widthIn(max = 1000.dp), RoundedCornerShape(16.dp)) {
+            GlassPanel(Modifier.widthIn(max = 1000.dp).fillMaxWidth(), RoundedCornerShape(16.dp)) {
                 Column(Modifier.padding(22.dp)) {
                     Text("Guia de programação (EPG)", color = XColors.Text, fontSize = 17.sp, fontWeight = FontWeight.SemiBold)
                     Text("Última atualização: ${epgUpdatedAt?.let(::fmtDateTime) ?: "Nunca"}  ·  ${epg.size} canais",

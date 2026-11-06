@@ -29,12 +29,14 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.input.InputMode
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.platform.LocalInputModeManager
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
+import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.stateDescription
@@ -68,38 +70,63 @@ fun MultiScreen(channels: List<Channel>, slotIds: List<String?>, audible: Int, e
                 onSetSlot: (Int, String?) -> Unit, onAudible: (Int) -> Unit, onPlay: (PlayerRequest) -> Unit) {
     var picking by remember { mutableStateOf<Int?>(null) }
     var pendingFocus by remember { mutableStateOf<Int?>(null) }
+    var focusedTile by remember { mutableStateOf<Int?>(null) }
     val requests = remember { List(4) { FocusRequester() } }
     val inputMode = LocalInputModeManager.current
+    val view = LocalView.current
     val hasPlayers = slotIds.any { id -> id != null && channels.any { it.id == id } }
     val audioAllowed = rememberMultiAudioFocus(enabled && hasPlayers)
-    LaunchedEffect(pendingFocus, slotIds) {
+    LaunchedEffect(pendingFocus, picking, slotIds) {
         val index = pendingFocus ?: return@LaunchedEffect
+        if (picking != null) return@LaunchedEffect
         if (inputMode.inputMode != InputMode.Touch) {
-            delay(120)
-            runCatching { requests[index].requestFocus() }
-        }
-        pendingFocus = null
-    }
-    LazyVerticalGrid(columns = GridCells.Fixed(2), modifier = Modifier.fillMaxSize().background(XColors.Bg),
-        contentPadding = PaddingValues(18.dp), horizontalArrangement = Arrangement.spacedBy(12.dp),
-        verticalArrangement = Arrangement.spacedBy(12.dp)) {
-        item(span = { GridItemSpan(maxLineSpan) }) {
-            Column(Modifier.padding(bottom = 8.dp)) {
-                Text("Multitela", color = XColors.Text, fontSize = 27.sp, fontWeight = FontWeight.SemiBold)
-                Text("Até quatro canais simultâneos. O som vem apenas da tela selecionada.",
-                    color = XColors.TextDim, fontSize = 13.sp, modifier = Modifier.padding(top = 4.dp))
-                Text("O limite depende das conexões do provedor e dos decodificadores do aparelho.",
-                    color = XColors.Body, fontSize = 12.sp, modifier = Modifier.padding(top = 3.dp))
-                if (hasPlayers && !audioAllowed) Text("Som temporariamente indisponível enquanto outro aplicativo usa o áudio.",
-                    color = XColors.TextDim, fontSize = 12.sp, modifier = Modifier.padding(top = 3.dp))
+            // A dialog is a separate window. Wait for the main window to regain focus,
+            // and do not let an older restoration overwrite a newer channel selection.
+            repeat(20) {
+                delay(75)
+                if (pendingFocus != index || picking != null) return@LaunchedEffect
+                if (inputMode.inputMode == InputMode.Touch) {
+                    pendingFocus = null
+                    return@LaunchedEffect
+                }
+                if (view.hasWindowFocus()) {
+                    runCatching { requests[index].requestFocus() }
+                    if (focusedTile == index) {
+                        pendingFocus = null
+                        return@LaunchedEffect
+                    }
+                }
             }
         }
-        items((0 until 4).toList(), key = { it }) { index ->
-            val channel = channels.firstOrNull { it.id == slotIds.getOrNull(index) }
-            if (channel == null) EmptyTile(index, Modifier.focusRequester(requests[index])) { picking = index }
-            else MultiTile(index, channel, audible == index, audioAllowed, enabled, Modifier.focusRequester(requests[index]),
-                onSelect = { onAudible(index) }, onRemove = { onSetSlot(index, null); pendingFocus = index },
-                onFullscreen = { onPlay(PlayerRequest(channel.name, channel.url, true, listOf(channel), 0, channel.fallbackUrl)) })
+        if (pendingFocus == index) pendingFocus = null
+    }
+    BoxWithConstraints(Modifier.fillMaxSize()) {
+        // Three 44 dp player actions need enough room; stack videos on narrow phones.
+        val columns = if (maxWidth < 448.dp) 1 else 2
+        LazyVerticalGrid(columns = GridCells.Fixed(columns), modifier = Modifier.fillMaxSize().background(XColors.Bg),
+            contentPadding = PaddingValues(18.dp), horizontalArrangement = Arrangement.spacedBy(12.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp)) {
+            item(span = { GridItemSpan(maxLineSpan) }) {
+                Column(Modifier.padding(bottom = 8.dp)) {
+                    Text("Multitela", color = XColors.Text, fontSize = 27.sp, fontWeight = FontWeight.SemiBold)
+                    Text("Até quatro canais simultâneos. O som vem apenas da tela selecionada.",
+                        color = XColors.TextDim, fontSize = 13.sp, modifier = Modifier.padding(top = 4.dp))
+                    Text("O limite depende das conexões do provedor e dos decodificadores do aparelho.",
+                        color = XColors.Body, fontSize = 12.sp, modifier = Modifier.padding(top = 3.dp))
+                    if (hasPlayers && !audioAllowed) Text("Som temporariamente indisponível enquanto outro aplicativo usa o áudio.",
+                        color = XColors.TextDim, fontSize = 12.sp, modifier = Modifier.padding(top = 3.dp))
+                }
+            }
+            items((0 until 4).toList(), key = { it }) { index ->
+                val channel = channels.firstOrNull { it.id == slotIds.getOrNull(index) }
+                val focusModifier = Modifier.focusRequester(requests[index]).onFocusChanged {
+                    if (it.isFocused) focusedTile = index else if (focusedTile == index) focusedTile = null
+                }
+                if (channel == null) EmptyTile(index, focusModifier) { picking = index }
+                else MultiTile(index, channel, audible == index, audioAllowed, enabled, focusModifier,
+                    onSelect = { onAudible(index) }, onRemove = { onSetSlot(index, null); pendingFocus = index },
+                    onFullscreen = { onPlay(PlayerRequest(channel.name, channel.url, true, listOf(channel), 0, channel.fallbackUrl)) })
+            }
         }
     }
     picking?.let { slot ->
@@ -133,7 +160,7 @@ private fun ChannelPicker(channels: List<Channel>, onDismiss: () -> Unit, onChoo
         val keyboard = LocalSoftwareKeyboardController.current
         val focus = LocalFocusManager.current
         val closePicker = { keyboard?.hide(); focus.clearFocus(force = true); onDismiss() }
-        GlassPanel(Modifier.fillMaxWidth().widthIn(max = 500.dp).heightIn(max = 560.dp), RoundedCornerShape(16.dp)) {
+        GlassPanel(Modifier.widthIn(max = 500.dp).fillMaxWidth().heightIn(max = 560.dp), RoundedCornerShape(16.dp)) {
             Column(Modifier.fillMaxWidth().padding(20.dp)) {
                 Text("Escolher canal", color = XColors.Text, fontSize = 20.sp, fontWeight = FontWeight.SemiBold)
                 PillField(query, { query = it }, "Buscar canal", Modifier.fillMaxWidth().padding(top = 14.dp))
