@@ -160,7 +160,9 @@ data class SeriesItem(
     val rating5: Double? = null,
     val backdrop: String? = null,
     val categoryId: String? = null,
-    val episodeCount: Int? = null
+    val episodeCount: Int? = null,
+    // Some panels only expose last_modified for series; see XtreamParser.
+    val addedAtMillis: Long? = null
 )
 
 data class Episode(

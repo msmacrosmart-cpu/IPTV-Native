@@ -506,7 +506,8 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
         val series = cached.series.map { show ->
             VodItem(show.id.toString(), show.name, show.releaseDate?.take(4).orEmpty(),
                 show.rating?.toDoubleOrNull() ?: (show.rating5?.times(2)) ?: 0.0, show.genre.orEmpty(),
-                show.plot.orEmpty(), show.cover, show.backdrop, show.categoryId.orEmpty(), null, show.id.toString())
+                show.plot.orEmpty(), show.cover, show.backdrop, show.categoryId.orEmpty(), null, show.id.toString(),
+                addedAtMillis = show.addedAtMillis)
         }
         return ContentState(cached.liveCategories.map { Category(it.id, it.name) }, live,
             cached.movieCategories.map { Category(it.id, it.name) }, movies,

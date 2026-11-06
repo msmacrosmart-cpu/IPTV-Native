@@ -17,6 +17,7 @@ import androidx.compose.ui.semantics.SemanticsProperties
 import androidx.compose.ui.semantics.getOrNull
 import androidx.compose.ui.test.assertIsFocused
 import androidx.compose.ui.test.assertIsDisplayed
+import androidx.compose.ui.test.assertIsSelected
 import androidx.compose.ui.test.assertTextContains
 import androidx.compose.ui.test.click
 import androidx.compose.ui.test.ExperimentalTestApi
@@ -42,6 +43,8 @@ import androidx.compose.ui.test.performTextClearance
 import androidx.compose.ui.test.performTouchInput
 import androidx.compose.ui.test.pressKey
 import androidx.compose.ui.test.swipeUp
+import androidx.compose.ui.test.swipeLeft
+import androidx.compose.ui.test.swipeRight
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.ViewModelStore
 import androidx.media3.ui.PlayerView
@@ -120,7 +123,7 @@ class ScreenIntegrationTest {
     val diagnostics = object : TestWatcher() {
         override fun failed(error: Throwable, description: Description) {
             runCatching { capture("ui-failure.png") }
-            runCatching {
+            val text = runCatching {
                 val vm = ViewModelProvider(compose.activity)[AppViewModel::class.java]
                 val nodes = compose.onAllNodes(SemanticsMatcher("all") { true }, useUnmergedTree = true)
                     .fetchSemanticsNodes().joinToString("\n") { "${it.boundsInRoot} ${it.config}" }
@@ -131,15 +134,15 @@ class ScreenIntegrationTest {
                 val safeBounds = runCatching { compose.onNodeWithTag("device-safe-content", useUnmergedTree = true).fetchSemanticsNode().boundsInRoot }.getOrNull()
                 val loginBounds = runCatching { compose.onNodeWithTag("login-panel", useUnmergedTree = true).fetchSemanticsNode().boundsInRoot }.getOrNull()
                 val decor = compose.activity.window.decorView
-                val text = "view=${decor.width}x${decor.height} safe=$safeBounds login=$loginBounds " +
+                "view=${decor.width}x${decor.height} safe=$safeBounds login=$loginBounds " +
                     "session=${vm.session?.username} channels=${vm.content.channels.size} " +
                     "movies=${vm.content.movies.size} series=${vm.content.series.size} " +
                     "favorites=${vm.favorites} streams=$streamPaths epg=${vm.epg.keys} " +
                     "windowFocus=${compose.activity.window.decorView.hasWindowFocus()} currentFocus=${compose.activity.currentFocus?.javaClass?.simpleName} " +
                     "imeInsets=${keyboardIsVisible()}\n${imeTrace.joinToString("\n")}\n$ime\n$nodes"
-                writeHostFile("ui-failure.txt", text.toByteArray())
-                writeHostFile("ui-failure-${description.methodName}.txt", text.toByteArray())
-            }
+            }.getOrElse { "Diagnostic capture failed: ${it.javaClass.simpleName}: ${it.message}\nOriginal: $error" }
+            runCatching { writeHostFile("ui-failure.txt", text.toByteArray()) }
+            runCatching { writeHostFile("ui-failure-${description.methodName}.txt", text.toByteArray()) }
         }
     }
     private lateinit var server: MockWebServer
@@ -238,7 +241,8 @@ class ScreenIntegrationTest {
                         (101 until 101 + moviesCount.get()).joinToString(prefix = "[", postfix = "]") { id ->
                             val name = if (id == 101) "Filme Teste" else "Filme $id"
                             val poster = panelBase.resolve("/art/poster-${art[(id - 101) % art.size]}.webp")
-                            """{"stream_id":$id,"name":"$name","category_id":"10","container_extension":"ts","rating":"8.0","added":"${2_000_000_000L - id}","stream_icon":"$poster"}"""
+                            val rating = when (id) { 101 -> "9.9"; 102 -> "1.0"; else -> "8.0" }
+                            """{"stream_id":$id,"name":"$name","category_id":"10","container_extension":"ts","rating":"$rating","added":"${2_000_000_000L - id}","stream_icon":"$poster"}"""
                         }
                     }
                     "get_vod_info" -> {
@@ -252,7 +256,8 @@ class ScreenIntegrationTest {
                     "get_series_categories" -> """[{"category_id":"20","category_name":"Drama"}]"""
                     "get_series" -> (101 until 101 + seriesCount.get()).joinToString(prefix = "[", postfix = "]") { id ->
                         val name = if (id == 101) "Série Teste" else "Série $id"
-                        """{"series_id":$id,"name":"$name","category_id":"20","genre":"Drama","cover":"${panelBase.resolve("/art/poster-skyline-sentinels.webp")}"}"""
+                        val rating = when (id) { 101 -> "9.9"; 102 -> "1.0"; else -> "8.0" }
+                        """{"series_id":$id,"name":"$name","category_id":"20","genre":"Drama","rating":"$rating","last_modified":"${2_000_000_000L - id}","cover":"${panelBase.resolve("/art/poster-skyline-sentinels.webp")}"}"""
                     }
                     "get_series_info" -> """{"info":{"plot":"Sinopse da série","cast":"Pessoa da série","tmdb_id":"77","youtube_trailer":"abcdefghijk","backdrop_path":["${panelBase.resolve("/art/backdrop-skyline-sentinels.webp")}"]},"episodes":{"1":[{"id":"201","episode_num":1,"season":1,"title":"Primeiro","container_extension":"ts"},{"id":"202","episode_num":2,"season":1,"title":"Segundo","container_extension":"ts"}]}}"""
                     else -> "{}"
@@ -553,6 +558,12 @@ class ScreenIntegrationTest {
             }
             val vm = ViewModelProvider(compose.activity)[AppViewModel::class.java]
             compose.waitUntil(30_000) { vm.content.movies.size == 30 }
+            compose.onNodeWithContentDescription("Destaque 1: Filme Teste").performClick()
+            compose.waitUntil(10_000) { exists("hero-watch-vod:101") }
+            compose.onNodeWithTag("hero-carousel").performTouchInput { swipeLeft() }
+            compose.waitUntil(10_000) { exists("hero-watch-vod:102") }
+            compose.onNodeWithTag("hero-carousel").performTouchInput { swipeRight() }
+            compose.waitUntil(10_000) { exists("hero-watch-vod:101") }
             compose.onNodeWithTag("home-list").performScrollToNode(hasText("Explore sua biblioteca"))
             compose.waitUntil(30_000) { exists("poster-vod:101") && existsUnmerged("loaded-poster-vod:101") }
             val homeCardWidth = compose.onAllNodesWithTag("poster-vod:101").fetchSemanticsNodes().first().boundsInRoot.width
@@ -704,6 +715,69 @@ class ScreenIntegrationTest {
         }
     }
 
+    @OptIn(ExperimentalTestApi::class)
+    @Test fun catalogSortsBothWaysAndReturnsToTheSameFolderAndPosition() {
+        moviesCount.set(40)
+        seriesCount.set(40)
+        connectToPanel()
+        val vm = ViewModelProvider(compose.activity)[AppViewModel::class.java]
+        compose.waitUntil(30_000) { vm.content.movies.size == 40 && vm.content.series.size == 40 }
+
+        fun chooseSort(name: String) {
+            compose.onNodeWithTag("catalog-sort-list").performScrollToNode(hasTestTag("catalog-sort-$name"))
+            compose.onNodeWithTag("catalog-sort-$name").performClick()
+            compose.onNodeWithTag("catalog-sort-$name").assertIsSelected()
+        }
+        listOf(Triple("Filmes", "10", "vod"), Triple("Séries", "20", "series")).forEach { (tab, category, type) ->
+            compose.onNodeWithContentDescription(tab).performClick()
+            compose.waitUntil(20_000) { exists("poster-$type:101") }
+            compose.onNodeWithTag("browse-category-$category").performClick().assertIsSelected()
+            val folder = if (type == "vod") "Lançamentos" else "Drama"
+            compose.onNodeWithTag("catalog-category-title").assertTextContains(folder)
+
+            chooseSort("rating")
+            compose.onNodeWithTag("catalog-sort-direction").assertTextContains("Decrescente")
+            assertFirstCatalogItem("poster-$type:101")
+            compose.onNodeWithTag("catalog-sort-direction").performClick().assertTextContains("Crescente")
+            assertFirstCatalogItem("poster-$type:102")
+
+            chooseSort("title")
+            compose.onNodeWithTag("catalog-sort-direction").assertTextContains("Crescente")
+            assertFirstCatalogItem("poster-$type:102")
+            compose.onNodeWithTag("catalog-sort-direction").performClick().assertTextContains("Decrescente")
+            assertFirstCatalogItem("poster-$type:101")
+
+            chooseSort("recent")
+            compose.onNodeWithTag("catalog-sort-direction").assertTextContains("Decrescente")
+            assertFirstCatalogItem("poster-$type:101")
+            compose.onNodeWithTag("catalog-sort-direction").performClick().assertTextContains("Crescente")
+            assertFirstCatalogItem("poster-$type:140")
+
+            // Open an item far down an alphabetical folder and return without resetting
+            // the selected folder, sort direction, or the grid's scroll position.
+            chooseSort("title")
+            assertFirstCatalogItem("poster-$type:102")
+            compose.onNodeWithTag("catalog-grid").performScrollToNode(hasTestTag("poster-$type:125"))
+            compose.onNodeWithTag("poster-$type:125").assertIsDisplayed().performClick()
+            compose.waitUntil(20_000) { exists("detail-list") }
+            compose.onNodeWithContentDescription("Voltar aos itens").performClick()
+            compose.waitUntil(20_000) { exists("catalog-grid") && runCatching {
+                compose.onNodeWithTag("poster-$type:125").assertIsDisplayed()
+            }.isSuccess }
+            compose.onNodeWithTag("catalog-category-title").assertTextContains(folder)
+            compose.onNodeWithTag("browse-category-$category").assertIsSelected()
+            compose.onNodeWithTag("catalog-sort-title").assertIsSelected()
+            compose.onNodeWithTag("catalog-sort-direction").assertTextContains("Crescente")
+        }
+        // Each tab retains its own folder and sort while the other tab is visited.
+        compose.onNodeWithContentDescription("Filmes").performClick()
+        compose.waitUntil(20_000) { exists("catalog-grid") && runCatching {
+            compose.onNodeWithTag("poster-vod:125").assertIsDisplayed()
+        }.isSuccess }
+        compose.onNodeWithTag("catalog-category-title").assertTextContains("Lançamentos")
+        compose.onNodeWithTag("catalog-sort-title").assertIsSelected()
+    }
+
     /** Runs in both the phone emulator and a real Android-TV system-image emulator in CI. */
     @OptIn(ExperimentalTestApi::class)
     @Test fun largeScreenRemoteNavigationAndOverscanAreUsable() {
@@ -753,6 +827,11 @@ class ScreenIntegrationTest {
         compose.waitUntil(10_000) { focused("hero-details-vod:101") }
         compose.onNodeWithTag("hero-details-vod:101").performKeyInput { pressKey(Key.DirectionRight) }
         compose.waitUntil(10_000) { focused("hero-details-vod:102") }
+        compose.onNodeWithTag("hero-slide-vod:101").assertDoesNotExist()
+        val hero = compose.onNodeWithTag("hero-carousel").fetchSemanticsNode().boundsInRoot
+        val slide = compose.onNodeWithTag("hero-slide-vod:102").fetchSemanticsNode().boundsInRoot
+        assertTrue("A remote page change must snap to the full banner", kotlin.math.abs(hero.left - slide.left) < 2f &&
+            kotlin.math.abs(hero.right - slide.right) < 2f)
         compose.onNodeWithTag("hero-details-vod:102").performKeyInput { pressKey(Key.DirectionLeft) }
         compose.waitUntil(10_000) { focused("hero-watch-vod:102") }
         compose.onNodeWithTag("hero-watch-vod:102").performKeyInput { pressKey(Key.DirectionLeft) }
@@ -773,7 +852,12 @@ class ScreenIntegrationTest {
         compose.waitUntil(10_000) { textExists("Nenhum item encontrado.") }
         compose.onNodeWithText("Todos").performClick()
         compose.waitUntil(10_000) { runCatching { compose.onNodeWithTag("poster-vod:101").assertIsDisplayed() }.isSuccess }
-        compose.onNodeWithTag("poster-vod:101").performSemanticsAction(SemanticsActions.RequestFocus)
+        compose.onNodeWithTag("browse-category-10").performClick()
+        compose.waitUntil(10_000) { exists("catalog-grid") && runCatching {
+            compose.onNodeWithTag("catalog-category-title").assertTextContains("Lançamentos")
+        }.isSuccess }
+        compose.onNodeWithTag("catalog-grid").performScrollToNode(hasTestTag("poster-vod:125"))
+        compose.onNodeWithTag("poster-vod:125").performSemanticsAction(SemanticsActions.RequestFocus)
             .performKeyInput { pressKey(Key.DirectionCenter) }
         compose.waitUntil(20_000) { exists("detail-trailer") && exists("cast-member-0") }
         assertFalse("Movie details must hide the search bar", exists("search-field"))
@@ -782,12 +866,26 @@ class ScreenIntegrationTest {
             .performKeyInput { pressKey(Key.DirectionDown) }
         compose.waitUntil(10_000) { focused("cast-member-0") || focused("cast-member-1") }
         shell("input keyevent KEYCODE_BACK")
-        compose.waitUntil(10_000) { exists("search-field") && exists("poster-vod:101") }
+        compose.waitUntil(20_000) { exists("search-field") && focused("poster-vod:125") }
+        compose.onNodeWithTag("catalog-category-title").assertTextContains("Lançamentos")
+        compose.onNodeWithTag("browse-category-10").assertIsSelected()
         compose.onNodeWithContentDescription("Séries").performSemanticsAction(SemanticsActions.RequestFocus)
             .assertIsFocused().performKeyInput { pressKey(Key.DirectionCenter) }
         compose.waitUntil(20_000) { exists("poster-series:101") }
         compose.onNodeWithTag("poster-series:101").performSemanticsAction(SemanticsActions.RequestFocus).assertIsFocused()
         dpadDownPastFirstBatch("series")
+        compose.onNodeWithTag("browse-category-20").performClick()
+        compose.waitUntil(10_000) { exists("catalog-grid") && runCatching {
+            compose.onNodeWithTag("catalog-category-title").assertTextContains("Drama")
+        }.isSuccess }
+        compose.onNodeWithTag("catalog-grid").performScrollToNode(hasTestTag("poster-series:125"))
+        compose.onNodeWithTag("poster-series:125").performSemanticsAction(SemanticsActions.RequestFocus)
+            .performKeyInput { pressKey(Key.DirectionCenter) }
+        compose.waitUntil(20_000) { exists("detail-list") }
+        shell("input keyevent KEYCODE_BACK")
+        compose.waitUntil(20_000) { focused("poster-series:125") }
+        compose.onNodeWithTag("catalog-category-title").assertTextContains("Drama")
+        compose.onNodeWithTag("browse-category-20").assertIsSelected()
         if (isTv) traceIme("posters navigated")
         compose.onNodeWithContentDescription("TV").performSemanticsAction(SemanticsActions.RequestFocus).assertIsFocused()
         if (isTv) traceIme("TV button focused")
@@ -1188,6 +1286,19 @@ class ScreenIntegrationTest {
         val button = compose.onNodeWithTag("login-submit").fetchSemanticsNode().boundsInRoot
         assertTrue("Login button and input must have the same width", kotlin.math.abs(field.width - button.width) < 2f)
         assertTrue("Login button and input must have the same height", kotlin.math.abs(field.height - button.height) < 2f)
+    }
+
+    private fun assertFirstCatalogItem(tag: String) {
+        val tolerance = 24f * compose.activity.resources.displayMetrics.density
+        compose.waitUntil(20_000) {
+            runCatching {
+                val grid = compose.onNodeWithTag("catalog-grid").fetchSemanticsNode().boundsInRoot
+                val item = compose.onNodeWithTag(tag).fetchSemanticsNode().boundsInRoot
+                item.left >= grid.left - 2f && item.left - grid.left <= tolerance &&
+                    item.top >= grid.top - 2f && item.top - grid.top <= tolerance
+            }.getOrDefault(false)
+        }
+        compose.onNodeWithTag(tag).assertIsDisplayed()
     }
 
     private fun assertSideBySide(vararg tags: String) {

@@ -167,7 +167,7 @@ jobs:
           profile: pixel_2
           disable-animations: true
           emulator-options: -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -camera-back none
-          script: bash -o pipefail -c 'adb shell wm size 768x1376; adb shell wm density 160; adb shell settings put secure immersive_mode_confirmations confirmed; ./gradlew connectedDebugAndroidTest --no-daemon 2>&1 | tee build-instrumented.log; result=${PIPESTATUS[0]}; mkdir -p artifacts; if [ "$result" -ne 0 ]; then adb exec-out cat /data/local/tmp/iptv-ui-failure.png > artifacts/screen-failure.png 2>/dev/null || true; adb exec-out cat /data/local/tmp/iptv-ui-failure.txt > artifacts/diagnostics.txt 2>/dev/null || true; for test in nativeScreensUseRealSessionCatalogFavoritesEpgAndPlayback tmdbDetailsHideSearchAndSupportRemoteCastAndTrailer firstLoginDisplaysRealCatalogStagesBeforeHome; do adb exec-out cat /data/local/tmp/iptv-ui-failure-$test.txt > artifacts/diagnostics-$test.txt 2>/dev/null || true; done; if [ ! -s artifacts/screen-failure.png ]; then adb exec-out screencap -p > artifacts/screen-failure.png || true; fi; else for name in splash login home top-10 hero-no-backdrop movies series live favorites settings player phone-login phone phone-home phone-tv phone-catalog-scroll phone-detail; do adb exec-out cat /data/local/tmp/iptv-screen-$name.png > artifacts/screen-$name.png || result=1; done; fi; exit "$result"'
+          script: bash -o pipefail -c 'adb shell wm size 768x1376; adb shell wm density 160; adb shell settings put secure immersive_mode_confirmations confirmed; ./gradlew connectedDebugAndroidTest --no-daemon 2>&1 | tee build-instrumented.log; result=${PIPESTATUS[0]}; mkdir -p artifacts; if [ "$result" -ne 0 ]; then adb exec-out cat /data/local/tmp/iptv-ui-failure.png > artifacts/screen-failure.png 2>/dev/null || true; adb exec-out cat /data/local/tmp/iptv-ui-failure.txt > artifacts/diagnostics.txt 2>/dev/null || true; for test in nativeScreensUseRealSessionCatalogFavoritesEpgAndPlayback tmdbDetailsHideSearchAndSupportRemoteCastAndTrailer firstLoginDisplaysRealCatalogStagesBeforeHome catalogSortsBothWaysAndReturnsToTheSameFolderAndPosition; do adb exec-out cat /data/local/tmp/iptv-ui-failure-$test.txt > artifacts/diagnostics-$test.txt 2>/dev/null || true; done; if [ ! -s artifacts/screen-failure.png ]; then adb exec-out screencap -p > artifacts/screen-failure.png || true; fi; else for name in splash login home top-10 hero-no-backdrop movies series live favorites settings player phone-login phone phone-home phone-tv phone-catalog-scroll phone-detail; do adb exec-out cat /data/local/tmp/iptv-screen-$name.png > artifacts/screen-$name.png || result=1; done; fi; exit "$result"'
 
       # Same signing config as debug (see app/build.gradle.kts), so the artifact is installable
       # straight from the Actions run.
@@ -300,7 +300,7 @@ jobs:
             LOG="$LOG
           $REPORT"
           fi
-          for FILE in artifacts/diagnostics-nativeScreensUseRealSessionCatalogFavoritesEpgAndPlayback.txt artifacts/diagnostics-tmdbDetailsHideSearchAndSupportRemoteCastAndTrailer.txt artifacts/diagnostics.txt; do
+          for FILE in artifacts/diagnostics-nativeScreensUseRealSessionCatalogFavoritesEpgAndPlayback.txt artifacts/diagnostics-tmdbDetailsHideSearchAndSupportRemoteCastAndTrailer.txt artifacts/diagnostics-catalogSortsBothWaysAndReturnsToTheSameFolderAndPosition.txt artifacts/diagnostics.txt; do
             if [ -s "$FILE" ]; then
               LOG="$LOG
           === $FILE ===

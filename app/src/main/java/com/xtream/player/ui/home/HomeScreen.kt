@@ -9,8 +9,7 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.itemsIndexed
-import androidx.compose.foundation.pager.HorizontalPager
-import androidx.compose.foundation.pager.rememberPagerState
+import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Info
@@ -31,6 +30,7 @@ import androidx.compose.ui.input.key.KeyEventType
 import androidx.compose.ui.input.key.key
 import androidx.compose.ui.input.key.onPreviewKeyEvent
 import androidx.compose.ui.input.key.type
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
@@ -49,7 +49,7 @@ import com.xtream.player.ui.theme.XColors
 import com.xtream.player.util.fmtClock
 import com.xtream.player.util.initials
 import kotlinx.coroutines.delay
-import kotlinx.coroutines.launch
+import kotlin.math.abs
 import java.util.Locale
 
 @Composable
@@ -163,23 +163,47 @@ private enum class HeroFocus { Watch, Details, Indicator, None }
 @Composable
 private fun HeroCarousel(slides: List<VodItem>, height: androidx.compose.ui.unit.Dp, compact: Boolean,
                          loadingHeroKey: String?, onSelect: (VodItem) -> Unit, onWatch: (VodItem) -> Unit) {
-    val pager = rememberPagerState(pageCount = { slides.size })
-    val scope = rememberCoroutineScope()
     val inputMode = LocalInputModeManager.current
     val ids = slides.map { it.favoriteKey }
     val watchFocus = remember(ids) { ids.associateWith { FocusRequester() } }
     val detailsFocus = remember(ids) { ids.associateWith { FocusRequester() } }
     val indicatorFocus = remember(ids) { ids.associateWith { FocusRequester() } }
+    var page by remember(ids) { mutableIntStateOf(0) }
     var hasFocus by remember { mutableStateOf(false) }
     var focusedControl by remember { mutableStateOf(HeroFocus.None) }
-    var changingPage by remember { mutableStateOf(false) }
-    // Auto-advance only for touch. A physical keyboard or TV remote never fights a timer.
-    LaunchedEffect(pager, slides.size, hasFocus, loadingHeroKey, inputMode.inputMode) {
+    var pendingFocus by remember(ids) { mutableStateOf<HeroFocus?>(null) }
+    var changingPage by remember(ids) { mutableStateOf(false) }
+
+    fun changePage(target: Int, restore: HeroFocus = HeroFocus.None) {
+        if (target == page || target !in slides.indices) return
+        // A single composed slide prevents the focused old page's relocation from
+        // dragging a Pager back between pages on Android TV and physical keyboards.
+        changingPage = restore != HeroFocus.None
+        pendingFocus = restore.takeUnless { it == HeroFocus.None }
+        page = target
+    }
+    LaunchedEffect(page, pendingFocus) {
+        val control = pendingFocus ?: return@LaunchedEffect
+        // Wait for the new slide's focus nodes to be attached and measured.
+        withFrameNanos { }
+        val nextKey = ids[page]
+        runCatching {
+            when (control) {
+                HeroFocus.Watch -> watchFocus.getValue(nextKey).requestFocus()
+                HeroFocus.Details -> detailsFocus.getValue(nextKey).requestFocus()
+                HeroFocus.Indicator -> indicatorFocus.getValue(nextKey).requestFocus()
+                HeroFocus.None -> Unit
+            }
+        }
+        pendingFocus = null
+        changingPage = false
+    }
+    // Automatic rotation is touch-only. A keyboard/remote never fights a timer.
+    LaunchedEffect(ids, hasFocus, loadingHeroKey, inputMode.inputMode) {
         while (slides.size > 1) {
             delay(8_000)
-            if (inputMode.inputMode == InputMode.Touch && !hasFocus && !changingPage &&
-                loadingHeroKey == null && !pager.isScrollInProgress) {
-                pager.animateScrollToPage((pager.currentPage + 1) % slides.size)
+            if (inputMode.inputMode == InputMode.Touch && !hasFocus && !changingPage && loadingHeroKey == null) {
+                changePage((page + 1) % slides.size)
             }
         }
     }
@@ -192,42 +216,37 @@ private fun HeroCarousel(slides: List<VodItem>, height: androidx.compose.ui.unit
             else if (event.type == KeyEventType.KeyUp) true
             else if (event.type != KeyEventType.KeyDown) false
             else {
-                // Consume repeats and both edges: HorizontalPager must not also move the page.
+                // One controlled transition per physical press; neither a Pager nor
+                // key repeat may move it again while focus is being restored.
                 if (!changingPage && event.nativeKeyEvent.repeatCount == 0) {
-                    val current = pager.currentPage.coerceIn(0, slides.lastIndex)
-                    val currentKey = slides[current].favoriteKey
+                    val currentKey = ids[page]
                     when {
                         control == HeroFocus.Watch && delta > 0 ->
                             runCatching { detailsFocus[currentKey]?.requestFocus() }
                         control == HeroFocus.Details && delta < 0 ->
                             runCatching { watchFocus[currentKey]?.requestFocus() }
-                        slides.size > 1 -> {
-                            val target = (current + delta + slides.size) % slides.size
-                            changingPage = true
-                            scope.launch {
-                                try {
-                                    // A direct jump avoids the focused old page pulling an animation back.
-                                    pager.scrollToPage(target)
-                                    withFrameNanos { }
-                                    val nextKey = slides[target].favoriteKey
-                                    runCatching {
-                                        when (control) {
-                                            HeroFocus.Watch -> watchFocus[nextKey]?.requestFocus()
-                                            HeroFocus.Details -> detailsFocus[nextKey]?.requestFocus()
-                                            HeroFocus.Indicator -> indicatorFocus[nextKey]?.requestFocus()
-                                            HeroFocus.None -> Unit
-                                        }
-                                    }
-                                } finally { changingPage = false }
-                            }
-                        }
+                        slides.size > 1 -> changePage((page + delta + slides.size) % slides.size, control)
                     }
                 }
                 true
             }
+        }.pointerInput(ids) {
+            var distance = 0f
+            detectHorizontalDragGestures(
+                onDragStart = { distance = 0f },
+                onHorizontalDrag = { change, amount -> distance += amount; change.consume() },
+                onDragCancel = { distance = 0f },
+                onDragEnd = {
+                    if (slides.size > 1 && abs(distance) >= 48.dp.toPx()) {
+                        val delta = if (distance < 0) 1 else -1
+                        changePage((page + delta + slides.size) % slides.size)
+                    }
+                    distance = 0f
+                },
+            )
         }.focusGroup()) {
-        HorizontalPager(state = pager, key = { slides[it].favoriteKey }, modifier = Modifier.fillMaxSize()) { index ->
-            val item = slides[index]
+        val item = slides[page]
+        key(item.favoriteKey) {
             HeroSlide(item, compact, loadingHeroKey == item.favoriteKey,
                 watchModifier = Modifier.focusRequester(watchFocus.getValue(item.favoriteKey))
                     .onFocusChanged { if (it.isFocused) focusedControl = HeroFocus.Watch },
@@ -246,9 +265,9 @@ private fun HeroCarousel(slides: List<VodItem>, height: androidx.compose.ui.unit
                     .onFocusChanged { if (it.isFocused) focusedControl = HeroFocus.Indicator }
                     .focusGlow(shape, zoom = 1f).clip(shape)
                     .semantics { contentDescription = "Destaque ${index + 1}: ${slide.title}" }
-                    .combinedClickable { scope.launch { pager.scrollToPage(index) } }, contentAlignment = Alignment.Center) {
-                    Box(Modifier.width(if (pager.currentPage == index) 18.dp else 6.dp).height(6.dp).clip(shape)
-                        .background(if (pager.currentPage == index) XColors.Text else XColors.TextDim.copy(alpha = .5f)))
+                    .combinedClickable { changePage(index) }, contentAlignment = Alignment.Center) {
+                    Box(Modifier.width(if (page == index) 18.dp else 6.dp).height(6.dp).clip(shape)
+                        .background(if (page == index) XColors.Text else XColors.TextDim.copy(alpha = .5f)))
                 }
             }
         }
@@ -258,7 +277,7 @@ private fun HeroCarousel(slides: List<VodItem>, height: androidx.compose.ui.unit
 @Composable
 private fun HeroSlide(item: VodItem, compact: Boolean, loading: Boolean,
                       watchModifier: Modifier, detailsModifier: Modifier, onSelect: () -> Unit, onWatch: () -> Unit) {
-    Box(Modifier.fillMaxSize()) {
+    Box(Modifier.fillMaxSize().testTag("hero-slide-${item.favoriteKey}")) {
         Box(Modifier.fillMaxSize().background(Brush.linearGradient(listOf(XColors.Bg, XColors.PanelHeader, XColors.Shell))))
         WideBackdrop(item.backdrop, "hero-backdrop-${item.favoriteKey}", "hero-backdrop-loaded-${item.favoriteKey}",
             "hero-backdrop-rejected-${item.favoriteKey}", Modifier.fillMaxSize())

@@ -151,7 +151,8 @@ object XtreamParser {
                 rating = obj.string("rating")?.takeIf { it.isNotBlank() && it != "0" },
                 rating5 = obj.double("rating_5based")?.takeIf { it > 0.0 },
                 backdrop = backdropPath?.takeIf { it.isNotBlank() },
-                categoryId = obj.string("category_id")?.takeIf { it.isNotBlank() }
+                categoryId = obj.string("category_id")?.takeIf { it.isNotBlank() },
+                addedAtMillis = epochMillis(obj.long("added")) ?: epochMillis(obj.long("last_modified"))
             )
         }?.distinctBy { it.id }.orEmpty()
 

@@ -5,12 +5,15 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
 import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.saveable.rememberSaveableStateHolder
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.input.InputMode
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.platform.LocalInputModeManager
 import androidx.compose.ui.unit.dp
+import com.example.iptv.data.cache.CatalogCache
+import com.example.iptv.data.model.PanelCredentials
 import com.example.iptv.data.model.VodDetails
 import com.example.iptv.data.tmdb.DetailExtras
 import com.example.iptv.data.model.UserSettings
@@ -54,6 +57,14 @@ fun MainScreen(session: Session?, content: ContentState, epg: Map<String, List<P
                previewEnabled: Boolean = true, restoreChannelId: String? = null, onChannelRestored: () -> Unit = {}) {
     var tab by rememberSaveable { mutableStateOf(Tab.Home) }
     var query by rememberSaveable { mutableStateOf("") }
+    // Save each catalog's folder, search-in-folders, sort and grid position while
+    // its details screen is shown. Keep profiles isolated without storing passwords.
+    val browseAccount = remember(session?.server, session?.username, session?.isDemo) {
+        if (session == null || session.isDemo) "demo"
+        else CatalogCache.accountKey(PanelCredentials(session.server, session.username, ""))
+    }
+    val browseStates = rememberSaveableStateHolder()
+    var returnToItem by rememberSaveable(browseAccount) { mutableStateOf<String?>(null) }
     val visibleContent = remember(content, settings.lockedCategories, parentalUnlocked) {
         content.withParentalRestrictions(settings.lockedCategories, parentalUnlocked)
     }
@@ -76,6 +87,7 @@ fun MainScreen(session: Session?, content: ContentState, epg: Map<String, List<P
         if (inputMode.inputMode == InputMode.Touch) focusManager.clearFocus(force = true)
         actions.onCancelHeroPlayback()
         actions.onCloseDetails()
+        returnToItem = null
         tab = selected; query = ""
     }
     BackHandler(enabled = detail == null && tab != Tab.Home) { selectTab(Tab.Home) }
@@ -97,8 +109,16 @@ fun MainScreen(session: Session?, content: ContentState, epg: Map<String, List<P
                 Tab.Live -> LiveScreen(visibleContent, epg, favorites, query, actions.onToggleFav, actions.onPlay,
                     previewEnabled, settings.showChannelEpg, settings.time24Hour, settings.onlyChannelsWithEpg, settings.showFullEpg,
                     actions.onChannelFocused, restoreChannelId, onChannelRestored)
-                Tab.Movies -> BrowseScreen("filmes", visibleContent.movieCategories, visibleContent.movies, query, favorites, actions.onToggleFav, actions.onOpenDetails)
-                Tab.Series -> BrowseScreen("séries", visibleContent.seriesCategories, visibleContent.series, query, favorites, actions.onToggleFav, actions.onOpenDetails)
+                Tab.Movies -> browseStates.SaveableStateProvider("$browseAccount:movies") {
+                    BrowseScreen("filmes", visibleContent.movieCategories, visibleContent.movies, query, favorites, actions.onToggleFav,
+                        onSelect = { item -> returnToItem = item.favoriteKey; actions.onOpenDetails(item) },
+                        restoreItemKey = returnToItem, onReturnFocusRestored = { returnToItem = null })
+                }
+                Tab.Series -> browseStates.SaveableStateProvider("$browseAccount:series") {
+                    BrowseScreen("séries", visibleContent.seriesCategories, visibleContent.series, query, favorites, actions.onToggleFav,
+                        onSelect = { item -> returnToItem = item.favoriteKey; actions.onOpenDetails(item) },
+                        restoreItemKey = returnToItem, onReturnFocusRestored = { returnToItem = null })
+                }
                 Tab.Settings -> SettingsScreen(session, content, epg, epgUpdatedAt, epgLoading, epgMessage,
                     loading, loginError, profiles, settings, parentalUnlocked, parentalBusy, testingConnection, connectionTest, actions.settings)
             }
