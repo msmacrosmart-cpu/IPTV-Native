@@ -1,0 +1,53 @@
+name: Inspect supplied reference APK (static only)
+on:
+  push:
+    paths: [".github/workflows/reference-audit.yml"]
+permissions:
+  contents: write
+jobs:
+  inspect:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - name: Download and inspect the reference without installing or executing it
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          curl -fsSL --retry 2 'https://github.com/smartmacro77-gif/apps/releases/download/v1.0/MakroTV.XtreamYT.apk' -o /tmp/reference.apk
+          {
+            echo 'REFERENCE_APK_AUDIT_V1'
+            sha256sum /tmp/reference.apk
+            echo '=== Package ==='
+            "$ANDROID_HOME/build-tools/35.0.0/aapt" dump badging /tmp/reference.apk | head -12 || true
+            echo '=== Key archive entries ==='
+            unzip -Z1 /tmp/reference.apk | grep -E '(^classes[0-9]*\.dex$|^assets/|^lib/arm64-v8a/)' | head -100 || true
+            echo '=== Relevant Android resource names and values ==='
+            "$ANDROID_HOME/build-tools/35.0.0/aapt" dump --values resources /tmp/reference.apk | grep -iE 'setting|configura|profile|perfil|player|idioma|language|epg|buffer|playlist|multi.?screen|multi.?view|decoder|cache|legenda|audio|áudio' | grep -vE 'https?://|authorization|token=|password=' | head -450 || true
+            echo '=== Relevant natural-language literals ==='
+            python3 - <<'PY'
+          import re, zipfile
+          apk=zipfile.ZipFile('/tmp/reference.apk')
+          terms=re.compile(r'configura|defini[cç]|settings|perfil|profiles?|player|idioma|language|epg|buffer|playlist|multi.?screen|multi.?view|multitela|decoder|decodificador|legenda|subtitles|reprodu[cç]|playback|atualiza|cache|audio|áudio|parental', re.I)
+          seen=set()
+          for info in apk.infolist():
+              name=info.filename
+              if not (re.match(r'^classes\d*\.dex$',name) or name.startswith('assets/') or name=='lib/arm64-v8a/libapp.so') or info.file_size>130_000_000:
+                  continue
+              data=apk.read(info)
+              for raw in re.findall(rb'[\x20-\x7e\xc0-\xff]{5,160}',data):
+                  text=raw.decode('utf-8','ignore').strip()
+                  if not terms.search(text) or len(text)>120 or text in seen:
+                      continue
+                  if re.search(r'https?://|www\.|authorization|bearer |token\s*[=:]|password\s*[=:]|secret\s*[=:]',text,re.I):
+                      continue
+                  if not re.search(r'\s',text) or re.search(r'[{};<>]|/[/a-z]+/',text):
+                      continue
+                  seen.add(text)
+                  if len(seen)<=350: print(text)
+          PY
+          } > /tmp/reference-audit.txt
+          head -c 55000 /tmp/reference-audit.txt > /tmp/reference-audit-short.txt
+          gh api "repos/$GITHUB_REPOSITORY/commits/$GITHUB_SHA/comments" --method POST -f body="$(cat /tmp/reference-audit-short.txt)"
+          cat /tmp/reference-audit-short.txt
