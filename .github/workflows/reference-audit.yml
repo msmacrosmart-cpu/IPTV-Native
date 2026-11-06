@@ -10,44 +10,50 @@ jobs:
     timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
-      - name: Download and inspect the reference without installing or executing it
+      - name: Inspect supplied APK resources without installing or executing it
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           set -euo pipefail
           curl -fsSL --retry 2 'https://github.com/smartmacro77-gif/apps/releases/download/v1.0/MakroTV.XtreamYT.apk' -o /tmp/reference.apk
-          {
-            echo 'REFERENCE_APK_AUDIT_V1'
-            sha256sum /tmp/reference.apk
-            echo '=== Package ==='
-            "$ANDROID_HOME/build-tools/35.0.0/aapt" dump badging /tmp/reference.apk | head -12 || true
-            echo '=== Key archive entries ==='
-            unzip -Z1 /tmp/reference.apk | grep -E '(^classes[0-9]*\.dex$|^assets/|^lib/arm64-v8a/)' | head -100 || true
-            echo '=== Relevant Android resource names and values ==='
-            "$ANDROID_HOME/build-tools/35.0.0/aapt" dump --values resources /tmp/reference.apk | grep -iE 'setting|configura|profile|perfil|player|idioma|language|epg|buffer|playlist|multi.?screen|multi.?view|decoder|cache|legenda|audio|áudio' | grep -vE 'https?://|authorization|token=|password=' | head -450 || true
-            echo '=== Relevant natural-language literals ==='
-            python3 - <<'PY'
-          import re, zipfile
-          apk=zipfile.ZipFile('/tmp/reference.apk')
-          terms=re.compile(r'configura|defini[cç]|settings|perfil|profiles?|player|idioma|language|epg|buffer|playlist|multi.?screen|multi.?view|multitela|decoder|decodificador|legenda|subtitles|reprodu[cç]|playback|atualiza|cache|audio|áudio|parental', re.I)
-          seen=set()
+          "$ANDROID_HOME/build-tools/35.0.0/aapt" dump --values resources /tmp/reference.apk > /tmp/resources.txt
+          python3 - <<'PY' > /tmp/reference-audit.txt
+          import re, zipfile, subprocess
+          print('REFERENCE_APK_AUDIT_V2')
+          print(subprocess.check_output(['sha256sum','/tmp/reference.apk'],text=True).strip())
+          print('=== Feature-related resource names and sample values ===')
+          terms=re.compile(r'setting|config|profile|perfil|user|account|multiscreen|multi.?view|multi.?screen|multi.?user|multi.?player|player|idioma|language|epg|buffer|playlist|format|decoder|legenda|subtitle|playback|cache|audio|parental|timezone|time_shift|notification|password|senha|speed|vpn|record|sort',re.I)
+          secret=re.compile(r'https?://|www\.|authorization|bearer |token\s*[=:]|password\s*[=:]|secret\s*[=:]',re.I)
+          lines=open('/tmp/resources.txt',encoding='utf8',errors='replace').read().splitlines()
+          found={}; current=None
+          for line in lines:
+              m=re.search(r'\bresource 0x[0-9a-f]+ brstore\.makro\.app:(string|array)/([^:]+):',line)
+              if m:
+                  key=m.group(1)+'/'+m.group(2); current=key if terms.search(key) else None
+                  if current: found.setdefault(current,[])
+              elif current:
+                  m=re.search(r'\(string8\) "(.*)"',line)
+                  if m:
+                      value=m.group(1).strip()
+                      if value and len(value)<140 and not secret.search(value) and value not in found[current] and len(found[current])<3:
+                          found[current].append(value)
+                  elif re.search(r'\b(?:spec )?resource 0x[0-9a-f]+',line): current=None
+          for k,v in sorted(found.items()):
+              if v: print(k+' = '+' | '.join(v))
+          print('=== Feature-related layout names ===')
+          names=sorted(set(re.findall(r'brstore\.makro\.app:layout/([a-zA-Z0-9_]+)', '\n'.join(lines))))
+          print('\n'.join(n for n in names if terms.search(n))[:12000])
+          print('=== Relevant natural-language dex literals ===')
+          apk=zipfile.ZipFile('/tmp/reference.apk'); seen=set()
           for info in apk.infolist():
-              name=info.filename
-              if not (re.match(r'^classes\d*\.dex$',name) or name.startswith('assets/') or name=='lib/arm64-v8a/libapp.so') or info.file_size>130_000_000:
-                  continue
-              data=apk.read(info)
-              for raw in re.findall(rb'[\x20-\x7e\xc0-\xff]{5,160}',data):
+              if not re.match(r'^classes\d*\.dex$',info.filename): continue
+              for raw in re.findall(rb'[\x20-\x7e\xc0-\xff]{5,160}',apk.read(info)):
                   text=raw.decode('utf-8','ignore').strip()
-                  if not terms.search(text) or len(text)>120 or text in seen:
-                      continue
-                  if re.search(r'https?://|www\.|authorization|bearer |token\s*[=:]|password\s*[=:]|secret\s*[=:]',text,re.I):
-                      continue
-                  if not re.search(r'\s',text) or re.search(r'[{};<>]|/[/a-z]+/',text):
-                      continue
+                  if not terms.search(text) or len(text)>110 or text in seen or secret.search(text): continue
+                  if not re.search(r'\s',text) or re.search(r'[{};<>]|/[/a-z]+/',text): continue
                   seen.add(text)
-                  if len(seen)<=350: print(text)
+                  if len(seen)<=180: print(text)
           PY
-          } > /tmp/reference-audit.txt
-          head -c 55000 /tmp/reference-audit.txt > /tmp/reference-audit-short.txt
+          head -c 60000 /tmp/reference-audit.txt > /tmp/reference-audit-short.txt
           gh api "repos/$GITHUB_REPOSITORY/commits/$GITHUB_SHA/comments" --method POST -f body="$(cat /tmp/reference-audit-short.txt)"
           cat /tmp/reference-audit-short.txt
