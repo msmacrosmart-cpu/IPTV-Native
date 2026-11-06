@@ -120,7 +120,7 @@ class ScreenIntegrationTest {
             runCatching {
                 val vm = ViewModelProvider(compose.activity)[AppViewModel::class.java]
                 val nodes = compose.onAllNodes(SemanticsMatcher("all") { true }, useUnmergedTree = true)
-                    .fetchSemanticsNodes().joinToString("\n") { it.config.toString() }
+                    .fetchSemanticsNodes().joinToString("\n") { "${it.boundsInRoot} ${it.config}" }
                 val ime = readShell("dumpsys input_method").lineSequence().filter {
                     it.contains("mInputShown") || it.contains("mShowRequested") || it.contains("mCurFocusedWindow") ||
                         it.contains("mCurClient") || it.contains("mCurMethodId") || it.contains("mServedView")
@@ -470,8 +470,23 @@ class ScreenIntegrationTest {
         compose.waitUntil(30_000) { multiState(1) == "playing" && multiState(2) == "playing" }
         compose.onNodeWithContentDescription("Som ativo na tela 2").assertExists()
         compose.waitUntil(10_000) { multiVolumes() == listOf(0f, 1f) }
-        compose.onNodeWithTag("multi-sound-1").performClick()
+        val firstTile = compose.onNodeWithTag("multi-tile-1").fetchSemanticsNode().boundsInRoot
+        val thirdTile = compose.onNodeWithTag("multi-tile-3").fetchSemanticsNode().boundsInRoot
+        val soundButton = compose.onNodeWithTag("multi-sound-1").fetchSemanticsNode().boundsInRoot
+        assertTrue("Multi-screen rows must not overlap", firstTile.bottom <= thirdTile.top + 1f)
+        assertTrue("Sound control must be inside its tile", soundButton.top >= firstTile.top && soundButton.bottom <= firstTile.bottom)
+        // Test a real touch, not just the semantics callback; an overflowing row could
+        // otherwise route this click to the empty tile below and reopen the picker.
+        compose.onNodeWithTag("multi-sound-1").performTouchInput { click() }
         compose.waitUntil(10_000) { compose.onAllNodesWithContentDescription("Som ativo na tela 1").fetchSemanticsNodes().isNotEmpty() }
+        compose.waitUntil(10_000) { multiVolumes() == listOf(1f, 0f) }
+        assertFalse(exists("choose-channel-1"))
+        useRemoteInputMode()
+        compose.onNodeWithTag("multi-sound-2").performSemanticsAction(SemanticsActions.RequestFocus)
+            .assertIsFocused().performKeyInput { pressKey(Key.DirectionCenter) }
+        compose.waitUntil(10_000) { multiVolumes() == listOf(0f, 1f) }
+        compose.onNodeWithTag("multi-sound-1").performSemanticsAction(SemanticsActions.RequestFocus)
+            .assertIsFocused().performKeyInput { pressKey(Key.DirectionCenter) }
         compose.waitUntil(10_000) { multiVolumes() == listOf(1f, 0f) }
         compose.waitUntil(10_000) { multiState(1) == "playing" && multiState(2) == "playing" }
         compose.onNodeWithTag("multi-count-2").performClick()

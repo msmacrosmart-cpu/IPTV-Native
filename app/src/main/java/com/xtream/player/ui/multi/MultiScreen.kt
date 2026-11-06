@@ -164,7 +164,9 @@ fun MultiScreen(channels: List<Channel>, slotIds: List<String?>, audible: Int, e
 @Composable
 private fun EmptyTile(index: Int, modifier: Modifier = Modifier, onClick: () -> Unit) {
     val shape = RoundedCornerShape(12.dp)
-    Column(modifier.fillMaxWidth().testTag("multi-tile-${index + 1}").aspectRatio(16f / 9f).focusGlow(shape, zoom = 1f).clip(shape)
+    // The parent row already supplies an exact width and height. Forcing a 16:9
+    // aspect here can overflow that row, putting buttons over the next tile.
+    Column(modifier.testTag("multi-tile-${index + 1}").focusGlow(shape, zoom = 1f).clip(shape)
         .background(XColors.Panel).border(1.dp, XColors.Line, shape)
         .combinedClickable(onClickLabel = "Adicionar canal ${index + 1}", onClick = onClick),
         horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.Center) {
@@ -216,7 +218,7 @@ private fun ChannelPicker(channels: List<Channel>, onDismiss: () -> Unit, onChoo
 private fun MultiTile(index: Int, channel: Channel, active: Boolean, audioAllowed: Boolean, enabled: Boolean, modifier: Modifier = Modifier,
                       onSelect: () -> Unit, onRemove: () -> Unit, onFullscreen: () -> Unit) {
     val shape = RoundedCornerShape(12.dp)
-    Box(modifier.fillMaxWidth().testTag("multi-tile-${index + 1}").aspectRatio(16f / 9f).focusGlow(shape, zoom = 1f).clip(shape)
+    Box(modifier.testTag("multi-tile-${index + 1}").focusGlow(shape, zoom = 1f).clip(shape)
         .background(Color.Black).border(if (active) 2.dp else 1.dp, if (active) XColors.Accent else XColors.Line, shape)
         .combinedClickable(onClick = onSelect)) {
         if (enabled) MultiPlayer(index, channel, active && audioAllowed, Modifier.fillMaxSize())
