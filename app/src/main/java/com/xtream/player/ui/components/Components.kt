@@ -14,6 +14,7 @@ import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ArrowDropDown
 import androidx.compose.material.icons.filled.Favorite
+import androidx.compose.material.icons.filled.FavoriteBorder
 import androidx.compose.material.icons.filled.Movie
 import androidx.compose.material.icons.filled.Star
 import androidx.compose.material.icons.filled.Tv
@@ -161,8 +162,9 @@ fun PosterCard(item: VodItem, width: Dp = 148.dp, onLongClick: () -> Unit = {},
             if (rank != null) Text("#$rank", color = XColors.Text, fontSize = 11.sp, fontWeight = FontWeight.Bold,
                 modifier = Modifier.align(Alignment.TopEnd).padding(6.dp).clip(RoundedCornerShape(6.dp))
                     .background(Color(0xD9080A0D)).padding(horizontal = 6.dp, vertical = 4.dp))
-            if (isFavorite) Icon(Icons.Filled.Favorite, "Favorito", tint = XColors.Live,
-                modifier = Modifier.align(Alignment.TopEnd).padding(top = if (rank == null) 8.dp else 34.dp, end = 8.dp).size(18.dp))
+            if (isFavorite) Icon(Icons.Filled.Favorite, "Favorito", tint = Color.White,
+                modifier = Modifier.align(Alignment.TopEnd).padding(top = if (rank == null) 8.dp else 34.dp, end = 8.dp)
+                    .size(18.dp).testTag("favorite-icon-${item.favoriteKey}"))
             if (item.progress > 0f) Box(Modifier.align(Alignment.BottomCenter).fillMaxWidth().height(4.dp).background(Color(0x66888888))) {
                 Box(Modifier.fillMaxHeight().fillMaxWidth(item.progress.coerceIn(0f, 1f)).background(XColors.Accent))
             }
@@ -173,6 +175,19 @@ fun PosterCard(item: VodItem, width: Dp = 148.dp, onLongClick: () -> Unit = {},
         }
         if (item.progress > 0f) Text("Continuar assistindo", color = XColors.Body, fontSize = 11.sp,
             maxLines = 1, modifier = Modifier.padding(start = 2.dp, bottom = 4.dp))
+    }
+}
+
+/** A plain white heart; enlargement rather than a square indicates D-pad focus. */
+@OptIn(ExperimentalFoundationApi::class)
+@Composable
+fun FavoriteAction(favorite: Boolean, label: String, modifier: Modifier = Modifier, onClick: () -> Unit) {
+    var focused by remember { mutableStateOf(false) }
+    val scale by animateFloatAsState(if (focused) 1.2f else 1f, tween(150), label = "favorite-focus")
+    Box(modifier.size(44.dp).onFocusChanged { focused = it.isFocused }.combinedClickable(onClick = onClick),
+        contentAlignment = Alignment.Center) {
+        Icon(if (favorite) Icons.Filled.Favorite else Icons.Filled.FavoriteBorder, label, tint = Color.White,
+            modifier = Modifier.size(22.dp).graphicsLayer { scaleX = scale; scaleY = scale })
     }
 }
 

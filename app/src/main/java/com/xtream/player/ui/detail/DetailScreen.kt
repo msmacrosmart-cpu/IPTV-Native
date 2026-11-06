@@ -11,8 +11,6 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ArrowBack
-import androidx.compose.material.icons.filled.Favorite
-import androidx.compose.material.icons.filled.FavoriteBorder
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
@@ -39,6 +37,7 @@ import com.xtream.player.data.AppViewModel
 import com.xtream.player.data.VodItem
 import com.xtream.player.ui.components.CategoryChip
 import com.xtream.player.ui.components.GlowButton
+import com.xtream.player.ui.components.FavoriteAction
 import com.xtream.player.ui.components.IconAction
 import com.xtream.player.ui.components.PosterArt
 import com.xtream.player.ui.components.focusGlow
@@ -120,8 +119,7 @@ private fun DetailHero(item: VodItem, favorite: Boolean, canPlay: Boolean, loadi
                     Row(Modifier.padding(top = 16.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                         if (canPlay) GlowButton(if (item.progress > 0f) "Continuar" else "Reproduzir", Icons.Filled.PlayArrow, Modifier.focusRequester(playFocus), onClick = onPlay)
                         else Text(if (loading) "Carregando episódios…" else "Sem episódios", color = XColors.TextDim, fontSize = 13.sp)
-                        IconAction(if (favorite) Icons.Filled.Favorite else Icons.Filled.FavoriteBorder,
-                            if (favorite) "Remover dos favoritos" else "Adicionar aos favoritos", onClick = onFavorite)
+                        FavoriteAction(favorite, if (favorite) "Remover dos favoritos" else "Adicionar aos favoritos", onClick = onFavorite)
                     }
                 }
             }

@@ -214,7 +214,8 @@ private fun MultiTile(index: Int, channel: Channel, active: Boolean, audioAllowe
                 Text(channel.name, color = XColors.Text, fontSize = 13.sp, fontWeight = FontWeight.SemiBold,
                     maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f))
                 IconAction(if (active) Icons.Filled.VolumeUp else Icons.Filled.VolumeOff,
-                    if (active) "Som ativo na tela ${index + 1}" else "Ativar som da tela ${index + 1}", onClick = onSelect)
+                    if (active) "Som ativo na tela ${index + 1}" else "Ativar som da tela ${index + 1}",
+                    Modifier.testTag("multi-sound-${index + 1}"), onClick = onSelect)
                 IconAction(Icons.Filled.Fullscreen, "Abrir tela ${index + 1}", onClick = onFullscreen)
                 IconAction(Icons.Filled.Close, "Remover tela ${index + 1}", onClick = onRemove)
             }

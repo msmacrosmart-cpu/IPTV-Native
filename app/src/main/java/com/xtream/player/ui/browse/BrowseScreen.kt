@@ -8,7 +8,8 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.grid.GridCells
-import androidx.compose.foundation.lazy.grid.LazyHorizontalGrid
+import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
+import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.lazy.grid.rememberLazyGridState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
@@ -39,14 +40,13 @@ import com.xtream.player.ui.components.CatalogGridFraction
 import com.xtream.player.ui.components.CatalogGridGap
 import com.xtream.player.ui.components.CatalogGridPadding
 import com.xtream.player.ui.components.PosterCard
-import com.xtream.player.ui.components.catalogCardWidth
 import com.xtream.player.ui.components.catalogColumns
 import com.xtream.player.ui.components.focusGlow
 import com.xtream.player.ui.components.rememberHideKeyboard
 import com.xtream.player.ui.theme.DmSans
 import com.xtream.player.ui.theme.XColors
 
-/** Landscape catalog: categories at the left and continuous horizontal poster shelves. */
+/** Landscape catalog: the original poster grid, now continuously scrollable within each category. */
 @Composable
 fun BrowseScreen(title: String, categories: List<Category>, items: List<VodItem>, query: String,
                  favorites: List<String>, onToggleFav: (String) -> Unit, onSelect: (VodItem) -> Unit) {
@@ -150,28 +150,16 @@ private fun CatalogGrid(title: String, items: List<VodItem>, favorites: List<Str
         if (items.isEmpty()) Box(Modifier.weight(1f).fillMaxWidth(), contentAlignment = Alignment.Center) {
             Text("Nenhum item encontrado.", color = XColors.Text, fontSize = 14.sp)
         } else BoxWithConstraints(Modifier.weight(1f).fillMaxWidth()) {
-            val cardWidth = catalogCardWidth(maxWidth)
-            val columns = catalogColumns(maxWidth)
-            // Reserve space for artwork, two-line titles and the optional progress label.
-            val minRowHeight = cardWidth * 1.85f + 28.dp
-            val availableHeight = (maxHeight - CatalogGridPadding * 2).coerceAtLeast(0.dp)
-            val rows = ((availableHeight + CatalogGridGap) / (minRowHeight + CatalogGridGap)).toInt().coerceIn(1, 4)
-            val layout = remember(items.size, rows, columns) { HorizontalCatalogLayout(items.size, rows, columns) }
             val gridState = rememberLazyGridState()
-            // The catalog is already downloaded/cached by the existing pipeline. Lazy composition
-            // adds posters as the user moves or swipes right, without a page button or network reload.
-            LazyHorizontalGrid(rows = GridCells.Fixed(rows), state = gridState,
+            // The catalog is already downloaded/cached as before. Compose creates further rows
+            // as the user moves down or scrolls, without a page button or a new network request.
+            LazyVerticalGrid(columns = GridCells.Fixed(catalogColumns(maxWidth)), state = gridState,
                 modifier = Modifier.fillMaxSize().testTag("catalog-grid"),
                 contentPadding = PaddingValues(CatalogGridPadding), horizontalArrangement = Arrangement.spacedBy(CatalogGridGap),
                 verticalArrangement = Arrangement.spacedBy(CatalogGridGap)) {
-                items(layout.slotCount, key = { slot ->
-                    layout.itemIndex(slot)?.let { items[it].favoriteKey } ?: "empty-slot-$slot"
-                }) { slot ->
-                    val index = layout.itemIndex(slot)
-                    if (index == null) Spacer(Modifier.width(cardWidth))
-                    else Box(Modifier.width(cardWidth).fillMaxHeight(), contentAlignment = Alignment.TopStart) {
-                        val item = items[index]
-                        PosterCard(item, width = cardWidth, isFavorite = item.favoriteKey in favorites,
+                items(items, key = { it.favoriteKey }) { item ->
+                    BoxWithConstraints(Modifier.fillMaxWidth()) {
+                        PosterCard(item, width = maxWidth, isFavorite = item.favoriteKey in favorites,
                             onLongClick = { onToggleFav(item.favoriteKey) }, onClick = { onSelect(item) })
                     }
                 }

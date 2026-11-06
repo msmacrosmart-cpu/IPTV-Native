@@ -48,6 +48,7 @@ import coil.compose.AsyncImage
 import com.xtream.player.data.*
 import com.xtream.player.ui.browse.CatalogCategoryRow
 import com.xtream.player.ui.components.IconAction
+import com.xtream.player.ui.components.FavoriteAction
 import com.xtream.player.ui.components.focusGlow
 import com.xtream.player.ui.player.buildPlayer
 import com.xtream.player.ui.player.applySubtitleSize
@@ -191,8 +192,7 @@ private fun ChannelRow(ch: Channel, prog: List<Programme>?, now: Long, fav: Bool
                 Text(fmtClock(cur.stop, time24Hour), color = XColors.Body, fontSize = 10.sp)
             }
         }
-        IconAction(if (fav) Icons.Filled.Star else Icons.Filled.StarBorder,
-            if (fav) "Remover favorito ${ch.name}" else "Favoritar ${ch.name}", onClick = onFavorite)
+        FavoriteAction(fav, if (fav) "Remover favorito ${ch.name}" else "Favoritar ${ch.name}", onClick = onFavorite)
     }
 }
 

@@ -37,7 +37,7 @@ import androidx.compose.ui.test.performTextInput
 import androidx.compose.ui.test.performTextClearance
 import androidx.compose.ui.test.performTouchInput
 import androidx.compose.ui.test.pressKey
-import androidx.compose.ui.test.swipeLeft
+import androidx.compose.ui.test.swipeUp
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.ViewModelStore
 import androidx.media3.ui.PlayerView
@@ -329,6 +329,7 @@ class ScreenIntegrationTest {
         compose.onNodeWithTag("search-field").performTextClearance()
         compose.waitUntil(10_000) { exists("poster-vod:101") }
         compose.onNodeWithTag("poster-vod:101").performSemanticsAction(SemanticsActions.OnLongClick)
+        compose.waitUntil(10_000) { existsUnmerged("favorite-icon-vod:101") }
         compose.onNodeWithContentDescription("Séries").performClick()
         compose.waitUntil(10_000) { exists("poster-series:101") }
         compose.onNodeWithTag("poster-series:101").performSemanticsAction(SemanticsActions.OnLongClick)
@@ -435,8 +436,8 @@ class ScreenIntegrationTest {
         compose.waitUntil(10_000) { runCatching { compose.onNodeWithTag("multi-tile-2").assertIsFocused() }.isSuccess }
         compose.waitUntil(30_000) { multiState(1) == "playing" && multiState(2) == "playing" }
         compose.onNodeWithContentDescription("Som ativo na tela 2").assertExists()
-        compose.onNodeWithContentDescription("Ativar som da tela 1").performClick()
-        compose.onNodeWithContentDescription("Som ativo na tela 1").assertExists()
+        compose.onNodeWithTag("multi-sound-1").performClick()
+        compose.waitUntil(10_000) { compose.onAllNodesWithContentDescription("Som ativo na tela 1").fetchSemanticsNodes().isNotEmpty() }
         compose.waitUntil(10_000) { multiState(1) == "playing" && multiState(2) == "playing" }
         compose.onNodeWithTag("multi-count-2").performClick()
         compose.waitUntil(10_000) { !exists("multi-tile-3") && !exists("multi-tile-4") }
@@ -509,8 +510,11 @@ class ScreenIntegrationTest {
             assertTrue("Phone posters must fit about five across", cardWidth < 120f * compose.activity.resources.displayMetrics.density)
             assertTrue("Home posters must be the same compact size", kotlin.math.abs(homeCardWidth - cardWidth) <= 2f * compose.activity.resources.displayMetrics.density)
             capture("screen-phone.png")
-            compose.onNodeWithTag("catalog-grid").performTouchInput { swipeLeft() }
-            compose.waitUntil(10_000) { runCatching { compose.onNodeWithTag("poster-vod:108").assertIsDisplayed() }.isSuccess }
+            compose.onNodeWithTag("catalog-grid").performTouchInput { swipeUp() }
+            compose.waitUntil(10_000) {
+                (106..130).any { id -> runCatching { compose.onNodeWithTag("poster-vod:$id").assertIsDisplayed() }.isSuccess } &&
+                    runCatching { compose.onNodeWithTag("poster-vod:101").assertIsDisplayed() }.isFailure
+            }
             capture("screen-phone-catalog-scroll.png")
             compose.onNodeWithTag("catalog-grid").performScrollToIndex(0)
             compose.waitUntil(10_000) { exists("poster-vod:101") }
@@ -586,7 +590,7 @@ class ScreenIntegrationTest {
         compose.onNodeWithTag("poster-vod:101").performSemanticsAction(SemanticsActions.RequestFocus)
             .assertIsFocused().performKeyInput { pressKey(Key.DirectionRight) }
         compose.onNodeWithTag("poster-vod:102").assertIsFocused()
-        dpadRightPastFirstBatch("vod")
+        dpadDownPastFirstBatch("vod")
         if (isTv) capture("screen-android-tv-catalog.png")
         compose.onNodeWithContentDescription("Próxima página").assertDoesNotExist()
         // Switching filters starts at the first item instead of leaving a stale offset.
@@ -598,7 +602,7 @@ class ScreenIntegrationTest {
             .assertIsFocused().performKeyInput { pressKey(Key.DirectionCenter) }
         compose.waitUntil(20_000) { exists("poster-series:101") }
         compose.onNodeWithTag("poster-series:101").performSemanticsAction(SemanticsActions.RequestFocus).assertIsFocused()
-        dpadRightPastFirstBatch("series")
+        dpadDownPastFirstBatch("series")
         if (isTv) traceIme("posters navigated")
         compose.onNodeWithContentDescription("TV").performSemanticsAction(SemanticsActions.RequestFocus).assertIsFocused()
         if (isTv) traceIme("TV button focused")
@@ -613,7 +617,11 @@ class ScreenIntegrationTest {
         Thread.sleep(700)
         assertEquals("Focusing TV channels must not play them", liveBeforeFocus, streamPaths.count { it.startsWith("/live/") })
         assertFalse(exists("preview-channel"))
-        compose.onNodeWithTag("channel-2").performKeyInput { pressKey(Key.DirectionCenter) }
+        compose.onNodeWithContentDescription("Favoritar Canal Esportes").performClick()
+        assertTrue(vm.favorites.contains("ch:2"))
+        assertFalse("Favoriting must not select or play the channel", exists("preview-channel"))
+        assertEquals(liveBeforeFocus, streamPaths.count { it.startsWith("/live/") })
+        compose.onNodeWithTag("channel-2").performSemanticsAction(SemanticsActions.RequestFocus).performKeyInput { pressKey(Key.DirectionCenter) }
         compose.waitUntil(10_000) { runCatching { compose.onNodeWithTag("preview-channel").assertTextContains("Canal Esportes", substring = true) }.isSuccess }
         compose.waitUntil(20_000) { previewVolume() == 1f }
         compose.onNodeWithContentDescription("Silenciar").assertExists()
@@ -791,6 +799,7 @@ class ScreenIntegrationTest {
     }
 
     @Test fun cacheRestoresCatalogHeroAndGuidesOfflineAndSurvivesPartialFailures() {
+        compose.waitUntil(10_000) { textExists("Adicionar conexão") }
         compose.onNodeWithText("Servidor Xtream").performScrollTo().performTextInput(server.url("/").toString())
         compose.onNodeWithText("Usuário").performScrollTo().performTextInput("alice")
         compose.onNodeWithText("Senha").performScrollTo().performTextInput("senha")
@@ -890,15 +899,15 @@ class ScreenIntegrationTest {
         app.repository.logout()
     }
 
-    /** Move through lazily composed columns using the same Right key as a real remote. */
+    /** Move through newly composed grid rows using the same Down key as a real remote. */
     @OptIn(ExperimentalTestApi::class)
-    private fun dpadRightPastFirstBatch(type: String) {
+    private fun dpadDownPastFirstBatch(type: String) {
         repeat(80) {
             val tag = compose.onAllNodes(isFocused()).fetchSemanticsNodes().firstOrNull()
                 ?.config?.getOrNull(SemanticsProperties.TestTag)
             val id = tag?.takeIf { it.startsWith("poster-$type:") }?.substringAfter(':')?.toIntOrNull()
             if (id != null && id > 124) return
-            compose.onNode(isFocused()).performKeyInput { pressKey(Key.DirectionRight) }
+            compose.onNode(isFocused()).performKeyInput { pressKey(Key.DirectionDown) }
         }
         throw AssertionError("D-pad did not advance beyond the first 24 $type items")
     }
