@@ -24,6 +24,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.focus.focusProperties
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
@@ -78,6 +79,7 @@ fun LiveScreen(content: ContentState, epg: Map<String, List<Programme>>, favorit
     var previewId by remember { mutableStateOf<String?>(null) }
     val listState = rememberLazyListState()
     val focusRequesters = remember { mutableMapOf<String, FocusRequester>() }
+    val previewControlsFocus = remember { FocusRequester() }
     LaunchedEffect(previewEnabled, restoreChannelId, channels) {
         if (previewEnabled && restoreChannelId != null) {
             val index = channels.indexOfFirst { it.id == restoreChannelId }
@@ -115,8 +117,9 @@ fun LiveScreen(content: ContentState, epg: Map<String, List<Programme>>, favorit
                 contentPadding = PaddingValues(horizontal = 8.dp, vertical = 4.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
                 items(channels, key = { it.id }) { ch ->
                     val requester = remember(ch.id) { focusRequesters.getOrPut(ch.id) { FocusRequester() } }
+                    val toPreview = if (previewId == ch.id) Modifier.focusProperties { right = previewControlsFocus } else Modifier
                     ChannelRow(ch, if (showChannelEpg) epg[ch.epgId] else null, now, "ch:${ch.id}" in favorites, previewId == ch.id,
-                        showChannelEpg, time24Hour, Modifier.focusRequester(requester), onFocus = { focusedId = ch.id },
+                        showChannelEpg, time24Hour, Modifier.focusRequester(requester).then(toPreview), onFocus = { focusedId = ch.id },
                         onFavorite = { onToggleFav("ch:${ch.id}") }) {
                         val wasPreviewing = previewId == ch.id
                         focusedId = ch.id
@@ -136,7 +139,7 @@ fun LiveScreen(content: ContentState, epg: Map<String, List<Programme>>, favorit
     }
     @Composable fun Preview(modifier: Modifier) {
         // Preserve the existing live preview, sound, fullscreen and EPG controls.
-        PreviewPanel(preview, preview?.let { epg[it.epgId] }, now, muted, previewEnabled, false, time24Hour, showFullEpg,
+        PreviewPanel(preview, preview?.let { epg[it.epgId] }, now, muted, previewEnabled, false, time24Hour, showFullEpg, previewControlsFocus,
             modifier.testTag("tv-preview-pane"), onMute = { muted = !muted }, onPlay = {
                 preview?.let { channel -> previewId = null; play(channel) }
             })
@@ -195,7 +198,8 @@ private fun ChannelRow(ch: Channel, prog: List<Programme>?, now: Long, fav: Bool
 
 @Composable
 private fun PreviewPanel(channel: Channel?, programs: List<Programme>?, now: Long, muted: Boolean,
-                         enabled: Boolean, compact: Boolean, time24Hour: Boolean, showFullEpg: Boolean, modifier: Modifier = Modifier,
+                         enabled: Boolean, compact: Boolean, time24Hour: Boolean, showFullEpg: Boolean, controlsFocus: FocusRequester,
+                         modifier: Modifier = Modifier,
                          onMute: () -> Unit, onPlay: () -> Unit) {
     val upcoming = programs.orEmpty().filter { it.stop > now }.sortedBy { it.start }
         .let { if (showFullEpg && !compact) it else it.take(if (compact) 2 else 8) }
@@ -203,39 +207,44 @@ private fun PreviewPanel(channel: Channel?, programs: List<Programme>?, now: Lon
     val guideState = rememberLazyListState()
     // Keep the player mounted and audible while the guide itself scrolls.
     LaunchedEffect(channel?.id) { if (channel != null) guideState.scrollToItem(0) }
-    Column(modifier.clip(shape).background(Color(0xD00D0F12)).border(1.dp, XColors.Line, shape)) {
-        Box(Modifier.fillMaxWidth().aspectRatio(if (compact) 2.2f else 16f / 9f).background(Color.Black)) {
-            if (enabled && channel != null) PreviewPlayer(channel.url, channel.fallbackUrl, muted)
-            else Text("Selecione um canal", color = XColors.TextDim, fontSize = 14.sp, modifier = Modifier.align(Alignment.Center))
-        }
-        if (channel != null) {
-            Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
-                Column(Modifier.weight(1f)) {
-                    Text("${channel.number} · ${channel.name}", color = XColors.Text, fontSize = 16.sp, fontWeight = FontWeight.SemiBold,
-                        maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.testTag("preview-channel"))
-                    if (compact) {
-                        Text(upcoming.firstOrNull()?.title ?: "Sem programação disponível", color = XColors.TextDim,
-                            fontSize = 12.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                        upcoming.getOrNull(1)?.let { Text("A seguir: ${it.title}", color = XColors.Body,
-                            fontSize = 11.sp, maxLines = 1, overflow = TextOverflow.Ellipsis) }
-                    }
-                }
-                IconAction(if (muted) Icons.Filled.VolumeOff else Icons.Filled.VolumeUp, if (muted) "Ativar som" else "Silenciar", onClick = onMute)
-                IconAction(Icons.Filled.Fullscreen, "Tela cheia", onClick = onPlay)
+    BoxWithConstraints(modifier.clip(shape).background(Color(0xD00D0F12)).border(1.dp, XColors.Line, shape)) {
+        // On short landscape phones leave space for at least part of the guide.
+        val videoHeight = (maxWidth / (if (compact) 2.2f else 16f / 9f)).coerceAtMost(maxHeight * .42f)
+        Column(Modifier.fillMaxSize()) {
+            Box(Modifier.fillMaxWidth().height(videoHeight).background(Color.Black)) {
+                if (enabled && channel != null) PreviewPlayer(channel.url, channel.fallbackUrl, muted)
+                else Text("Selecione um canal", color = XColors.TextDim, fontSize = 14.sp, modifier = Modifier.align(Alignment.Center))
             }
-            if (!compact) {
-                Text("Programação", color = XColors.Text, fontSize = 15.sp, fontWeight = FontWeight.SemiBold,
-                    modifier = Modifier.padding(start = 16.dp, top = 6.dp, bottom = 8.dp))
-                if (upcoming.isEmpty()) Text("Sem programação disponível.", color = XColors.TextDim, fontSize = 13.sp, modifier = Modifier.padding(16.dp))
-                else LazyColumn(state = guideState, modifier = Modifier.weight(1f).fillMaxWidth().testTag("epg-list")) {
-                    itemsIndexed(upcoming, key = { index, programme -> "${programme.channelId}:${programme.start}:${programme.stop}:$index" }) { index, p ->
-                        val live = now in p.start until p.stop
-                        val programShape = RoundedCornerShape(12.dp)
-                        Column(Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 3.dp)
-                            .testTag("epg-program-$index").focusGlow(programShape, zoom = 1f).clip(programShape)
-                            .background(if (live) XColors.Selection else XColors.Panel).focusable().padding(14.dp)) {
-                            Text("${fmtClock(p.start, time24Hour)} – ${fmtClock(p.stop, time24Hour)}" + if (live) "   AO VIVO" else "", color = if (live) XColors.Live else XColors.TextDim, fontSize = 12.sp)
-                            Text(p.title, color = if (live) XColors.BlueSoft else XColors.Text, fontSize = 14.sp, fontWeight = FontWeight.Medium, modifier = Modifier.padding(top = 6.dp))
+            if (channel != null) {
+                Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
+                    Column(Modifier.weight(1f)) {
+                        Text("${channel.number} · ${channel.name}", color = XColors.Text, fontSize = 16.sp, fontWeight = FontWeight.SemiBold,
+                            maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.testTag("preview-channel"))
+                        if (compact) {
+                            Text(upcoming.firstOrNull()?.title ?: "Sem programação disponível", color = XColors.TextDim,
+                                fontSize = 12.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                            upcoming.getOrNull(1)?.let { Text("A seguir: ${it.title}", color = XColors.Body,
+                                fontSize = 11.sp, maxLines = 1, overflow = TextOverflow.Ellipsis) }
+                        }
+                    }
+                    IconAction(if (muted) Icons.Filled.VolumeOff else Icons.Filled.VolumeUp, if (muted) "Ativar som" else "Silenciar",
+                        Modifier.focusRequester(controlsFocus), onClick = onMute)
+                    IconAction(Icons.Filled.Fullscreen, "Tela cheia", onClick = onPlay)
+                }
+                if (!compact) {
+                    Text("Programação", color = XColors.Text, fontSize = 15.sp, fontWeight = FontWeight.SemiBold,
+                        modifier = Modifier.padding(start = 16.dp, top = 6.dp, bottom = 8.dp))
+                    if (upcoming.isEmpty()) Text("Sem programação disponível.", color = XColors.TextDim, fontSize = 13.sp, modifier = Modifier.padding(16.dp))
+                    else LazyColumn(state = guideState, modifier = Modifier.weight(1f).fillMaxWidth().testTag("epg-list")) {
+                        itemsIndexed(upcoming, key = { index, programme -> "${programme.channelId}:${programme.start}:${programme.stop}:$index" }) { index, p ->
+                            val live = now in p.start until p.stop
+                            val programShape = RoundedCornerShape(12.dp)
+                            Column(Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 3.dp)
+                                .testTag("epg-program-$index").focusGlow(programShape, zoom = 1f).clip(programShape)
+                                .background(if (live) XColors.Selection else XColors.Panel).focusable().padding(14.dp)) {
+                                Text("${fmtClock(p.start, time24Hour)} – ${fmtClock(p.stop, time24Hour)}" + if (live) "   AO VIVO" else "", color = if (live) XColors.Live else XColors.TextDim, fontSize = 12.sp)
+                                Text(p.title, color = if (live) XColors.BlueSoft else XColors.Text, fontSize = 14.sp, fontWeight = FontWeight.Medium, modifier = Modifier.padding(top = 6.dp))
+                            }
                         }
                     }
                 }

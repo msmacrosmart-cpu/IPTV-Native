@@ -511,6 +511,7 @@ class ScreenIntegrationTest {
             capture("screen-phone.png")
             compose.onNodeWithTag("catalog-grid").performTouchInput { swipeLeft() }
             compose.waitUntil(10_000) { runCatching { compose.onNodeWithTag("poster-vod:108").assertIsDisplayed() }.isSuccess }
+            capture("screen-phone-catalog-scroll.png")
             compose.onNodeWithTag("catalog-grid").performScrollToIndex(0)
             compose.waitUntil(10_000) { exists("poster-vod:101") }
             compose.onNodeWithTag("poster-vod:101").performTouchInput { click() }
@@ -586,6 +587,7 @@ class ScreenIntegrationTest {
             .assertIsFocused().performKeyInput { pressKey(Key.DirectionRight) }
         compose.onNodeWithTag("poster-vod:102").assertIsFocused()
         dpadRightPastFirstBatch("vod")
+        if (isTv) capture("screen-android-tv-catalog.png")
         compose.onNodeWithContentDescription("Próxima página").assertDoesNotExist()
         // Switching filters starts at the first item instead of leaving a stale offset.
         compose.onNodeWithText("Ação").performClick()
@@ -616,14 +618,16 @@ class ScreenIntegrationTest {
         compose.waitUntil(20_000) { previewVolume() == 1f }
         compose.onNodeWithContentDescription("Silenciar").assertExists()
         val playerIdentity = previewPlayerIdentity()
-        compose.onNodeWithContentDescription("Silenciar").performSemanticsAction(SemanticsActions.RequestFocus)
-            .assertIsFocused().performKeyInput { pressKey(Key.DirectionDown) }
+        compose.onNodeWithTag("channel-2").assertIsFocused().performKeyInput { pressKey(Key.DirectionRight) }
+        compose.waitUntil(10_000) { runCatching { compose.onNodeWithContentDescription("Silenciar").assertIsFocused() }.isSuccess }
+        compose.onNodeWithContentDescription("Silenciar").performKeyInput { pressKey(Key.DirectionDown) }
         compose.waitUntil(10_000) { focused("epg-program-0") }
         repeat(10) { index ->
             compose.onNodeWithTag("epg-program-$index").assertIsFocused().performKeyInput { pressKey(Key.DirectionDown) }
             compose.waitUntil(10_000) { focused("epg-program-${index + 1}") }
         }
         compose.onNodeWithTag("epg-program-10").assertIsDisplayed()
+        if (isTv) capture("screen-android-tv-guide.png")
         assertEquals("Scrolling the guide must not recreate or mute the preview", playerIdentity, previewPlayerIdentity())
         assertEquals(1f, previewVolume() ?: -1f, 0.001f)
         compose.onNodeWithTag("epg-program-10").performKeyInput { pressKey(Key.DirectionUp) }
@@ -887,6 +891,7 @@ class ScreenIntegrationTest {
     }
 
     /** Move through lazily composed columns using the same Right key as a real remote. */
+    @OptIn(ExperimentalTestApi::class)
     private fun dpadRightPastFirstBatch(type: String) {
         repeat(80) {
             val tag = compose.onAllNodes(isFocused()).fetchSemanticsNodes().firstOrNull()
