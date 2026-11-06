@@ -11,6 +11,7 @@ import androidx.compose.ui.semantics.getOrNull
 import androidx.compose.ui.test.assertIsFocused
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.assertTextContains
+import androidx.compose.ui.test.click
 import androidx.compose.ui.test.ExperimentalTestApi
 import androidx.compose.ui.test.SemanticsMatcher
 import androidx.compose.ui.test.hasTestTag
@@ -28,6 +29,7 @@ import androidx.compose.ui.test.performScrollToNode
 import androidx.compose.ui.test.performSemanticsAction
 import androidx.compose.ui.test.performTextInput
 import androidx.compose.ui.test.performTextClearance
+import androidx.compose.ui.test.performTouchInput
 import androidx.compose.ui.test.pressKey
 import androidx.lifecycle.ViewModelProvider
 import androidx.core.view.ViewCompat
@@ -211,7 +213,8 @@ class ScreenIntegrationTest {
         compose.onNodeWithText("Todos").performClick()
         compose.onNodeWithTag("channel-list").performScrollToNode(hasTestTag("channel-2"))
         useRemoteInputMode()
-        compose.onNodeWithTag("channel-2").performSemanticsAction(SemanticsActions.RequestFocus)
+        compose.onNodeWithTag("channel-1").performSemanticsAction(SemanticsActions.RequestFocus)
+        compose.onNodeWithTag("channel-1").assertIsFocused().performKeyInput { pressKey(Key.DirectionDown) }
         compose.onNodeWithTag("channel-2").assertIsFocused()
         compose.waitUntil(10_000) { runCatching { compose.onNodeWithTag("preview-channel").assertTextContains("Canal Esportes", substring = true) }.isSuccess }
         compose.waitUntil(20_000) { shortRequests.get() > 0 && vm.epg["sports"].orEmpty().isNotEmpty() }
@@ -297,7 +300,7 @@ class ScreenIntegrationTest {
             listOf("Início", "TV ao vivo", "Filmes", "Séries", "Multitela", "Configurações").forEach {
                 compose.onNodeWithContentDescription(it).assertIsDisplayed()
             }
-            compose.onNodeWithContentDescription("Filmes").performClick()
+            compose.onNodeWithContentDescription("Filmes").performTouchInput { click() }
             compose.waitUntil(30_000) { exists("poster-vod:101") }
             // Assert that real asynchronous image decoding completed, not just placeholder layout.
             compose.waitUntil(30_000) {
@@ -306,7 +309,9 @@ class ScreenIntegrationTest {
                 }
             }
             capture("screen-phone.png")
-            compose.onNodeWithContentDescription("Multitela").performClick()
+            compose.onNodeWithTag("poster-vod:101").performTouchInput { click() }
+            compose.waitUntil(20_000) { textExists("Reproduzir") || textExists("Continuar") }
+            compose.onNodeWithContentDescription("Multitela").performTouchInput { click() }
             compose.onNodeWithContentDescription("Adicionar canal 1").assertIsDisplayed()
         } finally {
             shell("wm size 1376x768")
