@@ -23,6 +23,10 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.blur
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.input.InputMode
+import androidx.compose.ui.platform.LocalInputModeManager
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
@@ -41,6 +45,7 @@ import com.xtream.player.ui.components.PosterArt
 import com.xtream.player.ui.components.focusGlow
 import com.xtream.player.ui.theme.XColors
 import java.util.Locale
+import kotlinx.coroutines.delay
 
 @Composable
 fun DetailScreen(item: VodItem, favorite: Boolean, selection: AppViewModel.EpisodeSelection?, loading: Boolean,
@@ -75,6 +80,11 @@ fun DetailScreen(item: VodItem, favorite: Boolean, selection: AppViewModel.Episo
 
 @Composable
 private fun DetailHero(item: VodItem, favorite: Boolean, canPlay: Boolean, loading: Boolean, onBack: () -> Unit, onFavorite: () -> Unit, onPlay: () -> Unit) {
+    val playFocus = remember(item.favoriteKey) { FocusRequester() }
+    val inputMode = LocalInputModeManager.current
+    LaunchedEffect(item.favoriteKey, canPlay) {
+        if (canPlay && inputMode.inputMode != InputMode.Touch) { delay(120); runCatching { playFocus.requestFocus() } }
+    }
     BoxWithConstraints(Modifier.fillMaxWidth()) {
         val compact = maxWidth < 600.dp
         val heroHeight = if (compact) 390.dp else 420.dp
@@ -102,7 +112,7 @@ private fun DetailHero(item: VodItem, favorite: Boolean, canPlay: Boolean, loadi
                     if (item.plot.isNotBlank()) Text(item.plot, color = XColors.TextDim, fontSize = 13.sp, lineHeight = 19.sp,
                         maxLines = if (compact) 3 else 4, overflow = TextOverflow.Ellipsis, modifier = Modifier.padding(top = 10.dp))
                     Row(Modifier.padding(top = 16.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        if (canPlay) GlowButton(if (item.progress > 0f) "Continuar" else "Reproduzir", Icons.Filled.PlayArrow, onClick = onPlay)
+                        if (canPlay) GlowButton(if (item.progress > 0f) "Continuar" else "Reproduzir", Icons.Filled.PlayArrow, Modifier.focusRequester(playFocus), onClick = onPlay)
                         else Text(if (loading) "Carregando episódios…" else "Sem episódios", color = XColors.TextDim, fontSize = 13.sp)
                         IconAction(if (favorite) Icons.Filled.Favorite else Icons.Filled.FavoriteBorder,
                             if (favorite) "Remover dos favoritos" else "Adicionar aos favoritos", onClick = onFavorite)

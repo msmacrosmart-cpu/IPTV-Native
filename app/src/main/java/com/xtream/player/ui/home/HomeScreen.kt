@@ -1,6 +1,7 @@
 package com.xtream.player.ui.home
 
 import androidx.compose.foundation.ExperimentalFoundationApi
+import androidx.compose.foundation.focusGroup
 import androidx.compose.foundation.background
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.*
@@ -136,7 +137,7 @@ private fun HeroCarousel(slides: List<VodItem>, height: androidx.compose.ui.unit
             if (!hasFocus && !pager.isScrollInProgress) pager.animateScrollToPage((pager.currentPage + 1) % slides.size)
         }
     }
-    Box(Modifier.fillMaxWidth().height(height).onFocusChanged { hasFocus = it.hasFocus }) {
+    Box(Modifier.fillMaxWidth().height(height).onFocusChanged { hasFocus = it.hasFocus }.focusGroup()) {
         HorizontalPager(state = pager, key = { slides[it].favoriteKey }, modifier = Modifier.fillMaxSize()) { index ->
             HeroSlide(slides[index], compact) { onSelect(slides[index]) }
         }

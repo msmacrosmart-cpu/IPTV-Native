@@ -26,6 +26,8 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.onFocusChanged
+import androidx.compose.ui.input.InputMode
+import androidx.compose.ui.platform.LocalInputModeManager
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
@@ -38,6 +40,7 @@ import androidx.compose.ui.viewinterop.AndroidView
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
+import androidx.media3.common.AudioAttributes
 import androidx.media3.common.MediaItem
 import androidx.media3.common.PlaybackException
 import androidx.media3.common.Player
@@ -72,6 +75,7 @@ fun LiveScreen(content: ContentState, epg: Map<String, List<Programme>>, favorit
     var focusedId by rememberSaveable { mutableStateOf<String?>(null) }
     var previewId by rememberSaveable { mutableStateOf<String?>(null) }
     val listState = rememberLazyListState()
+    val inputMode = LocalInputModeManager.current
     val focusRequesters = remember { mutableMapOf<String, FocusRequester>() }
     LaunchedEffect(previewEnabled, restoreChannelId, channels) {
         if (previewEnabled && restoreChannelId != null) {
@@ -107,7 +111,13 @@ fun LiveScreen(content: ContentState, epg: Map<String, List<Programme>>, favorit
                     val requester = remember(ch.id) { focusRequesters.getOrPut(ch.id) { FocusRequester() } }
                     ChannelRow(ch, epg[ch.epgId], now, "ch:${ch.id}" in favorites, previewId == ch.id,
                         Modifier.focusRequester(requester), onFocus = { focusedId = ch.id },
-                        onFavorite = { onToggleFav("ch:${ch.id}") }) { focusedId = ch.id; previewId = ch.id; play(ch) }
+                        onFavorite = { onToggleFav("ch:${ch.id}") }) {
+                        val wasPreviewing = previewId == ch.id
+                        focusedId = ch.id; previewId = ch.id
+                        // Touch selects the inline player first; a second tap or Fullscreen opens it.
+                        // On TV, focus already previews the channel and OK opens fullscreen.
+                        if (inputMode.inputMode != InputMode.Touch || wasPreviewing) play(ch)
+                    }
                 }
             }
         }
@@ -201,8 +211,12 @@ private fun PreviewPanel(channel: Channel?, programs: List<Programme>?, now: Lon
                 Column(Modifier.weight(1f)) {
                     Text("${channel.number} · ${channel.name}", color = XColors.Text, fontSize = 16.sp, fontWeight = FontWeight.SemiBold,
                         maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.testTag("preview-channel"))
-                    if (compact) Text(upcoming.firstOrNull()?.title ?: "Sem programação disponível", color = XColors.TextDim,
-                        fontSize = 12.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                    if (compact) {
+                        Text(upcoming.firstOrNull()?.title ?: "Sem programação disponível", color = XColors.TextDim,
+                            fontSize = 12.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                        upcoming.getOrNull(1)?.let { Text("A seguir: ${it.title}", color = XColors.Body,
+                            fontSize = 11.sp, maxLines = 1, overflow = TextOverflow.Ellipsis) }
+                    }
                 }
                 IconAction(if (muted) Icons.Filled.VolumeOff else Icons.Filled.VolumeUp, if (muted) "Ativar som" else "Silenciar", onClick = onMute)
                 IconAction(Icons.Filled.Fullscreen, "Tela cheia", onClick = onPlay)
@@ -227,7 +241,7 @@ private fun PreviewPanel(channel: Channel?, programs: List<Programme>?, now: Lon
 private fun PreviewPlayer(url: String, fallbackUrl: String?, muted: Boolean) {
     val ctx = LocalContext.current
     val lifecycleOwner = LocalLifecycleOwner.current
-    val player = remember { buildPlayer(ctx).apply { volume = 0f; playWhenReady = true } }
+    val player = remember { buildPlayer(ctx, handleAudioFocus = false).apply { volume = 0f; playWhenReady = true } }
     var triedFallback by remember(url) { mutableStateOf(false) }
     var failed by remember(url) { mutableStateOf(false) }
     DisposableEffect(player, url, fallbackUrl) {
@@ -258,7 +272,10 @@ private fun PreviewPlayer(url: String, fallbackUrl: String?, muted: Boolean) {
         onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
     }
     LaunchedEffect(url) { player.setMediaItem(MediaItem.fromUri(url)); player.prepare() }
-    LaunchedEffect(muted) { player.volume = if (muted) 0f else 1f }
+    LaunchedEffect(muted) {
+        player.volume = if (muted) 0f else 1f
+        player.setAudioAttributes(AudioAttributes.DEFAULT, !muted)
+    }
     Box(Modifier.fillMaxSize()) {
         AndroidView(
             factory = { c -> PlayerView(c).apply {

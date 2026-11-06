@@ -22,8 +22,12 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.input.InputMode
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalInputModeManager
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.stateDescription
@@ -50,12 +54,24 @@ import com.xtream.player.ui.components.PillField
 import com.xtream.player.ui.components.focusGlow
 import com.xtream.player.ui.player.buildPlayer
 import com.xtream.player.ui.theme.XColors
+import kotlinx.coroutines.delay
 
 /** Four independent players. Only one tile holds audio focus and is audible at a time. */
 @Composable
 fun MultiScreen(channels: List<Channel>, slotIds: List<String?>, audible: Int, enabled: Boolean,
                 onSetSlot: (Int, String?) -> Unit, onAudible: (Int) -> Unit, onPlay: (PlayerRequest) -> Unit) {
     var picking by remember { mutableStateOf<Int?>(null) }
+    var pendingFocus by remember { mutableStateOf<Int?>(null) }
+    val requests = remember { List(4) { FocusRequester() } }
+    val inputMode = LocalInputModeManager.current
+    LaunchedEffect(pendingFocus, slotIds) {
+        val index = pendingFocus ?: return@LaunchedEffect
+        if (inputMode.inputMode != InputMode.Touch) {
+            delay(120)
+            runCatching { requests[index].requestFocus() }
+        }
+        pendingFocus = null
+    }
     LazyVerticalGrid(columns = GridCells.Fixed(2), modifier = Modifier.fillMaxSize().background(XColors.Bg),
         contentPadding = PaddingValues(18.dp), horizontalArrangement = Arrangement.spacedBy(12.dp),
         verticalArrangement = Arrangement.spacedBy(12.dp)) {
@@ -70,24 +86,24 @@ fun MultiScreen(channels: List<Channel>, slotIds: List<String?>, audible: Int, e
         }
         items((0 until 4).toList(), key = { it }) { index ->
             val channel = channels.firstOrNull { it.id == slotIds.getOrNull(index) }
-            if (channel == null) EmptyTile(index) { picking = index }
-            else MultiTile(index, channel, audible == index, enabled,
-                onSelect = { onAudible(index) }, onRemove = { onSetSlot(index, null) },
+            if (channel == null) EmptyTile(index, Modifier.focusRequester(requests[index])) { picking = index }
+            else MultiTile(index, channel, audible == index, enabled, Modifier.focusRequester(requests[index]),
+                onSelect = { onAudible(index) }, onRemove = { onSetSlot(index, null); pendingFocus = index },
                 onFullscreen = { onPlay(PlayerRequest(channel.name, channel.url, true, listOf(channel), 0, channel.fallbackUrl)) })
         }
     }
     picking?.let { slot ->
         ChannelPicker(channels, onDismiss = { picking = null }) { channel ->
-            onSetSlot(slot, channel.id); onAudible(slot); picking = null
+            onSetSlot(slot, channel.id); onAudible(slot); picking = null; pendingFocus = slot
         }
     }
 }
 
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
-private fun EmptyTile(index: Int, onClick: () -> Unit) {
+private fun EmptyTile(index: Int, modifier: Modifier = Modifier, onClick: () -> Unit) {
     val shape = RoundedCornerShape(12.dp)
-    Column(Modifier.fillMaxWidth().aspectRatio(16f / 9f).focusGlow(shape, zoom = 1f).clip(shape)
+    Column(modifier.fillMaxWidth().testTag("multi-tile-${index + 1}").aspectRatio(16f / 9f).focusGlow(shape, zoom = 1f).clip(shape)
         .background(XColors.Panel).border(1.dp, XColors.Line, shape)
         .combinedClickable(onClickLabel = "Adicionar canal ${index + 1}", onClick = onClick),
         horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.Center) {
@@ -130,10 +146,10 @@ private fun ChannelPicker(channels: List<Channel>, onDismiss: () -> Unit, onChoo
 @AndroidXOptIn(UnstableApi::class)
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
-private fun MultiTile(index: Int, channel: Channel, active: Boolean, enabled: Boolean,
+private fun MultiTile(index: Int, channel: Channel, active: Boolean, enabled: Boolean, modifier: Modifier = Modifier,
                       onSelect: () -> Unit, onRemove: () -> Unit, onFullscreen: () -> Unit) {
     val shape = RoundedCornerShape(12.dp)
-    Box(Modifier.fillMaxWidth().aspectRatio(16f / 9f).focusGlow(shape, zoom = 1f).clip(shape)
+    Box(modifier.fillMaxWidth().testTag("multi-tile-${index + 1}").aspectRatio(16f / 9f).focusGlow(shape, zoom = 1f).clip(shape)
         .background(Color.Black).border(if (active) 2.dp else 1.dp, if (active) XColors.Accent else XColors.Line, shape)
         .combinedClickable(onClick = onSelect)) {
         if (enabled) MultiPlayer(index, channel, active, Modifier.fillMaxSize())
