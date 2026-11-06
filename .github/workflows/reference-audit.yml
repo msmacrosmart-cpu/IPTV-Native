@@ -30,6 +30,19 @@ jobs:
           relevant='\n'.join(line for line in xml.splitlines() if 'E:' in line or re.search(r'android:(id|src|background|text|visibility)\(',line) or 'srcCompat' in line)
           names=zipfile.ZipFile(apk).namelist()
           inventory='\n'.join(name for name in names if re.search(r'(?i)(settings|epg|stream_format|time_format|automation|parental|multi|player|account_info|speed_test)',name) and re.search(r'\.(png|webp|xml)$',name))
-          body=('REFERENCE_SETTINGS_ICONS_V1\n'+relevant+'\n=== resource files ===\n'+inventory)[:60000]
+          # Export small reference icons for visual inspection only; they are not bundled in this app.
+          icons=[]
+          wanted=('settings_settings','settings_epg','settings_stream_format','settings_time_format',
+                  'settings_automation','settings_parental_control','settings_player_section',
+                  'settings_player_settings','settings_external_player','settings_multiscreen')
+          import json
+          with zipfile.ZipFile(apk) as source:
+              for name in wanted:
+                  path='res/drawable/'+name+'.png'
+                  if path not in names: continue
+                  payload=json.dumps({'content':base64.b64encode(source.read(path)).decode(),'encoding':'base64'})
+                  result=subprocess.run(['gh','api',f"repos/{os.environ['GITHUB_REPOSITORY']}/git/blobs",'--method','POST','--input','-','--jq','.sha'],input=payload,text=True,capture_output=True,check=True)
+                  icons.append(name+'='+result.stdout.strip())
+          body=('REFERENCE_SETTINGS_ICONS_V2\n'+'\n'.join(icons)+'\n'+relevant)[:60000]
           subprocess.run(['gh','api',f"repos/{os.environ['GITHUB_REPOSITORY']}/commits/{os.environ['GITHUB_SHA']}/comments",'--method','POST','-f','body='+body],check=True,stdout=subprocess.DEVNULL)
           PY
