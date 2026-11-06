@@ -251,10 +251,12 @@ class ScreenIntegrationTest {
         compose.onNodeWithTag("choose-channel-1").performClick()
         compose.onNodeWithContentDescription("Adicionar canal 2").performClick()
         compose.onNodeWithTag("choose-channel-2").performClick()
+        compose.waitUntil(10_000) { runCatching { compose.onNodeWithTag("multi-tile-2").assertIsFocused() }.isSuccess }
         compose.waitUntil(30_000) { multiState(1) == "playing" && multiState(2) == "playing" }
         compose.onNodeWithContentDescription("Som ativo na tela 2").assertExists()
         compose.onNodeWithContentDescription("Ativar som da tela 1").performClick()
         compose.onNodeWithContentDescription("Som ativo na tela 1").assertExists()
+        compose.waitUntil(10_000) { multiState(1) == "playing" && multiState(2) == "playing" }
         capture("screen-multi.png")
 
         compose.onNodeWithContentDescription("Configurações").performClick()
@@ -336,7 +338,7 @@ class ScreenIntegrationTest {
     private fun keyboardIsVisible(): Boolean =
         ViewCompat.getRootWindowInsets(compose.activity.window.decorView)?.isVisible(WindowInsetsCompat.Type.ime()) == true
     private fun multiState(index: Int): String? = runCatching {
-        compose.onNodeWithTag("multi-player-$index").fetchSemanticsNode().config.getOrNull(SemanticsProperties.StateDescription)
+        compose.onNodeWithTag("multi-player-$index", useUnmergedTree = true).fetchSemanticsNode().config.getOrNull(SemanticsProperties.StateDescription)
     }.getOrNull()
     private fun playerState(): String? = runCatching {
         compose.onNodeWithTag("player-root").fetchSemanticsNode().config.getOrNull(SemanticsProperties.StateDescription)

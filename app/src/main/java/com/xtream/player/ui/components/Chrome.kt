@@ -97,7 +97,7 @@ fun TopBar(
 ) {
     Row(Modifier.fillMaxWidth().height(56.dp).background(XColors.Sidebar).padding(horizontal = if (compact) 10.dp else 20.dp),
         verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-        Row(Modifier.width(if (compact) 100.dp else 224.dp).clip(RoundedCornerShape(9.dp))
+        Row(Modifier.width(if (compact) 100.dp else 250.dp).clip(RoundedCornerShape(9.dp))
             .background(Color(0x0DFFFFFF)).padding(horizontal = 10.dp, vertical = 5.dp), verticalAlignment = Alignment.CenterVertically) {
             Icon(Icons.Outlined.PlaylistPlay, null, tint = XColors.TextDim, modifier = Modifier.size(19.dp))
             Column(Modifier.padding(start = 8.dp).weight(1f)) {
@@ -112,17 +112,19 @@ fun TopBar(
                 Tab.Live -> "Buscar canais..."; Tab.Movies -> "Buscar filmes..."
                 Tab.Series -> "Buscar séries..."; else -> "Buscar na biblioteca..."
             }
-            Row(Modifier.weight(1f).widthIn(max = 560.dp).height(40.dp).clip(shape)
-                .background(XColors.Field).border(1.dp, if (focused) XColors.Focus else Color(0x17FFFFFF), shape)
-                .padding(horizontal = 12.dp), verticalAlignment = Alignment.CenterVertically) {
-                Icon(Icons.Outlined.Search, null, tint = XColors.TextDim, modifier = Modifier.size(18.dp))
-                Box(Modifier.weight(1f).padding(start = 8.dp)) {
-                    if (query.isEmpty()) Text(placeholder, color = XColors.Body, fontSize = 14.sp, maxLines = 1)
-                    BasicTextField(query, onQuery, singleLine = true,
-                        textStyle = TextStyle(color = XColors.Text, fontSize = 14.sp, fontFamily = DmSans),
-                        cursorBrush = SolidColor(XColors.Accent),
-                        modifier = Modifier.fillMaxWidth().testTag("search-field").focusRequester(searchFocus)
-                            .onFocusChanged { focused = it.isFocused })
+            Box(Modifier.weight(1f)) {
+                Row(Modifier.widthIn(max = 560.dp).fillMaxWidth().height(40.dp).clip(shape)
+                    .background(XColors.Field).border(1.dp, if (focused) XColors.Focus else Color(0x17FFFFFF), shape)
+                    .padding(horizontal = 12.dp), verticalAlignment = Alignment.CenterVertically) {
+                    Icon(Icons.Outlined.Search, null, tint = XColors.TextDim, modifier = Modifier.size(18.dp))
+                    Box(Modifier.weight(1f).padding(start = 8.dp)) {
+                        if (query.isEmpty()) Text(placeholder, color = XColors.Body, fontSize = 14.sp, maxLines = 1)
+                        BasicTextField(query, onQuery, singleLine = true,
+                            textStyle = TextStyle(color = XColors.Text, fontSize = 14.sp, fontFamily = DmSans),
+                            cursorBrush = SolidColor(XColors.Accent),
+                            modifier = Modifier.fillMaxWidth().testTag("search-field").focusRequester(searchFocus)
+                                .onFocusChanged { focused = it.isFocused })
+                    }
                 }
             }
         } else Spacer(Modifier.weight(1f))

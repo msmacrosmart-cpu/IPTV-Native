@@ -1,6 +1,11 @@
 package com.xtream.player.ui.multi
 
 import android.view.ViewGroup
+import android.content.Context
+import android.media.AudioFocusRequest
+import android.media.AudioManager
+import android.media.AudioAttributes as AndroidAudioAttributes
+import android.os.Build
 import androidx.annotation.OptIn as AndroidXOptIn
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
@@ -40,7 +45,6 @@ import androidx.compose.ui.window.Dialog
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
-import androidx.media3.common.AudioAttributes
 import androidx.media3.common.MediaItem
 import androidx.media3.common.PlaybackException
 import androidx.media3.common.Player
@@ -64,6 +68,8 @@ fun MultiScreen(channels: List<Channel>, slotIds: List<String?>, audible: Int, e
     var pendingFocus by remember { mutableStateOf<Int?>(null) }
     val requests = remember { List(4) { FocusRequester() } }
     val inputMode = LocalInputModeManager.current
+    val hasPlayers = slotIds.any { id -> id != null && channels.any { it.id == id } }
+    val audioAllowed = rememberMultiAudioFocus(enabled && hasPlayers)
     LaunchedEffect(pendingFocus, slotIds) {
         val index = pendingFocus ?: return@LaunchedEffect
         if (inputMode.inputMode != InputMode.Touch) {
@@ -82,12 +88,14 @@ fun MultiScreen(channels: List<Channel>, slotIds: List<String?>, audible: Int, e
                     color = XColors.TextDim, fontSize = 13.sp, modifier = Modifier.padding(top = 4.dp))
                 Text("O limite depende das conexões do provedor e dos decodificadores do aparelho.",
                     color = XColors.Body, fontSize = 12.sp, modifier = Modifier.padding(top = 3.dp))
+                if (hasPlayers && !audioAllowed) Text("Som temporariamente indisponível enquanto outro aplicativo usa o áudio.",
+                    color = XColors.TextDim, fontSize = 12.sp, modifier = Modifier.padding(top = 3.dp))
             }
         }
         items((0 until 4).toList(), key = { it }) { index ->
             val channel = channels.firstOrNull { it.id == slotIds.getOrNull(index) }
             if (channel == null) EmptyTile(index, Modifier.focusRequester(requests[index])) { picking = index }
-            else MultiTile(index, channel, audible == index, enabled, Modifier.focusRequester(requests[index]),
+            else MultiTile(index, channel, audible == index, audioAllowed, enabled, Modifier.focusRequester(requests[index]),
                 onSelect = { onAudible(index) }, onRemove = { onSetSlot(index, null); pendingFocus = index },
                 onFullscreen = { onPlay(PlayerRequest(channel.name, channel.url, true, listOf(channel), 0, channel.fallbackUrl)) })
         }
@@ -146,13 +154,13 @@ private fun ChannelPicker(channels: List<Channel>, onDismiss: () -> Unit, onChoo
 @AndroidXOptIn(UnstableApi::class)
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
-private fun MultiTile(index: Int, channel: Channel, active: Boolean, enabled: Boolean, modifier: Modifier = Modifier,
+private fun MultiTile(index: Int, channel: Channel, active: Boolean, audioAllowed: Boolean, enabled: Boolean, modifier: Modifier = Modifier,
                       onSelect: () -> Unit, onRemove: () -> Unit, onFullscreen: () -> Unit) {
     val shape = RoundedCornerShape(12.dp)
     Box(modifier.fillMaxWidth().testTag("multi-tile-${index + 1}").aspectRatio(16f / 9f).focusGlow(shape, zoom = 1f).clip(shape)
         .background(Color.Black).border(if (active) 2.dp else 1.dp, if (active) XColors.Accent else XColors.Line, shape)
         .combinedClickable(onClick = onSelect)) {
-        if (enabled) MultiPlayer(index, channel, active, Modifier.fillMaxSize())
+        if (enabled) MultiPlayer(index, channel, active && audioAllowed, Modifier.fillMaxSize())
         Column(Modifier.align(Alignment.BottomCenter).fillMaxWidth().background(Color(0xCC0D0F12))) {
             Row(Modifier.fillMaxWidth().padding(start = 10.dp), verticalAlignment = Alignment.CenterVertically) {
                 Text(channel.name, color = XColors.Text, fontSize = 13.sp, fontWeight = FontWeight.SemiBold,
@@ -209,7 +217,6 @@ private fun MultiPlayer(index: Int, channel: Channel, active: Boolean, modifier:
     }
     LaunchedEffect(player, active) {
         player.volume = if (active) 1f else 0f
-        player.setAudioAttributes(AudioAttributes.DEFAULT, active)
     }
     Box(modifier.testTag("multi-player-${index + 1}").semantics { stateDescription = state }) {
         AndroidView(factory = { c -> PlayerView(c).apply {
@@ -219,4 +226,53 @@ private fun MultiPlayer(index: Int, channel: Channel, active: Boolean, modifier:
         if (state == "error") Text("Não foi possível reproduzir este canal.", color = XColors.Text, fontSize = 12.sp,
             modifier = Modifier.align(Alignment.Center).background(Color(0xCC0D0F12)).padding(8.dp))
     }
+}
+
+/** A single screen-level audio focus prevents the players from pausing one another. */
+@Composable
+private fun rememberMultiAudioFocus(wanted: Boolean): Boolean {
+    val context = LocalContext.current
+    val owner = LocalLifecycleOwner.current
+    val manager = remember(context) { context.getSystemService(Context.AUDIO_SERVICE) as AudioManager }
+    var allowed by remember { mutableStateOf(false) }
+    DisposableEffect(wanted, owner, manager) {
+        if (!wanted) {
+            allowed = false
+            onDispose { }
+        } else {
+            val listener = AudioManager.OnAudioFocusChangeListener { change -> allowed = change == AudioManager.AUDIOFOCUS_GAIN }
+            val request = if (Build.VERSION.SDK_INT >= 26) AudioFocusRequest.Builder(AudioManager.AUDIOFOCUS_GAIN)
+                .setAudioAttributes(AndroidAudioAttributes.Builder().setUsage(AndroidAudioAttributes.USAGE_MEDIA)
+                    .setContentType(AndroidAudioAttributes.CONTENT_TYPE_MOVIE).build())
+                .setOnAudioFocusChangeListener(listener).build() else null
+            var requested = false
+            fun acquire() {
+                if (requested) return
+                @Suppress("DEPRECATION")
+                val result = if (Build.VERSION.SDK_INT >= 26 && request != null) manager.requestAudioFocus(request)
+                    else manager.requestAudioFocus(listener, AudioManager.STREAM_MUSIC, AudioManager.AUDIOFOCUS_GAIN)
+                requested = result == AudioManager.AUDIOFOCUS_REQUEST_GRANTED
+                allowed = requested
+            }
+            fun abandon() {
+                if (requested) {
+                    @Suppress("DEPRECATION")
+                    if (Build.VERSION.SDK_INT >= 26 && request != null) manager.abandonAudioFocusRequest(request)
+                    else manager.abandonAudioFocus(listener)
+                }
+                requested = false; allowed = false
+            }
+            val observer = LifecycleEventObserver { _, event ->
+                when (event) {
+                    Lifecycle.Event.ON_START -> acquire()
+                    Lifecycle.Event.ON_STOP -> abandon()
+                    else -> Unit
+                }
+            }
+            owner.lifecycle.addObserver(observer)
+            if (owner.lifecycle.currentState.isAtLeast(Lifecycle.State.STARTED)) acquire()
+            onDispose { owner.lifecycle.removeObserver(observer); abandon() }
+        }
+    }
+    return allowed
 }

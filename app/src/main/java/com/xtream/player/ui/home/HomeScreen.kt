@@ -63,7 +63,7 @@ fun HomeScreen(content: ContentState, epg: Map<String, List<Programme>>, query: 
     BoxWithConstraints(Modifier.fillMaxSize().background(XColors.Bg)) {
         val compact = maxWidth < 640.dp
         val gutter = if (compact) 16.dp else 28.dp
-        val heroHeight = if (compact) 320.dp else (maxHeight * .52f).coerceIn(320.dp, 480.dp)
+        val heroHeight = if (compact) 320.dp else (maxHeight * .42f).coerceIn(320.dp, 520.dp)
         LazyColumn(Modifier.fillMaxSize().testTag("home-list"), contentPadding = PaddingValues(bottom = 36.dp),
             verticalArrangement = Arrangement.spacedBy(if (compact) 24.dp else 30.dp)) {
             if (slides.isNotEmpty()) item(key = "hero") { HeroCarousel(slides, heroHeight, compact, onSelectItem) }
@@ -105,7 +105,7 @@ private fun PosterRail(title: String, items: List<VodItem>, gutter: androidx.com
         else LazyRow(contentPadding = PaddingValues(start = gutter, end = gutter, top = 10.dp, bottom = 6.dp),
             horizontalArrangement = Arrangement.spacedBy(14.dp)) {
             items(items, key = { it.favoriteKey }) { item ->
-                PosterCard(item, width = 148.dp, onLongClick = { onToggleFav(item.favoriteKey) },
+                PosterCard(item, width = if (gutter == 16.dp) 140.dp else 172.dp, onLongClick = { onToggleFav(item.favoriteKey) },
                     onClick = { onSelect(item) }, isFavorite = item.favoriteKey in favorites)
             }
         }

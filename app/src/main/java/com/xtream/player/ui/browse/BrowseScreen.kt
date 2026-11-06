@@ -56,7 +56,7 @@ fun BrowseScreen(title: String, categories: List<Category>, items: List<VodItem>
     BoxWithConstraints(Modifier.fillMaxSize().background(XColors.Bg)) {
         val wide = maxWidth >= 800.dp
         if (wide) Row(Modifier.fillMaxSize()) {
-            CategoryPane(title, categories, counts, items.size, category, { category = it }, Modifier.width(240.dp).fillMaxHeight())
+            CategoryPane(title, categories, counts, items.size, category, { category = it }, Modifier.width(300.dp).fillMaxHeight())
             CatalogGrid(categoryTitle, visible, filtered.size, safePage, pages, favorites, onToggleFav, onSelect,
                 onPage = { page = it }, modifier = Modifier.weight(1f).fillMaxHeight())
         } else Column(Modifier.fillMaxSize()) {
