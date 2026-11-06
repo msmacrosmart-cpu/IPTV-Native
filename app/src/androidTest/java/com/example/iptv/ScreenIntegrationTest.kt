@@ -71,8 +71,8 @@ class ScreenIntegrationTest {
     @get:Rule(order = 2)
     val diagnostics = object : TestWatcher() {
         override fun failed(error: Throwable, description: Description) {
+            runCatching { capture("ui-failure.png") }
             runCatching {
-                capture("ui-failure.png")
                 val vm = ViewModelProvider(compose.activity)[AppViewModel::class.java]
                 val nodes = compose.onAllNodes(SemanticsMatcher("all") { true }, useUnmergedTree = true)
                     .fetchSemanticsNodes().joinToString("\n") { it.config.toString() }
@@ -183,8 +183,9 @@ class ScreenIntegrationTest {
         compose.onNodeWithTag("channel-2").performClick()
         compose.waitUntil(30_000) { streamPaths.any { it.endsWith("/2.ts") } && playerState() == "playing" }
         showControls()
+        val firstChannelRequests = streamPaths.count { it.endsWith("/1.ts") }
         compose.onNodeWithText("Next Channel").performClick()
-        compose.waitUntil(30_000) { streamPaths.any { it.endsWith("/1.ts") } && playerState() == "playing" }
+        compose.waitUntil(30_000) { streamPaths.count { it.endsWith("/1.ts") } > firstChannelRequests && playerState() == "playing" }
         compose.onNodeWithContentDescription("Voltar").performClick()
         compose.waitUntil(10_000) { exists("channel-2") }
         compose.waitUntil(10_000) { runCatching { compose.onNodeWithTag("channel-2").assertIsFocused() }.isSuccess }
@@ -250,8 +251,9 @@ class ScreenIntegrationTest {
         writeHostFile(name, bytes)
     }
     private fun writeHostFile(name: String, bytes: ByteArray) {
+        // UiAutomation uses Runtime.exec, not a shell: dd writes stdin directly without redirection.
         val descriptors = InstrumentationRegistry.getInstrumentation().uiAutomation
-            .executeShellCommandRw("cat > /data/local/tmp/iptv-$name")
+            .executeShellCommandRw("dd of=/data/local/tmp/iptv-$name")
         ParcelFileDescriptor.AutoCloseOutputStream(descriptors[1]).use { it.write(bytes) }
         ParcelFileDescriptor.AutoCloseInputStream(descriptors[0]).use { it.readBytes() }
     }
