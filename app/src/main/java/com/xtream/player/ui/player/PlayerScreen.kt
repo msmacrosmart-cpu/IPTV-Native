@@ -109,6 +109,7 @@ fun PlayerScreen(request: PlayerRequest, onBack: () -> Unit, previewMode: Boolea
     var pointA by remember { mutableStateOf<Long?>(null) }
     var pointB by remember { mutableStateOf<Long?>(null) }
     var sleepAt by remember { mutableStateOf<Long?>(null) }
+    var sleepMinutes by remember { mutableIntStateOf(0) }
     var dragging by remember { mutableStateOf<Float?>(null) }
     var statsText by remember { mutableStateOf("") }
 
@@ -153,8 +154,9 @@ fun PlayerScreen(request: PlayerRequest, onBack: () -> Unit, previewMode: Boolea
                 if (!triedFallback && !fallbackUrl.isNullOrBlank() && fallbackUrl != url) {
                     triedFallback = true
                     val resume = if (request.isLive) 0L else player.currentPosition.coerceAtLeast(0)
+                    val shouldPlay = player.playWhenReady && lifecycleOwner.lifecycle.currentState.isAtLeast(Lifecycle.State.STARTED)
                     player.setMediaItem(MediaItem.fromUri(fallbackUrl), resume)
-                    player.prepare(); player.playWhenReady = true
+                    player.prepare(); player.playWhenReady = shouldPlay
                 } else {
                     // Playback exceptions can contain credential-bearing URLs; show the code only.
                     error = e.errorCodeName
@@ -308,7 +310,12 @@ fun PlayerScreen(request: PlayerRequest, onBack: () -> Unit, previewMode: Boolea
             Column(Modifier.align(Alignment.Center).clip(RoundedCornerShape(16.dp)).background(Color(0xDD111113)).padding(24.dp), horizontalAlignment = Alignment.CenterHorizontally) {
                 Text("Falha na reprodução", color = XColors.Accent, fontSize = 20.sp, fontWeight = FontWeight.Bold)
                 Text(it, color = XColors.TextDim, fontSize = 14.sp, textAlign = TextAlign.Center, modifier = Modifier.widthIn(max = 420.dp).padding(vertical = 8.dp))
-                PBtn("Tentar novamente", Icons.Filled.Refresh, Modifier.focusRequester(retryFocus)) { error = null; player.prepare(); player.playWhenReady = true }
+                PBtn("Tentar novamente", Icons.Filled.Refresh, Modifier.focusRequester(retryFocus)) {
+                    error = null; triedFallback = false
+                    val resume = if (request.isLive) 0L else player.currentPosition.coerceAtLeast(0)
+                    player.setMediaItem(MediaItem.fromUri(url), resume)
+                    player.prepare(); player.playWhenReady = true
+                }
             }
         }
 
@@ -398,7 +405,7 @@ fun PlayerScreen(request: PlayerRequest, onBack: () -> Unit, previewMode: Boolea
             }) { dlg = null }
             Dlg.Aspect -> OptionDialog("Proporção da imagem", Aspect.values().map { a -> Opt(a.label, a == aspect) { aspect = a; dlg = null } }) { dlg = null }
             Dlg.Sleep -> OptionDialog("Sleep timer", listOf(0, 15, 30, 45, 60, 90, 120).map { m ->
-                Opt(if (m == 0) "Desligado" else "$m minutos", (m == 0 && sleepAt == null)) { sleepAt = if (m == 0) null else System.currentTimeMillis() + m * 60_000L; dlg = null }
+                Opt(if (m == 0) "Desligado" else "$m minutos", m == sleepMinutes) { sleepMinutes = m; sleepAt = if (m == 0) null else System.currentTimeMillis() + m * 60_000L; dlg = null }
             }) { dlg = null }
             Dlg.Audio -> {
                 val opts = trackOptions(tracks, C.TRACK_TYPE_AUDIO, "Faixa de áudio") { g, i ->

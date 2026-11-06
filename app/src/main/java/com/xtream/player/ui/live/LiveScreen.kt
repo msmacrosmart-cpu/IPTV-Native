@@ -233,7 +233,7 @@ private fun PreviewPlayer(url: String, fallbackUrl: String?, muted: Boolean) {
                     triedFallback = true
                     player.setMediaItem(MediaItem.fromUri(fallbackUrl))
                     player.prepare()
-                    player.playWhenReady = true
+                    player.playWhenReady = lifecycleOwner.lifecycle.currentState.isAtLeast(Lifecycle.State.STARTED)
                 } else failed = true
             }
             override fun onPlaybackStateChanged(state: Int) { if (state == Player.STATE_READY) failed = false }

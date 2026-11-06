@@ -4,7 +4,7 @@ import android.content.Context
 import com.example.iptv.data.model.PanelCredentials
 import org.json.JSONObject
 import java.security.MessageDigest
-import java.util.Locale
+import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
 
 /** Favorites and playback positions are private to each panel/account and survive app restarts. */
 class UserLibrary(context: Context) {
@@ -16,7 +16,11 @@ class UserLibrary(context: Context) {
     }
 
     fun select(credentials: PanelCredentials?) {
-        val identity = credentials?.let { "${it.serverUrl.trimEnd('/').lowercase(Locale.ROOT)}\u0000${it.username}" } ?: "demo"
+        val identity = credentials?.let {
+            // HttpUrl canonicalizes scheme/host without lowercasing a case-sensitive panel path.
+            val server = it.serverUrl.toHttpUrlOrNull()?.toString()?.trimEnd('/') ?: it.serverUrl.trimEnd('/')
+            "$server\u0000${it.username}"
+        } ?: "demo"
         account = MessageDigest.getInstance("SHA-256").digest(identity.toByteArray(Charsets.UTF_8))
             .joinToString("") { "%02x".format(it.toInt() and 0xff) }
     }

@@ -20,6 +20,7 @@ import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import java.util.Locale
+import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
 
 /** Connects the supplied XtreamTV screens to the app's real Xtream session and XMLTV cache. */
 class AppViewModel(application: Application) : AndroidViewModel(application) {
@@ -147,7 +148,8 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
 
     private fun mapSession(account: AccountInfo, creds: PanelCredentials): Session {
         // Do not display query parameters from custom guide URLs, which may contain tokens.
-        val customSource = repository.settings.value.customXmltvUrl.substringBefore('?').substringBefore('#')
+        val customSource = repository.settings.value.customXmltvUrl.toHttpUrlOrNull()?.newBuilder()
+            ?.username("")?.password("")?.query(null)?.fragment(null)?.build()?.toString().orEmpty()
         val source = customSource.ifBlank { "${creds.serverUrl.trimEnd('/')}/xmltv.php" }
         return Session(creds.serverUrl, creds.username, creds.password, account.statusLabel,
             account.expiresAtMillis, account.createdAtMillis, account.activeConnections,
@@ -162,6 +164,7 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
         }
         if (session == null || catalogueJob?.isActive == true) return
         val token = generation
+        val previous = content
         catalogueJob = viewModelScope.launch {
             val next = coroutineScope {
                 val lc = async { repository.liveCategories() }
@@ -173,31 +176,32 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
                 val liveCats = lc.await(); val channels = ch.await(); val movieCats = mc.await()
                 val movies = mv.await(); val seriesCats = sc.await(); val series = se.await()
                 val errors = listOf(liveCats, channels, movieCats, movies, seriesCats, series).count { it is ApiResult.Failure }
-                if (errors > 0) notice = "Não foi possível carregar parte do catálogo. Tente atualizar."
+                if (errors > 0 && generation == token) notice = "Não foi possível carregar parte do catálogo. Tente atualizar."
                 val settings = repository.settings.value
                 val account = repository.account.value
                 val formats = account?.allowedFormats.orEmpty()
                 val format = if (formats.isNotEmpty() && formats.none { it.contains("ts", true) } && account?.supportsHls == true)
                     StreamFormat.HLS else settings.streamFormat
-                val live = channels.getOrNull().orEmpty().mapIndexed { i, c ->
+                val live = channels.getOrNull()?.mapIndexed { i, c ->
                     Channel(c.id.toString(), c.streamNumber.takeIf { it > 0 } ?: (i + 1), c.name, c.icon,
                         c.categoryId.orEmpty(), c.epgChannelId?.trim()?.lowercase(Locale.ROOT) ?: "stream:${c.id}",
                         repository.liveStreamUrl(c.id, format), repository.liveStreamUrl(c.id, format.other()))
-                }
-                val vod = movies.getOrNull().orEmpty().map { m ->
+                } ?: previous.channels
+                val vod = movies.getOrNull()?.map { m ->
                     VodItem(m.id.toString(), m.name, YEAR.find(m.name)?.value.orEmpty(),
                         m.rating?.toDoubleOrNull() ?: (m.rating5?.times(2)) ?: 0.0, "", m.plot.orEmpty(),
                         m.icon, null, m.categoryId.orEmpty(), repository.movieStreamUrl(m))
-                }
-                val shows = series.getOrNull().orEmpty().map { s ->
+                } ?: previous.movies
+                val shows = series.getOrNull()?.map { s ->
                     VodItem(s.id.toString(), s.name, s.releaseDate?.take(4).orEmpty(),
                         s.rating?.toDoubleOrNull() ?: (s.rating5?.times(2)) ?: 0.0, s.genre.orEmpty(),
                         s.plot.orEmpty(), s.cover, s.backdrop, s.categoryId.orEmpty(), null, s.id.toString())
-                }
-                ContentState(liveCats.getOrNull().orEmpty().map { Category(it.id, it.name) }, live,
-                    movieCats.getOrNull().orEmpty().map { Category(it.id, it.name) }, vod,
-                    seriesCats.getOrNull().orEmpty().map { Category(it.id, it.name) }, shows,
-                    vod.filter { it.poster != null }.maxByOrNull { it.rating } ?: vod.firstOrNull())
+                } ?: previous.series
+                ContentState(liveCats.getOrNull()?.map { Category(it.id, it.name) } ?: previous.liveCategories, live,
+                    movieCats.getOrNull()?.map { Category(it.id, it.name) } ?: previous.movieCategories, vod,
+                    seriesCats.getOrNull()?.map { Category(it.id, it.name) } ?: previous.seriesCategories, shows,
+                    if (movies is ApiResult.Failure) previous.hero else
+                        vod.filter { it.poster != null }.maxByOrNull { it.rating } ?: vod.firstOrNull())
             }
             if (generation != token) return@launch
             content = applyProgress(next)

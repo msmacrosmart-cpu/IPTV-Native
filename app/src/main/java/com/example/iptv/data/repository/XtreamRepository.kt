@@ -123,7 +123,7 @@ class XtreamRepository(private val session: SessionManager) {
                 )
 
             val account = XtreamParser.parseAccount(root, server)
-            if (!account.isActive) {
+            if (!account.isActive || account.expiresAtMillis?.let { it <= System.currentTimeMillis() } == true) {
                 return@withContext ApiResult.Failure(accountErrorMessage(account, response.code()))
             }
 

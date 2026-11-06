@@ -55,7 +55,7 @@ jobs:
       - name: Build Debug APK
         run: |
           set -o pipefail
-          ./gradlew assembleDebug --stacktrace --no-daemon 2>&1 | tee build-debug.log
+          ./gradlew assembleDebug assembleDebugAndroidTest --stacktrace --no-daemon 2>&1 | tee build-debug.log
 
       - name: Run unit tests
         run: |
