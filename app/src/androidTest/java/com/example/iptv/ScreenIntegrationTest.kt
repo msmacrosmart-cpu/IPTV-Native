@@ -5,6 +5,8 @@ import android.content.pm.ActivityInfo
 import android.content.res.Configuration
 import android.graphics.Bitmap
 import android.os.ParcelFileDescriptor
+import android.view.View
+import android.view.ViewGroup
 import androidx.compose.ui.input.key.Key
 import androidx.compose.ui.semantics.SemanticsActions
 import androidx.compose.ui.semantics.SemanticsProperties
@@ -17,6 +19,7 @@ import androidx.compose.ui.test.ExperimentalTestApi
 import androidx.compose.ui.test.SemanticsMatcher
 import androidx.compose.ui.test.hasTestTag
 import androidx.compose.ui.test.hasText
+import androidx.compose.ui.test.isFocused
 import androidx.compose.ui.test.junit4.createAndroidComposeRule
 import androidx.compose.ui.test.onAllNodesWithContentDescription
 import androidx.compose.ui.test.onAllNodesWithTag
@@ -34,8 +37,10 @@ import androidx.compose.ui.test.performTextInput
 import androidx.compose.ui.test.performTextClearance
 import androidx.compose.ui.test.performTouchInput
 import androidx.compose.ui.test.pressKey
+import androidx.compose.ui.test.swipeLeft
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.ViewModelStore
+import androidx.media3.ui.PlayerView
 import androidx.work.WorkManager
 import androidx.core.view.ViewCompat
 import androidx.core.view.WindowInsetsCompat
@@ -132,6 +137,9 @@ class ScreenIntegrationTest {
     private val guideRequests = AtomicInteger()
     private val shortRequests = AtomicInteger()
     private val catalogueRequests = AtomicInteger()
+    private val moviesCount = AtomicInteger(30)
+    private val seriesCount = AtomicInteger(1)
+    private val longGuide = AtomicBoolean(false)
     private val offline = AtomicBoolean(false)
     private val failVodStreams = AtomicBoolean(false)
     private val blockNextVod = AtomicBoolean(false)
@@ -194,7 +202,7 @@ class ScreenIntegrationTest {
                     "get_vod_categories" -> """[{"category_id":"10","category_name":"Lançamentos"},{"category_id":"11","category_name":"Ação"}]"""
                     "get_vod_streams" -> {
                         val art = listOf("black-harbor", "summer-static", "house-of-tides", "field-notes", "white-room-six", "open-late", "crimson-skylark", "the-voltage-guard")
-                        (101..130).joinToString(prefix = "[", postfix = "]") { id ->
+                        (101 until 101 + moviesCount.get()).joinToString(prefix = "[", postfix = "]") { id ->
                             val name = if (id == 101) "Filme Teste" else "Filme $id"
                             val poster = server.url("/art/poster-${art[(id - 101) % art.size]}.webp")
                             """{"stream_id":$id,"name":"$name","category_id":"10","container_extension":"ts","rating":"8.0","added":"${2_000_000_000L - id}","stream_icon":"$poster"}"""
@@ -208,7 +216,10 @@ class ScreenIntegrationTest {
                         else """{"info":{"plot":"Sinopse real","genre":"Ação","backdrop_path":["${server.url("/art/backdrop-black-harbor.webp")}"]}}"""
                     }
                     "get_series_categories" -> """[{"category_id":"20","category_name":"Drama"}]"""
-                    "get_series" -> """[{"series_id":101,"name":"Série Teste","category_id":"20","genre":"Drama","cover":"${server.url("/art/poster-skyline-sentinels.webp")}"}]"""
+                    "get_series" -> (101 until 101 + seriesCount.get()).joinToString(prefix = "[", postfix = "]") { id ->
+                        val name = if (id == 101) "Série Teste" else "Série $id"
+                        """{"series_id":$id,"name":"$name","category_id":"20","genre":"Drama","cover":"${server.url("/art/poster-skyline-sentinels.webp")}"}"""
+                    }
                     "get_series_info" -> """{"info":{"plot":"Sinopse da série","backdrop_path":["${server.url("/art/backdrop-skyline-sentinels.webp")}"]},"episodes":{"1":[{"id":"201","episode_num":1,"season":1,"title":"Primeiro","container_extension":"ts"},{"id":"202","episode_num":2,"season":1,"title":"Segundo","container_extension":"ts"}]}}"""
                     else -> "{}"
                 }
@@ -308,9 +319,10 @@ class ScreenIntegrationTest {
         compose.onNodeWithTag("category-search").performTextClearance()
         compose.onNodeWithTag("category-search").performImeAction()
         compose.waitUntil(10_000) { textExists("Ação") && !keyboardIsVisible() }
-        compose.onNodeWithContentDescription("Próxima página").performClick()
-        compose.waitUntil(10_000) { exists("poster-vod:125") && !exists("poster-vod:101") }
-        compose.onNodeWithContentDescription("Página anterior").performClick()
+        compose.onNodeWithContentDescription("Próxima página").assertDoesNotExist()
+        compose.onNodeWithTag("catalog-grid").performScrollToNode(hasTestTag("poster-vod:125"))
+        compose.waitUntil(10_000) { exists("poster-vod:125") }
+        compose.onNodeWithTag("catalog-grid").performScrollToIndex(0)
         compose.waitUntil(10_000) { exists("poster-vod:101") }
         compose.onNodeWithTag("search-field").performTextInput("inexistente")
         compose.waitUntil(10_000) { !exists("poster-vod:101") }
@@ -497,6 +509,10 @@ class ScreenIntegrationTest {
             assertTrue("Phone posters must fit about five across", cardWidth < 120f * compose.activity.resources.displayMetrics.density)
             assertTrue("Home posters must be the same compact size", kotlin.math.abs(homeCardWidth - cardWidth) <= 2f * compose.activity.resources.displayMetrics.density)
             capture("screen-phone.png")
+            compose.onNodeWithTag("catalog-grid").performTouchInput { swipeLeft() }
+            compose.waitUntil(10_000) { runCatching { compose.onNodeWithTag("poster-vod:108").assertIsDisplayed() }.isSuccess }
+            compose.onNodeWithTag("catalog-grid").performScrollToIndex(0)
+            compose.waitUntil(10_000) { exists("poster-vod:101") }
             compose.onNodeWithTag("poster-vod:101").performTouchInput { click() }
             compose.waitUntil(20_000) { textExists("Reproduzir") || textExists("Continuar") }
 
@@ -523,6 +539,9 @@ class ScreenIntegrationTest {
     /** Runs in both the phone emulator and a real Android-TV system-image emulator in CI. */
     @OptIn(ExperimentalTestApi::class)
     @Test fun largeScreenRemoteNavigationAndOverscanAreUsable() {
+        moviesCount.set(80)
+        seriesCount.set(80)
+        longGuide.set(true)
         val isTv = (compose.activity.resources.configuration.uiMode and Configuration.UI_MODE_TYPE_MASK) == Configuration.UI_MODE_TYPE_TELEVISION
         assertLoginFitsAndIsCentered()
         if (isTv) {
@@ -544,7 +563,8 @@ class ScreenIntegrationTest {
         compose.onNodeWithContentDescription("Entrar").performScrollTo().performClick()
         compose.waitUntil(30_000) { compose.onAllNodesWithContentDescription("TV").fetchSemanticsNodes().isNotEmpty() }
         val vm = ViewModelProvider(compose.activity)[AppViewModel::class.java]
-        compose.waitUntil(30_000) { vm.content.channels.size == 2 && vm.content.movies.size == 30 }
+        compose.waitUntil(30_000) { vm.content.channels.size == 2 && vm.content.movies.size == 80 && vm.content.series.size == 80 }
+        compose.waitUntil(30_000) { vm.epg["sports"].orEmpty().size == 14 }
         val view = compose.activity.window.decorView
         assertTrue("The app must be in landscape", view.width > view.height)
         if (isTv) traceIme("main opened")
@@ -565,7 +585,19 @@ class ScreenIntegrationTest {
         compose.onNodeWithTag("poster-vod:101").performSemanticsAction(SemanticsActions.RequestFocus)
             .assertIsFocused().performKeyInput { pressKey(Key.DirectionRight) }
         compose.onNodeWithTag("poster-vod:102").assertIsFocused()
-        if (isTv) traceIme("poster focused")
+        dpadRightPastFirstBatch("vod")
+        compose.onNodeWithContentDescription("Próxima página").assertDoesNotExist()
+        // Switching filters starts at the first item instead of leaving a stale offset.
+        compose.onNodeWithText("Ação").performClick()
+        compose.waitUntil(10_000) { textExists("Nenhum item encontrado.") }
+        compose.onNodeWithText("Todos").performClick()
+        compose.waitUntil(10_000) { runCatching { compose.onNodeWithTag("poster-vod:101").assertIsDisplayed() }.isSuccess }
+        compose.onNodeWithContentDescription("Séries").performSemanticsAction(SemanticsActions.RequestFocus)
+            .assertIsFocused().performKeyInput { pressKey(Key.DirectionCenter) }
+        compose.waitUntil(20_000) { exists("poster-series:101") }
+        compose.onNodeWithTag("poster-series:101").performSemanticsAction(SemanticsActions.RequestFocus).assertIsFocused()
+        dpadRightPastFirstBatch("series")
+        if (isTv) traceIme("posters navigated")
         compose.onNodeWithContentDescription("TV").performSemanticsAction(SemanticsActions.RequestFocus).assertIsFocused()
         if (isTv) traceIme("TV button focused")
         compose.onNodeWithContentDescription("TV").performKeyInput { pressKey(Key.DirectionCenter) }
@@ -581,6 +613,25 @@ class ScreenIntegrationTest {
         assertFalse(exists("preview-channel"))
         compose.onNodeWithTag("channel-2").performKeyInput { pressKey(Key.DirectionCenter) }
         compose.waitUntil(10_000) { runCatching { compose.onNodeWithTag("preview-channel").assertTextContains("Canal Esportes", substring = true) }.isSuccess }
+        compose.waitUntil(20_000) { previewVolume() == 1f }
+        compose.onNodeWithContentDescription("Silenciar").assertExists()
+        val playerIdentity = previewPlayerIdentity()
+        compose.onNodeWithContentDescription("Silenciar").performSemanticsAction(SemanticsActions.RequestFocus)
+            .assertIsFocused().performKeyInput { pressKey(Key.DirectionDown) }
+        compose.waitUntil(10_000) { focused("epg-program-0") }
+        repeat(10) { index ->
+            compose.onNodeWithTag("epg-program-$index").assertIsFocused().performKeyInput { pressKey(Key.DirectionDown) }
+            compose.waitUntil(10_000) { focused("epg-program-${index + 1}") }
+        }
+        compose.onNodeWithTag("epg-program-10").assertIsDisplayed()
+        assertEquals("Scrolling the guide must not recreate or mute the preview", playerIdentity, previewPlayerIdentity())
+        assertEquals(1f, previewVolume() ?: -1f, 0.001f)
+        compose.onNodeWithTag("epg-program-10").performKeyInput { pressKey(Key.DirectionUp) }
+        compose.waitUntil(10_000) { focused("epg-program-9") }
+        compose.onNodeWithContentDescription("Silenciar").performClick()
+        compose.waitUntil(10_000) { previewVolume() == 0f }
+        compose.onNodeWithTag("channel-1").performClick()
+        compose.waitUntil(10_000) { previewVolume() == 1f && textExists("1 · Canal Notícias") }
         if (isTv) {
             // A floating Android TV IME is not always reflected in WindowInsets; inspect the
             // system IME state too, so screenshots cannot pass with a keyboard over the content.
@@ -670,9 +721,9 @@ class ScreenIntegrationTest {
         compose.runOnIdle {
             vm.updateUserSettings(vm.settings.copy(onlyChannelsWithEpg = true, showFullEpg = true, subtitleSizePercent = 125))
         }
-        assertTrue(app.sessionManager.settings().onlyChannelsWithEpg)
-        assertTrue(app.sessionManager.settings().showFullEpg)
-        assertEquals(125, app.sessionManager.settings().subtitleSizePercent)
+        assertTrue(app.sessionManager.loadSettings().onlyChannelsWithEpg)
+        assertTrue(app.sessionManager.loadSettings().showFullEpg)
+        assertEquals(125, app.sessionManager.loadSettings().subtitleSizePercent)
         compose.onNodeWithContentDescription("TV").performClick()
         compose.waitUntil(10_000) { exists("channel-1") }
         assertFalse("Channels without a loaded guide must be hidden", exists("channel-2"))
@@ -835,6 +886,45 @@ class ScreenIntegrationTest {
         app.repository.logout()
     }
 
+    /** Move through lazily composed columns using the same Right key as a real remote. */
+    private fun dpadRightPastFirstBatch(type: String) {
+        repeat(80) {
+            val tag = compose.onAllNodes(isFocused()).fetchSemanticsNodes().firstOrNull()
+                ?.config?.getOrNull(SemanticsProperties.TestTag)
+            val id = tag?.takeIf { it.startsWith("poster-$type:") }?.substringAfter(':')?.toIntOrNull()
+            if (id != null && id > 124) return
+            compose.onNode(isFocused()).performKeyInput { pressKey(Key.DirectionRight) }
+        }
+        throw AssertionError("D-pad did not advance beyond the first 24 $type items")
+    }
+
+    private fun focused(tag: String): Boolean = runCatching {
+        compose.onNodeWithTag(tag).assertIsFocused()
+    }.isSuccess
+
+    @androidx.annotation.OptIn(androidx.media3.common.util.UnstableApi::class)
+    private fun previewPlayerProperty(read: (PlayerView) -> Unit) {
+        compose.runOnIdle {
+            fun visit(view: View) {
+                if (view is PlayerView) read(view)
+                if (view is ViewGroup) for (index in 0 until view.childCount) visit(view.getChildAt(index))
+            }
+            visit(compose.activity.window.decorView)
+        }
+    }
+
+    private fun previewVolume(): Float? {
+        var volume: Float? = null
+        previewPlayerProperty { volume = it.player?.volume }
+        return volume
+    }
+
+    private fun previewPlayerIdentity(): Int? {
+        var identity: Int? = null
+        previewPlayerProperty { identity = it.player?.let(System::identityHashCode) }
+        return identity
+    }
+
     private fun shell(command: String) {
         val output = InstrumentationRegistry.getInstrumentation().uiAutomation.executeShellCommand(command)
         ParcelFileDescriptor.AutoCloseInputStream(output).use { it.readBytes() }
@@ -925,7 +1015,13 @@ class ScreenIntegrationTest {
         val format = SimpleDateFormat("yyyyMMddHHmmss Z", Locale.US).apply { timeZone = TimeZone.getTimeZone("UTC") }
         val now = System.currentTimeMillis()
         val start = format.format(Date(now - 60_000)); val end = format.format(Date(now + 3_600_000))
-        // Only one channel is in XMLTV so the second must use get_short_epg.
-        return """<tv><programme channel="news" start="$start" stop="$end"><title>Jornal</title></programme></tv>"""
+        // Most tests exercise the short-EPG fallback for sports. Remote guide tests
+        // add a longer XMLTV schedule so navigation must scroll beyond eight entries.
+        val sports = if (longGuide.get()) (0 until 14).joinToString("") { index ->
+            val begin = format.format(Date(now - 60_000 + index * 1_800_000L))
+            val finish = format.format(Date(now - 60_000 + (index + 1) * 1_800_000L))
+            """<programme channel="sports" start="$begin" stop="$finish"><title>Programa $index</title></programme>"""
+        } else ""
+        return """<tv><programme channel="news" start="$start" stop="$end"><title>Jornal</title></programme>$sports</tv>"""
     }
 }

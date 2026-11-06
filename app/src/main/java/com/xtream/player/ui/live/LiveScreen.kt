@@ -6,13 +6,13 @@ import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.combinedClickable
+import androidx.compose.foundation.focusable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
-import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.Icon
@@ -59,7 +59,7 @@ import kotlinx.coroutines.delay
 fun LiveScreen(content: ContentState, epg: Map<String, List<Programme>>, favorites: List<String>, query: String,
                onToggleFav: (String) -> Unit, onPlay: (PlayerRequest) -> Unit, previewEnabled: Boolean = true,
                showChannelEpg: Boolean = true, time24Hour: Boolean = true,
-               onlyChannelsWithEpg: Boolean = false, showFullEpg: Boolean = false,
+               onlyChannelsWithEpg: Boolean = false, showFullEpg: Boolean = true,
                onChannelFocused: (Channel) -> Unit = {}, restoreChannelId: String? = null, onChannelRestored: () -> Unit = {}) {
     var catId by rememberSaveable { mutableStateOf("all") }
     var now by remember { mutableLongStateOf(System.currentTimeMillis()) }
@@ -99,7 +99,8 @@ fun LiveScreen(content: ContentState, epg: Map<String, List<Programme>>, favorit
     }
     LaunchedEffect(previewEnabled) { if (!previewEnabled) previewId = null }
     val preview = channels.firstOrNull { it.id == previewId }
-    var muted by rememberSaveable { mutableStateOf(true) }
+    // A newly selected channel starts audibly; the user can mute the current preview.
+    var muted by remember { mutableStateOf(false) }
     fun play(ch: Channel) {
         val index = channels.indexOf(ch).coerceAtLeast(0)
         onPlay(PlayerRequest(ch.name, ch.url, true, channels.ifEmpty { listOf(ch) }, index, ch.fallbackUrl))
@@ -124,6 +125,7 @@ fun LiveScreen(content: ContentState, epg: Map<String, List<Programme>>, favorit
                             previewId = null
                             play(ch)
                         } else {
+                            muted = false
                             previewId = ch.id
                             onChannelFocused(ch)
                         }
@@ -198,8 +200,10 @@ private fun PreviewPanel(channel: Channel?, programs: List<Programme>?, now: Lon
     val upcoming = programs.orEmpty().filter { it.stop > now }.sortedBy { it.start }
         .let { if (showFullEpg && !compact) it else it.take(if (compact) 2 else 8) }
     val shape = RoundedCornerShape(14.dp)
-    Column(modifier.clip(shape).background(Color(0xD00D0F12)).border(1.dp, XColors.Line, shape)
-        .then(if (compact) Modifier else Modifier.verticalScroll(rememberScrollState()))) {
+    val guideState = rememberLazyListState()
+    // Keep the player mounted and audible while the guide itself scrolls.
+    LaunchedEffect(channel?.id) { if (channel != null) guideState.scrollToItem(0) }
+    Column(modifier.clip(shape).background(Color(0xD00D0F12)).border(1.dp, XColors.Line, shape)) {
         Box(Modifier.fillMaxWidth().aspectRatio(if (compact) 2.2f else 16f / 9f).background(Color.Black)) {
             if (enabled && channel != null) PreviewPlayer(channel.url, channel.fallbackUrl, muted)
             else Text("Selecione um canal", color = XColors.TextDim, fontSize = 14.sp, modifier = Modifier.align(Alignment.Center))
@@ -220,14 +224,19 @@ private fun PreviewPanel(channel: Channel?, programs: List<Programme>?, now: Lon
                 IconAction(Icons.Filled.Fullscreen, "Tela cheia", onClick = onPlay)
             }
             if (!compact) {
-                Text("Programação", color = XColors.Text, fontSize = 15.sp, fontWeight = FontWeight.SemiBold, modifier = Modifier.padding(start = 16.dp, top = 6.dp, bottom = 8.dp))
+                Text("Programação", color = XColors.Text, fontSize = 15.sp, fontWeight = FontWeight.SemiBold,
+                    modifier = Modifier.padding(start = 16.dp, top = 6.dp, bottom = 8.dp))
                 if (upcoming.isEmpty()) Text("Sem programação disponível.", color = XColors.TextDim, fontSize = 13.sp, modifier = Modifier.padding(16.dp))
-                upcoming.forEach { p ->
-                    val live = now in p.start until p.stop
-                    Column(Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 3.dp).clip(RoundedCornerShape(12.dp))
-                        .background(if (live) XColors.Selection else XColors.Panel).padding(14.dp)) {
-                        Text("${fmtClock(p.start, time24Hour)} – ${fmtClock(p.stop, time24Hour)}" + if (live) "   AO VIVO" else "", color = if (live) XColors.Live else XColors.TextDim, fontSize = 12.sp)
-                        Text(p.title, color = if (live) XColors.BlueSoft else XColors.Text, fontSize = 14.sp, fontWeight = FontWeight.Medium, modifier = Modifier.padding(top = 6.dp))
+                else LazyColumn(state = guideState, modifier = Modifier.weight(1f).fillMaxWidth().testTag("epg-list")) {
+                    itemsIndexed(upcoming, key = { index, programme -> "${programme.channelId}:${programme.start}:${programme.stop}:$index" }) { index, p ->
+                        val live = now in p.start until p.stop
+                        val programShape = RoundedCornerShape(12.dp)
+                        Column(Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 3.dp)
+                            .testTag("epg-program-$index").focusGlow(programShape, zoom = 1f).clip(programShape)
+                            .background(if (live) XColors.Selection else XColors.Panel).focusable().padding(14.dp)) {
+                            Text("${fmtClock(p.start, time24Hour)} – ${fmtClock(p.stop, time24Hour)}" + if (live) "   AO VIVO" else "", color = if (live) XColors.Live else XColors.TextDim, fontSize = 12.sp)
+                            Text(p.title, color = if (live) XColors.BlueSoft else XColors.Text, fontSize = 14.sp, fontWeight = FontWeight.Medium, modifier = Modifier.padding(top = 6.dp))
+                        }
                     }
                 }
             }
@@ -239,7 +248,10 @@ private fun PreviewPanel(channel: Channel?, programs: List<Programme>?, now: Lon
 private fun PreviewPlayer(url: String, fallbackUrl: String?, muted: Boolean) {
     val ctx = LocalContext.current
     val lifecycleOwner = LocalLifecycleOwner.current
-    val player = remember { buildPlayer(ctx, handleAudioFocus = false).apply { volume = 0f; playWhenReady = true } }
+    val player = remember { buildPlayer(ctx, handleAudioFocus = !muted).apply {
+        volume = if (muted) 0f else 1f
+        playWhenReady = true
+    } }
     var triedFallback by remember(url) { mutableStateOf(false) }
     var failed by remember(url) { mutableStateOf(false) }
     DisposableEffect(player, url, fallbackUrl) {

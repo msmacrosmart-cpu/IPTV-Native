@@ -71,7 +71,7 @@ data class UserSettings(
     val time24Hour: Boolean = true,
     val showChannelEpg: Boolean = true,
     val onlyChannelsWithEpg: Boolean = false,
-    val showFullEpg: Boolean = false,
+    val showFullEpg: Boolean = true,
     val subtitlesEnabled: Boolean = true,
     val subtitleSizePercent: Int = 100,
     val autoplayNextEpisode: Boolean = false,

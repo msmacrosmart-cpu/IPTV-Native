@@ -138,7 +138,7 @@ class SessionManager(context: Context) {
             time24Hour = prefs.getBoolean(KEY_TIME_24, true),
             showChannelEpg = prefs.getBoolean(KEY_SHOW_EPG, true),
             onlyChannelsWithEpg = prefs.getBoolean(KEY_ONLY_EPG, false),
-            showFullEpg = prefs.getBoolean(KEY_FULL_EPG, false),
+            showFullEpg = prefs.getBoolean(KEY_FULL_EPG, true),
             subtitlesEnabled = prefs.getBoolean(KEY_SUBTITLES, true),
             subtitleSizePercent = prefs.getInt(KEY_SUBTITLE_SIZE, 100).coerceIn(75, 150),
             autoplayNextEpisode = prefs.getBoolean(KEY_NEXT_EPISODE, false),
