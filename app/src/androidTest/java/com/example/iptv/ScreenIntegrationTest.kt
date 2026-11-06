@@ -669,8 +669,16 @@ class ScreenIntegrationTest {
 
             // Down enters a single horizontal cast rail; Right reaches every actor and scrolls it.
             useRemoteInputMode()
-            compose.onNodeWithTag("detail-trailer").performSemanticsAction(SemanticsActions.RequestFocus)
-                .assertIsFocused().performKeyInput { pressKey(Key.DirectionDown) }
+            // Leaving touch mode can trigger a layout/focus restoration on the phone emulator.
+            // Wait for that transition before checking directional navigation; keep the actual
+            // focus assertion and D-pad traversal (a click would not exercise TV navigation).
+            compose.waitUntil(10_000) {
+                compose.onNodeWithTag("detail-trailer")
+                    .performSemanticsAction(SemanticsActions.RequestFocus)
+                focused("detail-trailer")
+            }
+            compose.onNodeWithTag("detail-trailer").assertIsFocused()
+                .performKeyInput { pressKey(Key.DirectionDown) }
             compose.waitUntil(10_000) { (0..7).any { focused("cast-member-$it") } }
             compose.onNodeWithTag("cast-member-0").performSemanticsAction(SemanticsActions.RequestFocus).assertIsFocused()
             val firstTop = compose.onNodeWithTag("cast-member-0").fetchSemanticsNode().boundsInRoot.top
