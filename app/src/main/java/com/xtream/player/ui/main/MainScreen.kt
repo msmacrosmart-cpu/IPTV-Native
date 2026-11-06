@@ -21,6 +21,7 @@ import com.xtream.player.ui.live.LiveScreen
 import com.xtream.player.ui.multi.MultiScreen
 import com.xtream.player.ui.settings.SettingsScreen
 import com.xtream.player.ui.theme.XColors
+import kotlinx.coroutines.delay
 
 class MainActions(
     val onPlay: (PlayerRequest) -> Unit,
@@ -54,6 +55,9 @@ fun MainScreen(session: Session?, content: ContentState, epg: Map<String, List<P
     val searchFocus = remember { FocusRequester() }
     val hideKeyboard = rememberHideKeyboard()
     LaunchedEffect(session?.server, session?.username) { slots = List(4) { "" }; audible = 0 }
+    // TV input services sometimes finish a queued show after the tab changes. Repeat the
+    // hide once the new screen is mounted, so it does not cover the player or catalog.
+    LaunchedEffect(tab) { delay(250); hideKeyboard() }
     val focusManager = LocalFocusManager.current
     val inputMode = LocalInputModeManager.current
     val selectTab: (Tab) -> Unit = { selected ->

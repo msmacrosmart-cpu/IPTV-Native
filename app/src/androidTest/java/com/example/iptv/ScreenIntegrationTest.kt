@@ -452,8 +452,10 @@ class ScreenIntegrationTest {
         compose.onNodeWithTag("poster-vod:101").performSemanticsAction(SemanticsActions.RequestFocus)
             .assertIsFocused().performKeyInput { pressKey(Key.DirectionRight) }
         compose.onNodeWithTag("poster-vod:102").assertIsFocused()
-        compose.onNodeWithContentDescription("TV").performSemanticsAction(SemanticsActions.RequestFocus)
-            .assertIsFocused().performKeyInput { pressKey(Key.DirectionCenter) }
+        if (isTv) traceIme("poster focused")
+        compose.onNodeWithContentDescription("TV").performSemanticsAction(SemanticsActions.RequestFocus).assertIsFocused()
+        if (isTv) traceIme("TV button focused")
+        compose.onNodeWithContentDescription("TV").performKeyInput { pressKey(Key.DirectionCenter) }
         compose.waitUntil(20_000) { exists("channel-1") && exists("channel-2") }
         if (isTv) traceIme("TV opened")
         assertSideBySide("tv-categories-pane", "tv-channel-pane", "tv-preview-pane")
