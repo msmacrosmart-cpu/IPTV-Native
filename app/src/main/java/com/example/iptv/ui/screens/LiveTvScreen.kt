@@ -43,6 +43,7 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.painter.ColorPainter
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
@@ -247,7 +248,7 @@ private fun ChannelsColumn(
 private fun ChannelRow(channel: LiveChannel, playing: Boolean, program: EpgEntry?, now: Long, onFocused: () -> Unit, onOpen: () -> Unit) {
     SunsetFocusable(
         onClick = onOpen, onFocused = onFocused, selected = playing,
-        shape = RoundedCornerShape(18.dp), modifier = Modifier.fillMaxWidth().height(72.dp)
+        shape = RoundedCornerShape(18.dp), modifier = Modifier.fillMaxWidth().height(72.dp).testTag("channel-${channel.id}")
     ) {
         Row(Modifier.fillMaxSize().padding(horizontal = 8.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(7.dp)) {
             Text(if (channel.streamNumber > 0) channel.streamNumber.toString() else "—", modifier = Modifier.width(27.dp), textAlign = TextAlign.Center,
@@ -305,7 +306,7 @@ private fun PreviewColumn(
                         Text("Selecione um canal", color = SunsetColors.TextSecondary)
                     } else {
                         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                            Text(selected.name, modifier = Modifier.weight(1f), color = SunsetColors.TextPrimary, fontSize = 17.sp,
+                            Text(selected.name, modifier = Modifier.weight(1f).testTag("preview-channel"), color = SunsetColors.TextPrimary, fontSize = 17.sp,
                                 fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis)
                             LiveBadge()
                         }

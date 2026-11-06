@@ -36,8 +36,12 @@ object XtreamParser {
         val server = obj?.get("server_info").asObject()
 
         val status = user?.string("status") ?: "Unknown"
-        val auth = user?.int("auth") ?: 0
-        val isActive = auth == 1 || status.equals("Active", true)
+        val auth = user?.int("auth")
+        // Some panels omit auth or status, but an explicit rejection/disabled status wins.
+        val isActive = auth != 0 && when {
+            status.equals("Unknown", true) -> auth == 1
+            else -> status.equals("Active", true)
+        }
 
         val allowedFormats = user?.stringList("allowed_output_formats") ?: emptyList()
 
@@ -47,8 +51,8 @@ object XtreamParser {
             message = user?.string("message") ?: "",
             isActive = isActive,
             isTrial = user?.bool("is_trial") ?: false,
-            expiresAtMillis = user?.long("exp_date")?.takeIf { it > 0L },
-            createdAtMillis = user?.long("created_at")?.takeIf { it > 0L },
+            expiresAtMillis = epochMillis(user?.long("exp_date")),
+            createdAtMillis = epochMillis(user?.long("created_at")),
             maxConnections = user?.int("max_connections") ?: 1,
             activeConnections = user?.int("active_cons") ?: 0,
             allowedFormats = allowedFormats,
@@ -57,6 +61,11 @@ object XtreamParser {
             timezone = server?.string("timezone") ?: "UTC",
             panelUrl = panelUrl
         )
+    }
+
+    // Xtream usually sends Unix seconds; accept milliseconds from panels that already convert it.
+    private fun epochMillis(value: Long?): Long? = value?.takeIf { it > 0L }?.let {
+        if (it < 10_000_000_000L) it * 1000L else it
     }
 
     // ---------------------------------------------------------------- categories

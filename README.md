@@ -19,6 +19,8 @@ Requisitos: JDK 17, Android SDK 35 e acesso aos repositórios configurados no Gr
 
 ```sh
 ./gradlew testDebugUnitTest
+# Com um emulador ou dispositivo conectado:
+./gradlew connectedDebugAndroidTest
 ./gradlew assembleDebug
 ./gradlew assembleRelease
 ```

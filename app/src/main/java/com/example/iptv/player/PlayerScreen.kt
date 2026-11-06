@@ -190,6 +190,7 @@ fun PlayerScreen(
     // Immersive mode + landscape lock + keep screen on.
     DisposableEffect(activity) {
         val window = activity?.window
+        val previousOrientation = activity?.requestedOrientation
         val controller = window?.let { WindowCompat.getInsetsController(it, it.decorView) }
         controller?.apply {
             systemBarsBehavior = WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
@@ -201,7 +202,7 @@ fun PlayerScreen(
         onDispose {
             controller?.show(WindowInsetsCompat.Type.systemBars())
             window?.clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
-            activity?.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED
+            if (activity != null && previousOrientation != null) activity.requestedOrientation = previousOrientation
         }
     }
 
@@ -215,6 +216,9 @@ fun PlayerScreen(
                 PlayerView(viewContext).apply {
                     this.player = player
                     useController = false
+                    isFocusable = false
+                    isFocusableInTouchMode = false
+                    descendantFocusability = ViewGroup.FOCUS_BLOCK_DESCENDANTS
                     layoutParams = ViewGroup.LayoutParams(
                         ViewGroup.LayoutParams.MATCH_PARENT,
                         ViewGroup.LayoutParams.MATCH_PARENT
