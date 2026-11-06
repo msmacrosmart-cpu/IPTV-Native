@@ -248,9 +248,13 @@ class ScreenIntegrationTest {
         // Two separate Media3 players must be playing at the same time, not merely placeholders.
         compose.onNodeWithContentDescription("Multitela").performClick()
         compose.onNodeWithContentDescription("Adicionar canal 1").performClick()
+        compose.onNodeWithText("Buscar canal").performTextInput("Notícias")
+        compose.waitUntil(10_000) { exists("choose-channel-1") && !exists("choose-channel-2") }
         compose.onNodeWithTag("choose-channel-1").performClick()
+        compose.waitUntil(10_000) { !keyboardIsVisible() }
         compose.onNodeWithContentDescription("Adicionar canal 2").performClick()
         compose.onNodeWithTag("choose-channel-2").performClick()
+        compose.waitUntil(10_000) { !keyboardIsVisible() }
         compose.waitUntil(10_000) { runCatching { compose.onNodeWithTag("multi-tile-2").assertIsFocused() }.isSuccess }
         compose.waitUntil(30_000) { multiState(1) == "playing" && multiState(2) == "playing" }
         compose.onNodeWithContentDescription("Som ativo na tela 2").assertExists()
@@ -267,8 +271,10 @@ class ScreenIntegrationTest {
         compose.onNodeWithTag("credential-user").performScrollTo().performTextClearance()
         compose.onNodeWithTag("credential-user").performTextInput("bob")
         compose.onNodeWithText("Salvar e conectar").performScrollTo().performClick()
-        compose.waitUntil(30_000) { vm.session?.username == "bob" && !vm.loading }
+        compose.waitUntil(30_000) { vm.session?.username == "bob" && !vm.loading && vm.content.channels.size == 2 }
+        compose.waitUntil(10_000) { !keyboardIsVisible() }
         assertEquals("bob", app.repository.currentCredentials()?.username)
+        compose.onNodeWithText("Configurações").performScrollTo()
         capture("screen-settings.png")
         compose.onNodeWithText("Sair da conta").performScrollTo().performClick()
         compose.waitUntil(10_000) { textExists("Adicionar conexão") }
@@ -293,6 +299,12 @@ class ScreenIntegrationTest {
             }
             compose.onNodeWithContentDescription("Filmes").performClick()
             compose.waitUntil(30_000) { exists("poster-vod:101") }
+            // Assert that real asynchronous image decoding completed, not just placeholder layout.
+            compose.waitUntil(30_000) {
+                (101..104).all { id ->
+                    compose.onAllNodesWithTag("loaded-poster-vod:$id", useUnmergedTree = true).fetchSemanticsNodes().isNotEmpty()
+                }
+            }
             capture("screen-phone.png")
             compose.onNodeWithContentDescription("Multitela").performClick()
             compose.onNodeWithContentDescription("Adicionar canal 1").assertIsDisplayed()
@@ -347,6 +359,12 @@ class ScreenIntegrationTest {
     private fun textExists(text: String) = runCatching { compose.onNodeWithText(text).assertExists() }.isSuccess
 
     private fun capture(name: String) {
+        // Semantics may update one frame before SurfaceFlinger presents it, especially after IME dismissal.
+        // Keep failure diagnostics independent of Compose idling so a stuck UI can still be captured.
+        if (name.startsWith("screen-")) {
+            compose.waitForIdle()
+            Thread.sleep(250)
+        }
         val image = InstrumentationRegistry.getInstrumentation().uiAutomation.takeScreenshot()
         val bytes = ByteArrayOutputStream().use { output -> image.compress(Bitmap.CompressFormat.PNG, 100, output); output.toByteArray() }
         image.recycle()

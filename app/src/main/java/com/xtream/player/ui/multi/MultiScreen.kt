@@ -32,7 +32,9 @@ import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.input.InputMode
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.platform.LocalInputModeManager
+import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.stateDescription
@@ -126,6 +128,11 @@ private fun ChannelPicker(channels: List<Channel>, onDismiss: () -> Unit, onChoo
     var query by remember { mutableStateOf("") }
     val filtered = remember(channels, query) { channels.filter { it.name.contains(query, true) } }
     Dialog(onDismissRequest = onDismiss) {
+        // The dialog has its own window and text-input owner. Close its native IME before
+        // removing the dialog, otherwise it can remain over the videos after selection.
+        val keyboard = LocalSoftwareKeyboardController.current
+        val focus = LocalFocusManager.current
+        val closePicker = { keyboard?.hide(); focus.clearFocus(force = true); onDismiss() }
         GlassPanel(Modifier.fillMaxWidth().widthIn(max = 500.dp).heightIn(max = 560.dp), RoundedCornerShape(16.dp)) {
             Column(Modifier.fillMaxWidth().padding(20.dp)) {
                 Text("Escolher canal", color = XColors.Text, fontSize = 20.sp, fontWeight = FontWeight.SemiBold)
@@ -135,7 +142,8 @@ private fun ChannelPicker(channels: List<Channel>, onDismiss: () -> Unit, onChoo
                     items(filtered, key = { it.id }) { channel ->
                         val shape = RoundedCornerShape(8.dp)
                         Row(Modifier.fillMaxWidth().testTag("choose-channel-${channel.id}").focusGlow(shape, zoom = 1f).clip(shape)
-                            .combinedClickable { onChoose(channel) }.padding(horizontal = 12.dp, vertical = 12.dp),
+                            .combinedClickable { keyboard?.hide(); focus.clearFocus(force = true); onChoose(channel) }
+                            .padding(horizontal = 12.dp, vertical = 12.dp),
                             verticalAlignment = Alignment.CenterVertically) {
                             Icon(Icons.Filled.LiveTv, null, tint = XColors.TextDim, modifier = Modifier.size(20.dp))
                             Text("${channel.number}. ${channel.name}", color = XColors.Text, fontSize = 14.sp,
@@ -144,7 +152,7 @@ private fun ChannelPicker(channels: List<Channel>, onDismiss: () -> Unit, onChoo
                     }
                 }
                 Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
-                    IconAction(Icons.Filled.Close, "Fechar", onClick = onDismiss)
+                    IconAction(Icons.Filled.Close, "Fechar", onClick = closePicker)
                 }
             }
         }

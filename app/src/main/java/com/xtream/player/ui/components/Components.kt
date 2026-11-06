@@ -124,12 +124,16 @@ fun CategoryChip(text: String, selected: Boolean, dropdown: Boolean = false, onL
 @Composable
 fun PosterArt(item: VodItem, modifier: Modifier = Modifier) {
     var failed by remember(item.poster) { mutableStateOf(false) }
-    Box(modifier.background(XColors.Panel), contentAlignment = Alignment.Center) {
-        if (!item.poster.isNullOrBlank() && !failed) {
-            AsyncImage(item.poster, null, contentScale = ContentScale.Crop, modifier = Modifier.fillMaxSize(), onError = { failed = true })
-        } else {
+    var loaded by remember(item.poster) { mutableStateOf(false) }
+    val imageTag = if (loaded) Modifier.testTag("loaded-poster-${item.favoriteKey}") else Modifier
+    Box(modifier.then(imageTag).background(XColors.Panel), contentAlignment = Alignment.Center) {
+        if (item.poster.isNullOrBlank() || failed || !loaded) {
             Icon(if (item.isSeries) Icons.Filled.Tv else Icons.Filled.Movie, null,
                 tint = XColors.Accent.copy(alpha = .5f), modifier = Modifier.size(42.dp))
+        }
+        if (!item.poster.isNullOrBlank() && !failed) {
+            AsyncImage(item.poster, null, contentScale = ContentScale.Crop, modifier = Modifier.fillMaxSize(),
+                onSuccess = { loaded = true }, onError = { loaded = false; failed = true })
         }
     }
 }
