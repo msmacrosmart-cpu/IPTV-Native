@@ -41,7 +41,7 @@ fun LoginScreen(loading: Boolean, error: String?, onLogin: (server: String, user
     LaunchedEffect(Unit) {
         if (inputMode.inputMode != InputMode.Touch) { delay(100); runCatching { firstField.requestFocus() } }
     }
-    Box(Modifier.fillMaxSize().background(XColors.Shell).verticalScroll(rememberScrollState()).padding(18.dp),
+    Box(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(18.dp),
         contentAlignment = Alignment.Center) {
         GlassPanel(Modifier.widthIn(max = 500.dp).fillMaxWidth(), RoundedCornerShape(18.dp)) {
             Column(Modifier.fillMaxWidth().padding(26.dp)) {

@@ -14,6 +14,7 @@ import com.example.iptv.data.model.ApiResult
 import com.example.iptv.data.model.Episode
 import com.example.iptv.data.model.PanelCredentials
 import com.example.iptv.data.model.StreamFormat
+import com.example.iptv.data.model.VodDetails
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.async
 import kotlinx.coroutines.coroutineScope
@@ -35,13 +36,18 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
     private var episodeJob: Job? = null
     private var detailJob: Job? = null
     private var restoreJob: Job? = null
+    private var heroPlayJob: Job? = null
+    private val heroInfoJobs = mutableMapOf<String, Job>()
     private var generation = 0
     private var detailGeneration = 0
+    private var heroPlayGeneration = 0
     private val shortGuide = mutableMapOf<String, List<Programme>>()
     private val shortGuideFetchedAt = mutableMapOf<String, Long>()
 
     var session by mutableStateOf<Session?>(null); private set
     var content by mutableStateOf(emptyContent()); private set
+    var heroDetails by mutableStateOf<Map<String, VodDetails>>(emptyMap()); private set
+    var loadingHeroKey by mutableStateOf<String?>(null); private set
     var epg by mutableStateOf<Map<String, List<Programme>>>(emptyMap()); private set
     var epgUpdatedAt by mutableStateOf<Long?>(null); private set
     var epgLoading by mutableStateOf(false); private set
@@ -212,19 +218,30 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
             }
             if (generation != token) return@launch
             content = applyProgress(next)
-            // The catalog response often omits plot, genre and backdrop; enrich only the hero.
-            val hero = content.hero
-            val heroId = hero?.id?.toIntOrNull()
-            if (hero != null && heroId != null) {
-                val details = repository.vodDetails(heroId).getOrNull()
-                if (details != null && generation == token && content.hero?.id == hero.id) {
-                    content = content.copy(hero = hero.copy(
-                        plot = details.plot ?: hero.plot, genre = details.genre ?: hero.genre,
-                        year = details.releaseDate?.take(4) ?: hero.year,
-                        backdrop = details.backdrop ?: hero.backdrop,
-                        rating = details.rating?.toDoubleOrNull() ?: hero.rating,
-                    ))
-                }
+        }
+    }
+
+    /** Fetch wide artwork for only the six visible hero candidates, not the whole catalog. */
+    fun prepareHeroItems(items: List<VodItem>) {
+        if (session?.isDemo != false) return
+        val candidates = items.take(6)
+        val visibleKeys = candidates.map { it.favoriteKey }.toSet()
+        // Fast search changes should not leave dozens of obsolete network requests running.
+        heroInfoJobs.entries.filter { it.key !in visibleKeys && it.value.isActive }.forEach {
+            it.value.cancel(); heroInfoJobs.remove(it.key)
+        }
+        val token = generation
+        candidates.forEach { item ->
+            val key = item.favoriteKey
+            val id = (item.seriesId ?: item.id).toIntOrNull() ?: return@forEach
+            if (!item.backdrop.isNullOrBlank() || heroInfoJobs.containsKey(key)) return@forEach
+            // Keep a small bounded cache for low-memory TV sticks.
+            if (heroInfoJobs.size >= 60) heroInfoJobs.entries.firstOrNull { !it.value.isActive && it.key !in visibleKeys }?.let {
+                heroInfoJobs.remove(it.key); heroDetails = heroDetails - it.key
+            }
+            heroInfoJobs[key] = viewModelScope.launch {
+                val result = if (item.isSeries) repository.seriesDetails(id) else repository.vodDetails(id)
+                if (generation == token && result is ApiResult.Success) heroDetails = heroDetails + (key to result.data)
             }
         }
     }
@@ -324,9 +341,7 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
             detailJob = viewModelScope.launch {
                 val details = repository.vodDetails(id).getOrNull()
                 if (details != null && generation == token && detailGeneration == detailToken && detailItem?.favoriteKey == item.favoriteKey) {
-                    detailItem = item.copy(plot = details.plot ?: item.plot, genre = details.genre ?: item.genre,
-                        year = details.releaseDate?.take(4) ?: item.year, backdrop = details.backdrop ?: item.backdrop,
-                        rating = details.rating?.toDoubleOrNull() ?: item.rating)
+                    detailItem = detailItem?.withHeroDetails(details)
                 }
             }
         }
@@ -345,6 +360,54 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
             resumePositionMs = saved?.position ?: 0L))
     }
 
+    /** Play a movie immediately, or resolve the last-watched/first episode for a series. */
+    fun playHero(item: VodItem, onReady: (PlayerRequest) -> Unit) {
+        if (!item.isSeries) { playItem(item, onReady); return }
+        if (heroPlayJob?.isActive == true) return
+        if (session?.isDemo == true) {
+            playPreferredEpisode(item, DemoData.episodes(), onReady)
+            return
+        }
+        val id = item.seriesId?.toIntOrNull() ?: run { notice = "Série indisponível."; return }
+        val token = generation
+        val playToken = ++heroPlayGeneration
+        loadingHeroKey = item.favoriteKey
+        heroPlayJob = viewModelScope.launch {
+            try {
+                when (val result = repository.seriesInfo(id)) {
+                    is ApiResult.Success -> if (generation == token && heroPlayGeneration == playToken) {
+                        val choices = result.data.flatMap { it.episodes }.map { EpisodeChoice(it, repository.episodeStreamUrl(it)) }
+                            .sortedWith(compareBy({ it.episode.season }, { it.episode.number }))
+                        heroPlayJob = null; loadingHeroKey = null
+                        playPreferredEpisode(item, choices, onReady)
+                    }
+                    is ApiResult.Failure -> if (generation == token && heroPlayGeneration == playToken) notice = result.message
+                }
+            } finally {
+                if (generation == token && heroPlayGeneration == playToken) { heroPlayJob = null; loadingHeroKey = null }
+            }
+        }
+    }
+
+    fun cancelHeroPlayback() {
+        heroPlayGeneration++
+        heroPlayJob?.cancel(); heroPlayJob = null; loadingHeroKey = null
+    }
+
+    private fun playPreferredEpisode(item: VodItem, choices: List<EpisodeChoice>, onReady: (PlayerRequest) -> Unit) {
+        val savedId = history[item.favoriteKey]?.episodeId
+        val choice = choices.firstOrNull { it.episode.id == savedId } ?: choices.firstOrNull()
+        if (choice == null) { notice = "Nenhum episódio disponível para esta série."; return }
+        onReady(episodeRequest(item, choice))
+    }
+
+    private fun episodeRequest(item: VodItem, choice: EpisodeChoice): PlayerRequest {
+        val key = item.favoriteKey
+        val saved = history[key]?.takeIf { it.episodeId == choice.episode.id }
+        return PlayerRequest("${item.title} · ${choice.label}", choice.url, false,
+            libraryKey = key, episodeId = choice.episode.id, resumePositionMs = saved?.position ?: 0L)
+    }
+
     fun playSeries(onReady: (PlayerRequest) -> Unit) {
         val selection = episodeSelection ?: return
         val savedId = history[selection.item.favoriteKey]?.episodeId
@@ -354,10 +417,7 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
 
     fun playEpisode(choice: EpisodeChoice, onReady: (PlayerRequest) -> Unit) {
         val selection = episodeSelection ?: return
-        val key = selection.item.favoriteKey
-        val saved = history[key]?.takeIf { it.episodeId == choice.episode.id }
-        onReady(PlayerRequest("${selection.item.title} · ${choice.label}", choice.url, false,
-            libraryKey = key, episodeId = choice.episode.id, resumePositionMs = saved?.position ?: 0L))
+        onReady(episodeRequest(selection.item, choice))
     }
 
     fun saveProgress(request: PlayerRequest, position: Long, duration: Long) {
@@ -399,6 +459,8 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
         generation++; detailGeneration++
         catalogueJob?.cancel(); guideJob?.cancel(); shortEpgJob?.cancel(); episodeJob?.cancel()
         detailJob?.cancel()
+        cancelHeroPlayback()
+        heroInfoJobs.values.forEach { it.cancel() }; heroInfoJobs.clear(); heroDetails = emptyMap()
         detailItem = null; episodeSelection = null; episodeLoading = false; episodeError = null
     }
 

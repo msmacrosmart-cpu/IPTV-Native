@@ -221,6 +221,12 @@ class XtreamRepository(private val session: SessionManager) {
             service.seriesInfo(creds.username, creds.password, XtreamActions.SERIES_INFO, seriesId)
         }
 
+    /** The same series-info response also has an `info` section with a wide backdrop. */
+    suspend fun seriesDetails(seriesId: Int): ApiResult<VodDetails> =
+        withApi({ XtreamParser.parseVodInfo(it) }) { service, creds ->
+            service.seriesInfo(creds.username, creds.password, XtreamActions.SERIES_INFO, seriesId)
+        }
+
     /** Round-trip latency to the panel, used by the settings screen. */
     suspend fun ping(): ApiResult<Long> = withContext(Dispatchers.IO) {
         val creds = credentials ?: return@withContext ApiResult.Failure("Sessão expirada.")

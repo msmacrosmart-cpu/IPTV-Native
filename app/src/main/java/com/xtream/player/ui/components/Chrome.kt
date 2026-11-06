@@ -7,6 +7,8 @@ import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
+import androidx.compose.foundation.text.KeyboardActions
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material.icons.outlined.*
@@ -22,12 +24,15 @@ import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.selected
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.xtream.player.ui.theme.DmSans
@@ -45,9 +50,9 @@ enum class Tab(val label: String, val outlined: ImageVector, val filled: ImageVe
 
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
-private fun SideButton(tab: Tab, selected: Boolean, onClick: () -> Unit) {
+private fun SideButton(tab: Tab, selected: Boolean, size: Dp = 48.dp, onClick: () -> Unit) {
     val shape = RoundedCornerShape(14.dp)
-    Box(Modifier.size(48.dp).focusGlow(shape, width = 2.dp, zoom = 1f).clip(shape)
+    Box(Modifier.size(size).focusGlow(shape, width = 2.dp, zoom = 1f).clip(shape)
         .background(if (selected) XColors.Selection else Color.Transparent)
         .border(1.dp, if (selected) XColors.Accent.copy(alpha = .62f) else Color.Transparent, shape)
         .semantics { this.selected = selected }
@@ -67,15 +72,19 @@ fun Sidebar(selected: Tab, onSelect: (Tab) -> Unit, compact: Boolean, modifier: 
             Tab.entries.forEach { SideButton(it, selected == it) { onSelect(it) } }
         }
     } else {
-        Column(modifier.fillMaxHeight().width(64.dp).background(XColors.Sidebar).padding(horizontal = 8.dp, vertical = 8.dp),
-            horizontalAlignment = Alignment.CenterHorizontally) {
-            Spacer(Modifier.height(48.dp))
-            Tab.entries.filter { it != Tab.Settings }.forEach {
-                SideButton(it, selected == it) { onSelect(it) }
-                Spacer(Modifier.height(2.dp))
+        BoxWithConstraints(modifier.fillMaxHeight().width(64.dp).background(XColors.Sidebar)) {
+            val dense = maxHeight < 420.dp
+            val itemSize = if (maxHeight < 340.dp) 42.dp else 48.dp
+            Column(Modifier.fillMaxSize().padding(horizontal = 8.dp, vertical = if (dense) 4.dp else 8.dp),
+                horizontalAlignment = Alignment.CenterHorizontally) {
+                Spacer(Modifier.height(if (dense) 4.dp else 48.dp))
+                Tab.entries.filter { it != Tab.Settings }.forEach {
+                    SideButton(it, selected == it, itemSize) { onSelect(it) }
+                    Spacer(Modifier.height(2.dp))
+                }
+                Spacer(Modifier.weight(1f))
+                SideButton(Tab.Settings, selected == Tab.Settings, itemSize) { onSelect(Tab.Settings) }
             }
-            Spacer(Modifier.weight(1f))
-            SideButton(Tab.Settings, selected == Tab.Settings) { onSelect(Tab.Settings) }
         }
     }
 }
@@ -95,6 +104,7 @@ fun TopBar(
     tab: Tab, query: String, onQuery: (String) -> Unit, playlistName: String,
     playlistInfo: String, searchFocus: FocusRequester, compact: Boolean, onRefresh: () -> Unit,
 ) {
+    val keyboard = LocalSoftwareKeyboardController.current
     Row(Modifier.fillMaxWidth().height(56.dp).background(XColors.Sidebar).padding(horizontal = if (compact) 10.dp else 20.dp),
         verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
         Row(Modifier.width(if (compact) 100.dp else 250.dp).clip(RoundedCornerShape(9.dp))
@@ -122,6 +132,8 @@ fun TopBar(
                         BasicTextField(query, onQuery, singleLine = true,
                             textStyle = TextStyle(color = XColors.Text, fontSize = 14.sp, fontFamily = DmSans),
                             cursorBrush = SolidColor(XColors.Accent),
+                            keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
+                            keyboardActions = KeyboardActions(onSearch = { keyboard?.hide() }),
                             modifier = Modifier.fillMaxWidth().testTag("search-field").focusRequester(searchFocus)
                                 .onFocusChanged { focused = it.isFocused })
                     }

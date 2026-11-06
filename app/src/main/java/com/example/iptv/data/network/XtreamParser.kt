@@ -262,7 +262,7 @@ object XtreamParser {
             cast = info?.string("cast")?.takeIf { it.isNotBlank() },
             director = info?.string("director")?.takeIf { it.isNotBlank() },
             genre = info?.string("genre")?.takeIf { it.isNotBlank() },
-            releaseDate = info?.string("releasedate") ?: info?.string("release_date"),
+            releaseDate = info?.string("releasedate") ?: info?.string("release_date") ?: info?.string("releaseDate"),
             durationLabel = info?.string("duration")?.takeIf { it.isNotBlank() },
             backdrop = backdrop?.takeIf { it.isNotBlank() },
             rating = info?.string("rating")?.takeIf { it.isNotBlank() }

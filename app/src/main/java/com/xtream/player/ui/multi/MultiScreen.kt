@@ -103,7 +103,7 @@ fun MultiScreen(channels: List<Channel>, slotIds: List<String?>, audible: Int, e
     BoxWithConstraints(Modifier.fillMaxSize()) {
         // Three 44 dp player actions need enough room; stack videos on narrow phones.
         val columns = if (maxWidth < 448.dp) 1 else 2
-        LazyVerticalGrid(columns = GridCells.Fixed(columns), modifier = Modifier.fillMaxSize().background(XColors.Bg),
+        LazyVerticalGrid(columns = GridCells.Fixed(columns), modifier = Modifier.fillMaxSize(),
             contentPadding = PaddingValues(18.dp), horizontalArrangement = Arrangement.spacedBy(12.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp)) {
             item(span = { GridItemSpan(maxLineSpan) }) {

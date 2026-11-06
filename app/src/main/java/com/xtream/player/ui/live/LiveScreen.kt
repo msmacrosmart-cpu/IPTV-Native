@@ -8,7 +8,6 @@ import androidx.compose.foundation.border
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.rememberScrollState
@@ -49,8 +48,6 @@ import androidx.media3.ui.PlayerView
 import coil.compose.AsyncImage
 import com.xtream.player.data.*
 import com.xtream.player.ui.browse.CatalogCategoryRow
-import com.xtream.player.ui.components.CategoryChip
-import com.xtream.player.ui.components.GlowButton
 import com.xtream.player.ui.components.IconAction
 import com.xtream.player.ui.components.focusGlow
 import com.xtream.player.ui.player.buildPlayer
@@ -98,15 +95,16 @@ fun LiveScreen(content: ContentState, epg: Map<String, List<Programme>>, favorit
     var muted by rememberSaveable { mutableStateOf(true) }
     fun play(ch: Channel) {
         val index = channels.indexOf(ch).coerceAtLeast(0)
-        onPlay(PlayerRequest(ch.name, ch.url, true, channels.ifEmpty { listOf(ch) }, index))
+        onPlay(PlayerRequest(ch.name, ch.url, true, channels.ifEmpty { listOf(ch) }, index, ch.fallbackUrl))
     }
     @Composable fun ChannelList(modifier: Modifier) {
-        Column(modifier.background(XColors.Bg)) {
+        val shape = RoundedCornerShape(14.dp)
+        Column(modifier.testTag("tv-channel-pane").clip(shape).background(Color(0xD00D0F12)).border(1.dp, XColors.Line, shape)) {
             Text("${if (catId == "fav") "Favoritos" else "Canais"}  ·  ${channels.size}", color = XColors.Text,
                 fontSize = 15.sp, fontWeight = FontWeight.SemiBold, modifier = Modifier.padding(start = 16.dp, top = 14.dp, bottom = 8.dp))
             if (channels.isEmpty()) Text("Nenhum canal encontrado.", color = XColors.TextDim, fontSize = 13.sp, modifier = Modifier.padding(16.dp))
             else LazyColumn(state = listState, modifier = Modifier.testTag("channel-list"),
-                contentPadding = PaddingValues(horizontal = 8.dp, vertical = 4.dp), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                contentPadding = PaddingValues(horizontal = 8.dp, vertical = 4.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
                 items(channels, key = { it.id }) { ch ->
                     val requester = remember(ch.id) { focusRequesters.getOrPut(ch.id) { FocusRequester() } }
                     ChannelRow(ch, epg[ch.epgId], now, "ch:${ch.id}" in favorites, previewId == ch.id,
@@ -122,44 +120,27 @@ fun LiveScreen(content: ContentState, epg: Map<String, List<Programme>>, favorit
             }
         }
     }
-    @Composable fun CategoryBar() {
-        LazyRow(Modifier.fillMaxWidth().background(XColors.Sidebar).testTag("category-list"),
-            contentPadding = PaddingValues(horizontal = 12.dp, vertical = 8.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            item { CategoryChip("Todos", catId == "all") { catId = "all" } }
-            item { CategoryChip("Favoritos", catId == "fav") { catId = "fav" } }
-            items(content.liveCategories, key = { it.id }) { cat -> CategoryChip(cat.name, catId == cat.id) { catId = cat.id } }
-        }
+    @Composable fun Preview(modifier: Modifier) {
+        // Preserve the existing live preview, sound, fullscreen and EPG controls.
+        PreviewPanel(preview, preview?.let { epg[it.epgId] }, now, muted, previewEnabled, false,
+            modifier.testTag("tv-preview-pane"), onMute = { muted = !muted }, onPlay = { preview?.let(::play) })
     }
-    @Composable fun Preview(modifier: Modifier, compact: Boolean) {
-        PreviewPanel(preview, preview?.let { epg[it.epgId] }, now, muted, previewEnabled, compact, modifier,
-            onMute = { muted = !muted }, onPlay = { preview?.let(::play) })
-    }
-    BoxWithConstraints(Modifier.fillMaxSize().background(XColors.Bg)) {
-        when {
-            maxWidth >= 980.dp -> Row(Modifier.fillMaxSize()) {
-                Column(Modifier.width(210.dp).fillMaxHeight().background(XColors.Sidebar).padding(horizontal = 10.dp, vertical = 14.dp)) {
-                    Text("Categorias de TV", color = XColors.Text, fontSize = 15.sp, fontWeight = FontWeight.SemiBold, modifier = Modifier.padding(10.dp))
-                    LazyColumn(Modifier.testTag("category-list"), verticalArrangement = Arrangement.spacedBy(2.dp)) {
-                        item { CatalogCategoryRow("Todos", content.channels.size, catId == "all") { catId = "all" } }
-                        item { CatalogCategoryRow("Favoritos", favorites.count { it.startsWith("ch:") }, catId == "fav") { catId = "fav" } }
-                        items(content.liveCategories, key = { it.id }) { cat ->
-                            CatalogCategoryRow(cat.name, counts[cat.id] ?: 0, catId == cat.id) { catId = cat.id }
-                        }
-                    }
+    Row(Modifier.fillMaxSize().padding(8.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        val shape = RoundedCornerShape(14.dp)
+        Column(Modifier.weight(.22f).fillMaxHeight().testTag("tv-categories-pane").clip(shape)
+            .background(Color(0xD00D0F12)).border(1.dp, XColors.Line, shape).padding(horizontal = 8.dp, vertical = 10.dp)) {
+            Text("Categorias de TV", color = XColors.Text, fontSize = 15.sp, fontWeight = FontWeight.SemiBold,
+                modifier = Modifier.padding(horizontal = 6.dp, vertical = 6.dp), maxLines = 1, overflow = TextOverflow.Ellipsis)
+            LazyColumn(Modifier.weight(1f).testTag("category-list"), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                item { CatalogCategoryRow("Todos", content.channels.size, catId == "all") { catId = "all" } }
+                item { CatalogCategoryRow("Favoritos", favorites.count { it.startsWith("ch:") }, catId == "fav") { catId = "fav" } }
+                items(content.liveCategories, key = { it.id }) { cat ->
+                    CatalogCategoryRow(cat.name, counts[cat.id] ?: 0, catId == cat.id) { catId = cat.id }
                 }
-                ChannelList(Modifier.widthIn(min = 300.dp, max = 390.dp).weight(.43f).fillMaxHeight())
-                Preview(Modifier.weight(.57f).fillMaxHeight(), false)
-            }
-            maxWidth >= 600.dp -> Column(Modifier.fillMaxSize()) {
-                CategoryBar()
-                Row(Modifier.weight(1f)) { ChannelList(Modifier.weight(1f).fillMaxHeight()); Preview(Modifier.weight(1.15f).fillMaxHeight(), false) }
-            }
-            else -> Column(Modifier.fillMaxSize()) {
-                CategoryBar()
-                Preview(Modifier.fillMaxWidth(), true)
-                ChannelList(Modifier.weight(1f).fillMaxWidth())
             }
         }
+        ChannelList(Modifier.weight(.44f).fillMaxHeight())
+        Preview(Modifier.weight(.34f).fillMaxHeight())
     }
 }
 
@@ -171,8 +152,8 @@ private fun ChannelRow(ch: Channel, prog: List<Programme>?, now: Long, fav: Bool
     val (cur, _) = prog.nowNext(now)
     val pct = cur?.let { ((now - it.start).toFloat() / (it.stop - it.start).coerceAtLeast(1)).coerceIn(0f, 1f) } ?: 0f
     Row(modifier.fillMaxWidth().testTag("channel-${ch.id}").onFocusChanged { if (it.hasFocus) onFocus() }
-        .focusGlow(shape, zoom = 1f).clip(shape).background(if (active) XColors.Selection else Color.Transparent)
-        .border(1.dp, if (active) XColors.Accent.copy(alpha = .5f) else Color.Transparent, shape)
+        .focusGlow(shape, zoom = 1f).clip(shape).background(if (active) XColors.Selection else Color(0xB00C0E12))
+        .border(1.dp, if (active) XColors.Accent.copy(alpha = .6f) else XColors.Line, shape)
         .combinedClickable(onClick = onClick, onLongClick = onFavorite).padding(horizontal = 10.dp, vertical = 9.dp),
         verticalAlignment = Alignment.CenterVertically) {
         Box(Modifier.size(46.dp).clip(RoundedCornerShape(9.dp)).background(XColors.Panel), contentAlignment = Alignment.Center) {
@@ -201,7 +182,9 @@ private fun PreviewPanel(channel: Channel?, programs: List<Programme>?, now: Lon
                          enabled: Boolean, compact: Boolean, modifier: Modifier = Modifier,
                          onMute: () -> Unit, onPlay: () -> Unit) {
     val upcoming = programs.orEmpty().filter { it.stop > now }.sortedBy { it.start }.take(if (compact) 2 else 8)
-    Column(modifier.background(XColors.Bg).then(if (compact) Modifier else Modifier.verticalScroll(rememberScrollState()))) {
+    val shape = RoundedCornerShape(14.dp)
+    Column(modifier.clip(shape).background(Color(0xD00D0F12)).border(1.dp, XColors.Line, shape)
+        .then(if (compact) Modifier else Modifier.verticalScroll(rememberScrollState()))) {
         Box(Modifier.fillMaxWidth().aspectRatio(if (compact) 2.2f else 16f / 9f).background(Color.Black)) {
             if (enabled && channel != null) PreviewPlayer(channel.url, channel.fallbackUrl, muted)
             else Text("Selecione um canal", color = XColors.TextDim, fontSize = 14.sp, modifier = Modifier.align(Alignment.Center))

@@ -12,6 +12,7 @@ import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.platform.LocalInputModeManager
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.unit.dp
+import com.example.iptv.data.model.VodDetails
 import com.xtream.player.data.*
 import com.xtream.player.ui.browse.BrowseScreen
 import com.xtream.player.ui.components.*
@@ -27,6 +28,9 @@ class MainActions(
     val onOpenDetails: (VodItem) -> Unit,
     val onCloseDetails: () -> Unit,
     val onPlayItem: (VodItem) -> Unit,
+    val onPlayHero: (VodItem) -> Unit,
+    val onPrepareHeroes: (List<VodItem>) -> Unit,
+    val onCancelHeroPlayback: () -> Unit,
     val onPlaySeries: () -> Unit,
     val onPlayEpisode: (AppViewModel.EpisodeChoice) -> Unit,
     val onToggleFav: (String) -> Unit,
@@ -40,6 +44,7 @@ class MainActions(
 @Composable
 fun MainScreen(session: Session?, content: ContentState, epg: Map<String, List<Programme>>,
                favorites: List<String>, epgUpdatedAt: Long?, epgLoading: Boolean, epgMessage: String?,
+               heroDetails: Map<String, VodDetails>, loadingHeroKey: String?,
                loading: Boolean, loginError: String?, detail: VodItem?, episodes: AppViewModel.EpisodeSelection?,
                episodeLoading: Boolean, episodeError: String?, actions: MainActions,
                previewEnabled: Boolean = true, restoreChannelId: String? = null, onChannelRestored: () -> Unit = {}) {
@@ -55,6 +60,7 @@ fun MainScreen(session: Session?, content: ContentState, epg: Map<String, List<P
     val selectTab: (Tab) -> Unit = { selected ->
         keyboard?.hide()
         if (inputMode.inputMode == InputMode.Touch) focusManager.clearFocus(force = true)
+        actions.onCancelHeroPlayback()
         actions.onCloseDetails()
         tab = selected; query = ""
     }
@@ -65,12 +71,13 @@ fun MainScreen(session: Session?, content: ContentState, epg: Map<String, List<P
             "Xtream · ${content.channels.size} canais", searchFocus, compact, actions.onRefreshContent)
     }
     @Composable fun Content(modifier: Modifier) {
-        Box(modifier.background(XColors.Bg)) {
+        Box(modifier) {
             if (detail != null) DetailScreen(detail, detail.favoriteKey in favorites, episodes, episodeLoading, episodeError,
                 onBack = actions.onCloseDetails, onFavorite = { actions.onToggleFav(detail.favoriteKey) },
                 onPlay = { if (detail.isSeries) actions.onPlaySeries() else actions.onPlayItem(detail) }, onEpisode = actions.onPlayEpisode)
             else when (tab) {
-                Tab.Home -> HomeScreen(content, epg, query, favorites, actions.onOpenDetails,
+                Tab.Home -> HomeScreen(content, epg, query, favorites, heroDetails, loadingHeroKey,
+                    actions.onOpenDetails, actions.onPlayHero, actions.onPrepareHeroes,
                     { ch -> actions.onPlay(PlayerRequest(ch.name, ch.url, true, content.channels, content.channels.indexOf(ch), ch.fallbackUrl)) }, actions.onToggleFav)
                 Tab.Live -> LiveScreen(content, epg, favorites, query, actions.onToggleFav, actions.onPlay,
                     previewEnabled, actions.onChannelFocused, restoreChannelId, onChannelRestored)
@@ -84,16 +91,12 @@ fun MainScreen(session: Session?, content: ContentState, epg: Map<String, List<P
             }
         }
     }
-    BoxWithConstraints(Modifier.fillMaxSize().background(XColors.Bg)) {
-        val compact = maxWidth < 640.dp
-        if (compact) Column(Modifier.fillMaxSize()) {
-            Header(true)
-            Sidebar(tab, selectTab, compact = true)
-            Content(Modifier.weight(1f).fillMaxWidth())
-        } else Row(Modifier.fillMaxSize()) {
+    BoxWithConstraints(Modifier.fillMaxSize()) {
+        val compactHeader = maxWidth < 850.dp
+        Row(Modifier.fillMaxSize()) {
             Sidebar(tab, selectTab, compact = false)
             Column(Modifier.weight(1f).fillMaxHeight()) {
-                Header(false)
+                Header(compactHeader)
                 Content(Modifier.weight(1f).fillMaxWidth())
             }
         }

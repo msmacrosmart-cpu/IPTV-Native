@@ -142,29 +142,33 @@ fun PosterArt(item: VodItem, modifier: Modifier = Modifier) {
 @Composable
 fun PosterCard(item: VodItem, width: Dp = 148.dp, onLongClick: () -> Unit = {},
                onClick: () -> Unit, isFavorite: Boolean = false, modifier: Modifier = Modifier) {
-    val shape = RoundedCornerShape(10.dp)
-    Column(modifier.width(width)) {
-        Box(Modifier.fillMaxWidth().aspectRatio(2f / 3f).testTag("poster-${item.favoriteKey}")
-            .focusGlow(shape).clip(shape).combinedClickable(onClick = onClick, onLongClick = onLongClick)) {
+    val shape = RoundedCornerShape(12.dp)
+    Column(modifier.width(width).testTag("poster-${item.favoriteKey}").focusGlow(shape).clip(shape)
+        .background(Color(0xC90D0F12)).border(1.dp, XColors.Line, shape)
+        .combinedClickable(onClick = onClick, onLongClick = onLongClick).padding(5.dp)) {
+        Box(Modifier.fillMaxWidth().aspectRatio(2f / 3f).clip(RoundedCornerShape(8.dp))) {
             PosterArt(item, Modifier.fillMaxSize())
             if (item.rating > 0) {
-                Row(Modifier.align(Alignment.TopEnd).padding(6.dp).clip(RoundedCornerShape(6.dp))
-                    .background(Color(0xCC0D0F12)).padding(horizontal = 6.dp, vertical = 3.dp),
+                Row(Modifier.align(Alignment.TopStart).padding(6.dp).clip(RoundedCornerShape(6.dp))
+                    .background(Color(0xD9080A0D)).padding(horizontal = 6.dp, vertical = 4.dp),
                     verticalAlignment = Alignment.CenterVertically) {
-                    Icon(Icons.Filled.Star, null, tint = XColors.Ok, modifier = Modifier.size(13.dp))
-                    Text(" ${String.format(Locale.US, "%.1f", item.rating)}", color = XColors.Ok, fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                    Icon(Icons.Filled.Star, null, tint = XColors.Live, modifier = Modifier.size(13.dp))
+                    Text(" ${String.format(Locale.US, "%.1f", item.rating)}", color = XColors.Text,
+                        fontSize = 11.sp, fontWeight = FontWeight.Bold)
                 }
             }
             if (isFavorite) Icon(Icons.Filled.Favorite, "Favorito", tint = XColors.Live,
-                modifier = Modifier.align(Alignment.TopStart).padding(8.dp).size(18.dp))
+                modifier = Modifier.align(Alignment.TopEnd).padding(8.dp).size(18.dp))
             if (item.progress > 0f) Box(Modifier.align(Alignment.BottomCenter).fillMaxWidth().height(4.dp).background(Color(0x664F5666))) {
                 Box(Modifier.fillMaxHeight().fillMaxWidth(item.progress.coerceIn(0f, 1f)).background(XColors.Accent))
             }
         }
-        Text(item.title, color = XColors.Text, fontSize = 14.sp, fontWeight = FontWeight.Medium,
-            maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.padding(start = 2.dp, top = 7.dp))
+        Box(Modifier.fillMaxWidth().heightIn(min = width * .35f).padding(horizontal = 2.dp, vertical = 7.dp)) {
+            Text(item.title, color = XColors.Text, fontSize = 14.sp, fontWeight = FontWeight.Medium,
+                maxLines = 2, overflow = TextOverflow.Ellipsis)
+        }
         if (item.progress > 0f) Text("Continuar assistindo", color = XColors.Body, fontSize = 11.sp,
-            maxLines = 1, modifier = Modifier.padding(start = 2.dp, top = 2.dp))
+            maxLines = 1, modifier = Modifier.padding(start = 2.dp, bottom = 4.dp))
     }
 }
 

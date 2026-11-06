@@ -1,5 +1,7 @@
 package com.xtream.player.data
 
+import com.example.iptv.data.model.VodDetails
+
 data class Session(
     val server: String,
     val username: String,
@@ -47,6 +49,15 @@ data class VodItem(
 ) {
     val favoriteKey: String get() = "${if (isSeries) "series" else "vod"}:$id"
 }
+
+/** Keep live progress/favorite identity while enriching the hero with the provider's artwork. */
+fun VodItem.withHeroDetails(details: VodDetails?): VodItem = if (details == null) this else copy(
+    plot = details.plot ?: plot,
+    genre = details.genre ?: genre,
+    year = details.releaseDate?.take(4) ?: year,
+    backdrop = details.backdrop ?: backdrop,
+    rating = details.rating?.toDoubleOrNull() ?: rating,
+)
 
 data class ContentState(
     val liveCategories: List<Category>,

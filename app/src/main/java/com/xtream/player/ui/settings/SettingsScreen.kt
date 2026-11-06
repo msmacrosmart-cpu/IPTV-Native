@@ -61,7 +61,7 @@ fun SettingsScreen(session: Session?, content: ContentState, epg: Map<String, Li
             }
         }
     }
-    BoxWithConstraints(Modifier.fillMaxSize().background(XColors.Bg)) {
+    BoxWithConstraints(Modifier.fillMaxSize()) {
         val gutter = if (maxWidth < 600.dp) 16.dp else 32.dp
         Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(horizontal = gutter, vertical = 26.dp)) {
             Text("Configurações", color = XColors.Text, fontSize = 28.sp, fontWeight = FontWeight.SemiBold)

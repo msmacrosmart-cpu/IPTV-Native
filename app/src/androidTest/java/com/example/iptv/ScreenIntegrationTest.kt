@@ -2,6 +2,7 @@ package com.example.iptv
 
 import android.content.Context
 import android.content.pm.ActivityInfo
+import android.content.res.Configuration
 import android.graphics.Bitmap
 import android.os.ParcelFileDescriptor
 import androidx.compose.ui.input.key.Key
@@ -23,8 +24,10 @@ import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
+import androidx.compose.ui.test.performImeAction
 import androidx.compose.ui.test.performKeyInput
 import androidx.compose.ui.test.performScrollTo
+import androidx.compose.ui.test.performScrollToIndex
 import androidx.compose.ui.test.performScrollToNode
 import androidx.compose.ui.test.performSemanticsAction
 import androidx.compose.ui.test.performTextInput
@@ -93,6 +96,7 @@ class ScreenIntegrationTest {
     }
     private lateinit var server: MockWebServer
     private val streamPaths = CopyOnWriteArrayList<String>()
+    private val vodInfoIds = CopyOnWriteArrayList<String>()
     private val guideRequests = AtomicInteger()
     private val shortRequests = AtomicInteger()
     private val video by lazy {
@@ -138,10 +142,16 @@ class ScreenIntegrationTest {
                             """{"stream_id":$id,"name":"$name","category_id":"10","container_extension":"ts","rating":"8.0","stream_icon":"$poster"}"""
                         }
                     }
-                    "get_vod_info" -> """{"info":{"plot":"Sinopse real","genre":"Ação","backdrop_path":["${server.url("/art/backdrop-black-harbor.webp")}"]}}"""
+                    "get_vod_info" -> {
+                        val id = url.queryParameter("vod_id").orEmpty()
+                        vodInfoIds.add(id)
+                        // One item deliberately has no backdrop, to exercise the sharp poster fallback.
+                        if (id == "102") """{"info":{"plot":"Sem arte larga"}}"""
+                        else """{"info":{"plot":"Sinopse real","genre":"Ação","backdrop_path":["${server.url("/art/backdrop-black-harbor.webp")}"]}}"""
+                    }
                     "get_series_categories" -> """[{"category_id":"20","category_name":"Drama"}]"""
-                    "get_series" -> """[{"series_id":101,"name":"Série Teste","category_id":"20","genre":"Drama","cover":"${server.url("/art/poster-skyline-sentinels.webp")}","backdrop_path":["${server.url("/art/backdrop-skyline-sentinels.webp")}"]}]"""
-                    "get_series_info" -> """{"episodes":{"1":[{"id":"201","episode_num":1,"season":1,"title":"Primeiro","container_extension":"ts"},{"id":"202","episode_num":2,"season":1,"title":"Segundo","container_extension":"ts"}]}}"""
+                    "get_series" -> """[{"series_id":101,"name":"Série Teste","category_id":"20","genre":"Drama","cover":"${server.url("/art/poster-skyline-sentinels.webp")}"}]"""
+                    "get_series_info" -> """{"info":{"plot":"Sinopse da série","backdrop_path":["${server.url("/art/backdrop-skyline-sentinels.webp")}"]},"episodes":{"1":[{"id":"201","episode_num":1,"season":1,"title":"Primeiro","container_extension":"ts"},{"id":"202","episode_num":2,"season":1,"title":"Segundo","container_extension":"ts"}]}}"""
                     else -> "{}"
                 }
                 return MockResponse().setHeader("Content-Type", "application/json").setBody(body)
@@ -154,6 +164,8 @@ class ScreenIntegrationTest {
 
     @OptIn(ExperimentalTestApi::class)
     @Test fun nativeScreensUseRealSessionCatalogFavoritesEpgAndPlayback() {
+        compose.onNodeWithTag("app-background", useUnmergedTree = true).assertExists()
+        compose.waitUntil(30_000) { existsUnmerged("app-background-loaded") }
         capture("screen-login.png")
         val loginFieldWidth = compose.onNodeWithText("Servidor Xtream").fetchSemanticsNode().boundsInRoot.width
         assertTrue("The login form should stay compact on TV", loginFieldWidth <= 500f * compose.activity.resources.displayMetrics.density)
@@ -168,16 +180,42 @@ class ScreenIntegrationTest {
         val app = compose.activity.application as IPTVApplication
         assertEquals(1_900_000_000_000L, app.repository.account.value?.expiresAtMillis ?: 0L)
         compose.waitUntil(30_000) { app.epgRepository.guide.value.programCount == 1 }
-        compose.runOnIdle { vm.saveProgress(com.xtream.player.data.PlayerRequest("Filme Teste", "unused", false, libraryKey = "vod:101"), 20_000, 100_000) }
+        compose.onNodeWithTag("app-background", useUnmergedTree = true).assertExists()
+        compose.waitUntil(30_000) { vodInfoIds.containsAll(listOf("101", "102", "103", "104", "105", "106")) }
+        useRemoteInputMode()
+        compose.onNodeWithContentDescription("Destaque 1: Filme Teste").performClick()
+        compose.waitUntil(10_000) { exists("hero-watch-vod:101") }
+        compose.onNodeWithTag("hero-watch-vod:101").performSemanticsAction(SemanticsActions.RequestFocus)
+        compose.waitUntil(30_000) { existsUnmerged("hero-backdrop-loaded-vod:101") }
+        compose.onNodeWithTag("hero-details-vod:101").assertIsDisplayed()
         capture("screen-home.png")
         listOf("Home", "TV", "Filmes", "Séries", "Multitela", "Configurações").forEach {
             compose.onNodeWithContentDescription(it).assertExists()
         }
+        // Assistir on the hero plays a movie directly without going through details.
+        compose.onNodeWithTag("hero-watch-vod:101").performClick()
+        compose.waitUntil(30_000) { streamPaths.any { it.contains("/movie/") && it.endsWith("/101.ts") } && playerState() == "playing" }
+        showControls()
+        compose.onNodeWithContentDescription("Voltar").performClick()
+        compose.runOnIdle { vm.saveProgress(com.xtream.player.data.PlayerRequest("Filme Teste", "unused", false, libraryKey = "vod:101"), 20_000, 100_000) }
+        compose.onNodeWithTag("home-list").performScrollToNode(hasText("Continuar assistindo"))
+        compose.waitUntil(10_000) { exists("poster-vod:101") }
+        val homeCardWidth = compose.onAllNodesWithTag("poster-vod:101").fetchSemanticsNodes().first().boundsInRoot.width
 
         // Movie and series may have the same numerical id; pagination and favorite keys stay distinct.
         compose.onNodeWithContentDescription("Filmes").performClick()
         compose.waitUntil(10_000) { exists("poster-vod:101") }
+        assertSideBySide("browse-categories-pane", "catalog-grid")
+        val catalogCardWidth = compose.onNodeWithTag("poster-vod:101").fetchSemanticsNode().boundsInRoot.width
+        assertTrue("Home and catalog must use equally compact posters", kotlin.math.abs(homeCardWidth - catalogCardWidth) <= 2f * compose.activity.resources.displayMetrics.density)
+        assertTrue("Posters should remain compact on a TV", catalogCardWidth <= 160f * compose.activity.resources.displayMetrics.density)
+        compose.waitUntil(30_000) { existsUnmerged("loaded-poster-vod:101") }
         capture("screen-movies.png")
+        compose.onNodeWithTag("category-search").performTextInput("não existe")
+        compose.waitUntil(10_000) { textExists("Nenhuma categoria encontrada.") }
+        compose.onNodeWithTag("category-search").performTextClearance()
+        compose.onNodeWithTag("category-search").performImeAction()
+        compose.waitUntil(10_000) { textExists("Ação") && !keyboardIsVisible() }
         compose.onNodeWithContentDescription("Próxima página").performClick()
         compose.waitUntil(10_000) { exists("poster-vod:125") && !exists("poster-vod:101") }
         compose.onNodeWithContentDescription("Página anterior").performClick()
@@ -208,8 +246,34 @@ class ScreenIntegrationTest {
         compose.onNodeWithText("Nenhuma faixa alternativa").performClick()
         compose.onNodeWithContentDescription("Voltar").performClick()
 
+        // On the series hero, Assistir resolves episodes and resumes the saved episode.
+        compose.runOnIdle {
+            vm.saveProgress(com.xtream.player.data.PlayerRequest("Série Teste", "unused", false,
+                libraryKey = "series:101", episodeId = "202"), 1_000, 100_000)
+        }
+        compose.onNodeWithContentDescription("Home").performClick()
+        compose.onNodeWithTag("home-list").performScrollToIndex(0)
+        compose.waitUntil(10_000) { compose.onAllNodesWithContentDescription("Destaque 2: Série Teste").fetchSemanticsNodes().isNotEmpty() }
+        compose.onNodeWithContentDescription("Destaque 2: Série Teste").performClick()
+        compose.waitUntil(10_000) { exists("hero-watch-series:101") }
+        compose.onNodeWithTag("hero-watch-series:101").performSemanticsAction(SemanticsActions.RequestFocus)
+        compose.waitUntil(30_000) { existsUnmerged("hero-backdrop-loaded-series:101") }
+        val previousEpisodeRequests = streamPaths.count { it.contains("/series/") && it.endsWith("/202.ts") }
+        compose.onNodeWithTag("hero-watch-series:101").performKeyInput { pressKey(Key.DirectionCenter) }
+        compose.waitUntil(30_000) { vm.playerRequest?.episodeId == "202" && streamPaths.count { it.contains("/series/") && it.endsWith("/202.ts") } > previousEpisodeRequests }
+        assertEquals(1_000L, vm.playerRequest?.resumePositionMs ?: -1L)
+        showControls()
+        compose.onNodeWithContentDescription("Voltar").performClick()
+
+        // If the panel has no wide image, the hero uses the original poster rather than a blur.
+        compose.onNodeWithTag("search-field").performTextInput("Filme 102")
+        compose.onNodeWithTag("search-field").performImeAction()
+        compose.waitUntil(30_000) { existsUnmerged("hero-poster-loaded-vod:102") && !keyboardIsVisible() }
+        capture("screen-hero-poster.png")
+
         compose.onNodeWithContentDescription("TV").performClick()
         compose.waitUntil(10_000) { exists("channel-1") && exists("channel-2") }
+        assertSideBySide("tv-categories-pane", "tv-channel-pane", "tv-preview-pane")
         compose.onNodeWithTag("category-list").performScrollToNode(hasText("Esportes"))
         compose.onNodeWithText("Esportes").performClick()
         compose.waitUntil(10_000) { exists("channel-2") && !exists("channel-1") }
@@ -291,11 +355,17 @@ class ScreenIntegrationTest {
         assertFalse(vm.favorites.isNotEmpty())
     }
 
-    @Test fun portraitTouchLayoutKeepsTheSixDestinationsUsable() {
+    @Test fun landscapeTouchLayoutShowsCompactCardsAndThreeTvColumns() {
+        assertEquals(ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE, compose.activity.requestedOrientation)
         try {
-            compose.runOnUiThread { compose.activity.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_PORTRAIT }
-            shell("wm size 480x900")
-            compose.waitUntil(20_000) { compose.activity.window.decorView.width in 1..599 }
+            // The emulator's natural orientation is portrait; the activity must rotate this
+            // 360x800 phone into an 800x360 landscape viewport.
+            shell("wm size 360x800")
+            compose.waitUntil(20_000) {
+                val view = compose.activity.window.decorView
+                view.width > view.height && view.width in 700..900 && view.height in 250..450
+            }
+            compose.onNodeWithTag("app-background", useUnmergedTree = true).assertExists()
             compose.onNodeWithText("Servidor Xtream").performScrollTo().performTextInput(server.url("/").toString())
             compose.onNodeWithText("Usuário").performScrollTo().performTextInput("alice")
             compose.onNodeWithText("Senha").performScrollTo().performTextInput("senha")
@@ -305,29 +375,76 @@ class ScreenIntegrationTest {
             listOf("Home", "TV", "Filmes", "Séries", "Multitela", "Configurações").forEach {
                 compose.onNodeWithContentDescription(it).assertIsDisplayed()
             }
+            val vm = ViewModelProvider(compose.activity)[AppViewModel::class.java]
+            compose.waitUntil(30_000) { vm.content.movies.size == 30 }
+            compose.onNodeWithTag("home-list").performScrollToNode(hasText("Explore sua biblioteca"))
+            compose.waitUntil(30_000) { exists("poster-vod:101") && existsUnmerged("loaded-poster-vod:101") }
+            val homeCardWidth = compose.onNodeWithTag("poster-vod:101").fetchSemanticsNode().boundsInRoot.width
+            capture("screen-phone-home.png")
+
             compose.onNodeWithContentDescription("Filmes").performTouchInput { click() }
             compose.waitUntil(30_000) { exists("poster-vod:101") }
-            // Assert that real asynchronous image decoding completed, not just placeholder layout.
-            compose.waitUntil(30_000) {
-                (101..104).all { id ->
-                    compose.onAllNodesWithTag("loaded-poster-vod:$id", useUnmergedTree = true).fetchSemanticsNodes().isNotEmpty()
-                }
-            }
+            assertSideBySide("browse-categories-pane", "catalog-grid")
+            compose.waitUntil(30_000) { (101..105).all { existsUnmerged("loaded-poster-vod:$it") } }
+            (101..105).forEach { compose.onNodeWithTag("poster-vod:$it").assertIsDisplayed() }
+            val cardWidth = compose.onNodeWithTag("poster-vod:101").fetchSemanticsNode().boundsInRoot.width
+            assertTrue("Phone posters must fit about five across", cardWidth < 120f * compose.activity.resources.displayMetrics.density)
+            assertTrue("Home posters must be the same compact size", kotlin.math.abs(homeCardWidth - cardWidth) <= 2f * compose.activity.resources.displayMetrics.density)
             capture("screen-phone.png")
             compose.onNodeWithTag("poster-vod:101").performTouchInput { click() }
             compose.waitUntil(20_000) { textExists("Reproduzir") || textExists("Continuar") }
+
+            compose.onNodeWithContentDescription("TV").performTouchInput { click() }
+            compose.waitUntil(20_000) { exists("channel-1") && exists("channel-2") }
+            assertSideBySide("tv-categories-pane", "tv-channel-pane", "tv-preview-pane")
+            compose.onNodeWithTag("channel-2").performTouchInput { click() }
+            compose.waitUntil(10_000) { runCatching { compose.onNodeWithTag("preview-channel").assertTextContains("Canal Esportes", substring = true) }.isSuccess }
+            capture("screen-phone-tv.png")
+
             compose.onNodeWithContentDescription("Multitela").performTouchInput { click() }
-            compose.onNodeWithContentDescription("Adicionar canal 1").assertIsDisplayed()
-            shell("wm size 360x800")
-            compose.waitUntil(20_000) { compose.activity.window.decorView.width == 360 }
             compose.waitUntil(10_000) { exists("multi-tile-1") && exists("multi-tile-2") }
-            val first = compose.onNodeWithTag("multi-tile-1").fetchSemanticsNode().boundsInRoot
-            val second = compose.onNodeWithTag("multi-tile-2").fetchSemanticsNode().boundsInRoot
-            assertTrue("Small phones must stack players so their controls fit", second.top >= first.bottom)
+            assertSideBySide("multi-tile-1", "multi-tile-2")
+            compose.onNodeWithContentDescription("Adicionar canal 1").assertIsDisplayed()
         } finally {
             shell("wm size 1376x768")
-            compose.runOnUiThread { compose.activity.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED }
         }
+    }
+
+    /** Runs in both the phone emulator and a real Android-TV system-image emulator in CI. */
+    @OptIn(ExperimentalTestApi::class)
+    @Test fun largeScreenRemoteNavigationAndOverscanAreUsable() {
+        compose.onNodeWithText("Servidor Xtream").performScrollTo().performTextInput(server.url("/").toString())
+        compose.onNodeWithText("Usuário").performScrollTo().performTextInput("alice")
+        compose.onNodeWithText("Senha").performScrollTo().performTextInput("senha")
+        compose.onNodeWithContentDescription("Entrar").performScrollTo().performClick()
+        compose.waitUntil(30_000) { compose.onAllNodesWithContentDescription("TV").fetchSemanticsNodes().isNotEmpty() }
+        val vm = ViewModelProvider(compose.activity)[AppViewModel::class.java]
+        compose.waitUntil(30_000) { vm.content.channels.size == 2 && vm.content.movies.size == 30 }
+        val isTv = (compose.activity.resources.configuration.uiMode and Configuration.UI_MODE_TYPE_MASK) == Configuration.UI_MODE_TYPE_TELEVISION
+        if (InstrumentationRegistry.getArguments().getString("requireTv") == "true") {
+            assertTrue("This test requires an Android TV system image", isTv)
+        }
+        if (isTv) {
+            val safe = compose.onNodeWithTag("device-safe-content", useUnmergedTree = true).fetchSemanticsNode().boundsInRoot
+            assertTrue("TV controls must be inset for overscan", safe.left > 0 && safe.top > 0)
+        }
+        useRemoteInputMode()
+        compose.onNodeWithContentDescription("Filmes").performSemanticsAction(SemanticsActions.RequestFocus)
+            .assertIsFocused().performKeyInput { pressKey(Key.DirectionCenter) }
+        compose.waitUntil(20_000) { exists("poster-vod:101") }
+        assertSideBySide("browse-categories-pane", "catalog-grid")
+        compose.onNodeWithTag("poster-vod:101").performSemanticsAction(SemanticsActions.RequestFocus)
+            .assertIsFocused().performKeyInput { pressKey(Key.DirectionRight) }
+        compose.onNodeWithTag("poster-vod:102").assertIsFocused()
+        compose.onNodeWithContentDescription("TV").performSemanticsAction(SemanticsActions.RequestFocus)
+            .assertIsFocused().performKeyInput { pressKey(Key.DirectionCenter) }
+        compose.waitUntil(20_000) { exists("channel-1") && exists("channel-2") }
+        assertSideBySide("tv-categories-pane", "tv-channel-pane", "tv-preview-pane")
+        compose.onNodeWithTag("channel-1").performSemanticsAction(SemanticsActions.RequestFocus)
+            .assertIsFocused().performKeyInput { pressKey(Key.DirectionDown) }
+        compose.onNodeWithTag("channel-2").assertIsFocused()
+        compose.waitUntil(10_000) { runCatching { compose.onNodeWithTag("preview-channel").assertTextContains("Canal Esportes", substring = true) }.isSuccess }
+        if (isTv) capture("screen-android-tv.png")
     }
 
     @Test fun oldCachedAccountDatesAreCorrectedWithoutNetwork() {
@@ -372,7 +489,15 @@ class ScreenIntegrationTest {
         compose.onNodeWithTag("player-root").fetchSemanticsNode().config.getOrNull(SemanticsProperties.StateDescription)
     }.getOrNull()
     private fun exists(tag: String) = compose.onAllNodesWithTag(tag).fetchSemanticsNodes().isNotEmpty()
+    private fun existsUnmerged(tag: String) = compose.onAllNodesWithTag(tag, useUnmergedTree = true).fetchSemanticsNodes().isNotEmpty()
     private fun textExists(text: String) = runCatching { compose.onNodeWithText(text).assertExists() }.isSuccess
+
+    private fun assertSideBySide(vararg tags: String) {
+        val bounds = tags.map { compose.onNodeWithTag(it).fetchSemanticsNode().boundsInRoot }
+        bounds.zipWithNext().forEach { (left, right) ->
+            assertTrue("Expected columns $tags to be side by side", left.right <= right.left + 2f && left.top < right.bottom && right.top < left.bottom)
+        }
+    }
 
     private fun capture(name: String) {
         // Semantics may update one frame before SurfaceFlinger presents it, especially after IME dismissal.

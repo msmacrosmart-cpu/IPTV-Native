@@ -21,7 +21,6 @@ import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.blur
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
@@ -57,8 +56,11 @@ fun DetailScreen(item: VodItem, favorite: Boolean, selection: AppViewModel.Episo
     var season by rememberSaveable(item.favoriteKey) { mutableIntStateOf(0) }
     LaunchedEffect(seasons) { if (seasons.isNotEmpty() && season !in seasons) season = seasons.first() }
     val visible = choices.filter { it.episode.season == season }
-    LazyColumn(Modifier.fillMaxSize().background(XColors.Bg).testTag("detail-list"), contentPadding = PaddingValues(bottom = 32.dp)) {
-        item { DetailHero(item, favorite, !item.isSeries || choices.isNotEmpty(), loading, onBack, onFavorite, onPlay) }
+    BoxWithConstraints(Modifier.fillMaxSize()) {
+      val compact = maxWidth < 700.dp || maxHeight < 400.dp
+      val heroHeight = if (maxHeight < 400.dp) maxHeight.coerceAtLeast(230.dp) else if (compact) 390.dp else 420.dp
+      LazyColumn(Modifier.fillMaxSize().testTag("detail-list"), contentPadding = PaddingValues(bottom = 32.dp)) {
+        item { DetailHero(item, favorite, !item.isSeries || choices.isNotEmpty(), loading, compact, heroHeight, onBack, onFavorite, onPlay) }
         if (item.isSeries) {
             item {
                 Column(Modifier.fillMaxWidth().padding(horizontal = 26.dp, vertical = 12.dp)) {
@@ -75,24 +77,28 @@ fun DetailScreen(item: VodItem, favorite: Boolean, selection: AppViewModel.Episo
             }
             items(visible, key = { it.episode.id }) { episode -> EpisodeRow(episode) { onEpisode(episode) } }
         }
+      }
     }
 }
 
 @Composable
-private fun DetailHero(item: VodItem, favorite: Boolean, canPlay: Boolean, loading: Boolean, onBack: () -> Unit, onFavorite: () -> Unit, onPlay: () -> Unit) {
+private fun DetailHero(item: VodItem, favorite: Boolean, canPlay: Boolean, loading: Boolean, compact: Boolean,
+                       heroHeight: androidx.compose.ui.unit.Dp, onBack: () -> Unit, onFavorite: () -> Unit, onPlay: () -> Unit) {
     val playFocus = remember(item.favoriteKey) { FocusRequester() }
     val inputMode = LocalInputModeManager.current
     LaunchedEffect(item.favoriteKey, canPlay) {
         if (canPlay && inputMode.inputMode != InputMode.Touch) { delay(120); runCatching { playFocus.requestFocus() } }
     }
     BoxWithConstraints(Modifier.fillMaxWidth()) {
-        val compact = maxWidth < 600.dp
-        val heroHeight = if (compact) 390.dp else 420.dp
         Box(Modifier.fillMaxWidth().height(heroHeight)) {
             Box(Modifier.fillMaxSize().background(XColors.PanelHeader))
-            val image = item.backdrop ?: item.poster
-            if (image != null) AsyncImage(image, null, contentScale = ContentScale.Crop,
-                modifier = Modifier.fillMaxSize().then(if (item.backdrop == null) Modifier.blur(18.dp) else Modifier))
+            var backdropFailed by remember(item.backdrop) { mutableStateOf(false) }
+            val backdrop = item.backdrop?.takeIf { it.isNotBlank() && !backdropFailed }
+            val image = backdrop ?: item.poster?.takeIf { it.isNotBlank() }
+            if (image != null) AsyncImage(image, null, contentScale = if (backdrop != null) ContentScale.Crop else ContentScale.Fit,
+                modifier = if (backdrop != null) Modifier.fillMaxSize() else Modifier.align(Alignment.CenterEnd)
+                    .fillMaxWidth(.5f).fillMaxHeight().padding(8.dp),
+                onError = { if (backdrop != null) backdropFailed = true })
             Box(Modifier.fillMaxSize().background(Brush.horizontalGradient(
                 0f to XColors.Bg.copy(alpha = .96f), .5f to XColors.Bg.copy(alpha = .82f), 1f to XColors.Bg.copy(alpha = .22f))))
             Box(Modifier.fillMaxSize().background(Brush.verticalGradient(0f to XColors.Bg.copy(alpha = .15f), .56f to Color.Transparent, 1f to XColors.Bg)))
