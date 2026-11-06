@@ -22,7 +22,7 @@ import kotlinx.coroutines.launch
 import java.util.Locale
 import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
 
-/** Connects the supplied XtreamTV screens to the app's real Xtream session and XMLTV cache. */
+/** Connects the native IPTVnator-style interface to the real Xtream session and XMLTV cache. */
 class AppViewModel(application: Application) : AndroidViewModel(application) {
     private val app = application as IPTVApplication
     private val repository = app.repository
@@ -33,6 +33,7 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
     private var guideJob: Job? = null
     private var shortEpgJob: Job? = null
     private var episodeJob: Job? = null
+    private var detailJob: Job? = null
     private var restoreJob: Job? = null
     private var generation = 0
     private val shortGuide = mutableMapOf<String, List<Programme>>()
@@ -51,6 +52,9 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
     var playerRequest by mutableStateOf<PlayerRequest?>(null); private set
     var lastPlayedChannelId by mutableStateOf<String?>(null); private set
     var episodeSelection by mutableStateOf<EpisodeSelection?>(null); private set
+    var episodeLoading by mutableStateOf(false); private set
+    var episodeError by mutableStateOf<String?>(null); private set
+    var detailItem by mutableStateOf<VodItem?>(null); private set
     val favorites = mutableStateListOf<String>()
 
     data class EpisodeChoice(val episode: Episode, val url: String) {
@@ -281,39 +285,76 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
-    fun playItem(item: VodItem, onReady: (PlayerRequest) -> Unit) {
-        val saved = history[item.favoriteKey]
-        if (item.url != null) {
-            onReady(PlayerRequest(item.title, item.url, false, libraryKey = item.favoriteKey,
-                resumePositionMs = saved?.position ?: 0L))
-            return
-        }
-        val id = item.seriesId?.toIntOrNull() ?: run { notice = "Este item não possui vídeo disponível."; return }
-        if (episodeJob?.isActive == true) return
-        val token = generation
-        notice = "Carregando episódios…"
-        episodeJob = viewModelScope.launch {
-            when (val result = repository.seriesInfo(id)) {
-                is ApiResult.Success -> if (generation == token) {
-                    val choices = result.data.flatMap { it.episodes }.map { EpisodeChoice(it, repository.episodeStreamUrl(it)) }
-                    if (choices.isEmpty()) notice = "Nenhum episódio disponível para esta série."
-                    else episodeSelection = EpisodeSelection(item, choices)
+    fun openDetails(item: VodItem) {
+        detailJob?.cancel(); episodeJob?.cancel()
+        detailItem = item
+        episodeSelection = null
+        episodeError = null
+        episodeLoading = false
+        if (item.isSeries) {
+            if (session?.isDemo == true) {
+                episodeSelection = EpisodeSelection(item, DemoData.episodes())
+                return
+            }
+            val id = item.seriesId?.toIntOrNull()
+            if (id == null) { episodeError = "Série indisponível."; return }
+            val token = generation
+            episodeLoading = true
+            episodeJob = viewModelScope.launch {
+                try {
+                    when (val result = repository.seriesInfo(id)) {
+                        is ApiResult.Success -> if (generation == token && detailItem?.favoriteKey == item.favoriteKey) {
+                            val choices = result.data.flatMap { it.episodes }.map { EpisodeChoice(it, repository.episodeStreamUrl(it)) }
+                                .sortedWith(compareBy({ it.episode.season }, { it.episode.number }))
+                            episodeSelection = EpisodeSelection(item, choices)
+                            if (choices.isEmpty()) episodeError = "Nenhum episódio disponível para esta série."
+                        }
+                        is ApiResult.Failure -> if (generation == token && detailItem?.favoriteKey == item.favoriteKey) episodeError = result.message
+                    }
+                } finally {
+                    if (generation == token && detailItem?.favoriteKey == item.favoriteKey) episodeLoading = false
                 }
-                is ApiResult.Failure -> if (generation == token) notice = result.message
+            }
+        } else if (session?.isDemo != true) {
+            val id = item.id.toIntOrNull() ?: return
+            val token = generation
+            detailJob = viewModelScope.launch {
+                val details = repository.vodDetails(id).getOrNull()
+                if (details != null && generation == token && detailItem?.favoriteKey == item.favoriteKey) {
+                    detailItem = item.copy(plot = details.plot ?: item.plot, genre = details.genre ?: item.genre,
+                        year = details.releaseDate?.take(4) ?: item.year, backdrop = details.backdrop ?: item.backdrop,
+                        rating = details.rating?.toDoubleOrNull() ?: item.rating)
+                }
             }
         }
+    }
+
+    fun closeDetails() {
+        detailJob?.cancel(); episodeJob?.cancel()
+        detailItem = null; episodeSelection = null; episodeLoading = false; episodeError = null
+    }
+
+    fun playItem(item: VodItem, onReady: (PlayerRequest) -> Unit) {
+        val url = item.url ?: run { notice = "Este item não possui vídeo disponível."; return }
+        val saved = history[item.favoriteKey]
+        onReady(PlayerRequest(item.title, url, false, libraryKey = item.favoriteKey,
+            resumePositionMs = saved?.position ?: 0L))
+    }
+
+    fun playSeries(onReady: (PlayerRequest) -> Unit) {
+        val selection = episodeSelection ?: return
+        val savedId = history[selection.item.favoriteKey]?.episodeId
+        val choice = selection.choices.firstOrNull { it.episode.id == savedId } ?: selection.choices.firstOrNull()
+        if (choice != null) playEpisode(choice, onReady)
     }
 
     fun playEpisode(choice: EpisodeChoice, onReady: (PlayerRequest) -> Unit) {
         val selection = episodeSelection ?: return
         val key = selection.item.favoriteKey
         val saved = history[key]?.takeIf { it.episodeId == choice.episode.id }
-        episodeSelection = null
         onReady(PlayerRequest("${selection.item.title} · ${choice.label}", choice.url, false,
             libraryKey = key, episodeId = choice.episode.id, resumePositionMs = saved?.position ?: 0L))
     }
-
-    fun dismissEpisodes() { episodeSelection = null }
 
     fun saveProgress(request: PlayerRequest, position: Long, duration: Long) {
         val key = request.libraryKey ?: return
@@ -323,6 +364,7 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
         fun update(item: VodItem) = if (item.favoriteKey == key) item.copy(progress = progress?.fraction ?: 0f) else item
         content = content.copy(movies = content.movies.map(::update), series = content.series.map(::update),
             hero = content.hero?.let(::update))
+        detailItem = detailItem?.let(::update)
     }
 
     fun toggleFavorite(key: String) {
@@ -352,7 +394,8 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
     private fun cancelActiveWork() {
         generation++
         catalogueJob?.cancel(); guideJob?.cancel(); shortEpgJob?.cancel(); episodeJob?.cancel()
-        episodeSelection = null
+        detailJob?.cancel()
+        detailItem = null; episodeSelection = null; episodeLoading = false; episodeError = null
     }
 
     companion object { private val YEAR = Regex("\\b(?:19|20)\\d{2}\\b") }

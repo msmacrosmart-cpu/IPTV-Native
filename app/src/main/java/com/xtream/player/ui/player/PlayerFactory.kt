@@ -12,7 +12,7 @@ import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
 import androidx.media3.exoplayer.trackselection.DefaultTrackSelector
 
 @OptIn(UnstableApi::class)
-fun buildPlayer(context: Context, trackSelector: DefaultTrackSelector? = null): ExoPlayer {
+fun buildPlayer(context: Context, trackSelector: DefaultTrackSelector? = null, handleAudioFocus: Boolean = true): ExoPlayer {
     val http = DefaultHttpDataSource.Factory()
         .setUserAgent("VLC/3.0.20 LibVLC/3.0.20")   // muitos servidores IPTV exigem UA de player
         .setAllowCrossProtocolRedirects(true)
@@ -24,7 +24,7 @@ fun buildPlayer(context: Context, trackSelector: DefaultTrackSelector? = null): 
             .setEnableDecoderFallback(true),
     ).setMediaSourceFactory(DefaultMediaSourceFactory(http))
         .setSeekBackIncrementMs(10_000).setSeekForwardIncrementMs(10_000)
-        .setAudioAttributes(AudioAttributes.DEFAULT, true)
+        .setAudioAttributes(AudioAttributes.DEFAULT, handleAudioFocus)
         .setHandleAudioBecomingNoisy(true)
         .setWakeMode(C.WAKE_MODE_NETWORK)
     if (trackSelector != null) b.setTrackSelector(trackSelector)

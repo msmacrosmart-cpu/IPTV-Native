@@ -1,0 +1,206 @@
+package com.xtream.player.ui.multi
+
+import android.view.ViewGroup
+import androidx.annotation.OptIn as AndroidXOptIn
+import androidx.compose.foundation.ExperimentalFoundationApi
+import androidx.compose.foundation.background
+import androidx.compose.foundation.border
+import androidx.compose.foundation.combinedClickable
+import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.grid.GridCells
+import androidx.compose.foundation.lazy.grid.GridItemSpan
+import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
+import androidx.compose.foundation.lazy.grid.items
+import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.*
+import androidx.compose.material3.Icon
+import androidx.compose.material3.Text
+import androidx.compose.runtime.*
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.stateDescription
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
+import androidx.compose.ui.viewinterop.AndroidView
+import androidx.compose.ui.window.Dialog
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
+import androidx.lifecycle.compose.LocalLifecycleOwner
+import androidx.media3.common.AudioAttributes
+import androidx.media3.common.MediaItem
+import androidx.media3.common.PlaybackException
+import androidx.media3.common.Player
+import androidx.media3.common.util.UnstableApi
+import androidx.media3.ui.PlayerView
+import com.xtream.player.data.Channel
+import com.xtream.player.data.PlayerRequest
+import com.xtream.player.ui.components.GlassPanel
+import com.xtream.player.ui.components.IconAction
+import com.xtream.player.ui.components.PillField
+import com.xtream.player.ui.components.focusGlow
+import com.xtream.player.ui.player.buildPlayer
+import com.xtream.player.ui.theme.XColors
+
+/** Four independent players. Only one tile holds audio focus and is audible at a time. */
+@Composable
+fun MultiScreen(channels: List<Channel>, slotIds: List<String?>, audible: Int, enabled: Boolean,
+                onSetSlot: (Int, String?) -> Unit, onAudible: (Int) -> Unit, onPlay: (PlayerRequest) -> Unit) {
+    var picking by remember { mutableStateOf<Int?>(null) }
+    LazyVerticalGrid(columns = GridCells.Fixed(2), modifier = Modifier.fillMaxSize().background(XColors.Bg),
+        contentPadding = PaddingValues(18.dp), horizontalArrangement = Arrangement.spacedBy(12.dp),
+        verticalArrangement = Arrangement.spacedBy(12.dp)) {
+        item(span = { GridItemSpan(maxLineSpan) }) {
+            Column(Modifier.padding(bottom = 8.dp)) {
+                Text("Multitela", color = XColors.Text, fontSize = 27.sp, fontWeight = FontWeight.SemiBold)
+                Text("Até quatro canais simultâneos. O som vem apenas da tela selecionada.",
+                    color = XColors.TextDim, fontSize = 13.sp, modifier = Modifier.padding(top = 4.dp))
+                Text("O limite depende das conexões do provedor e dos decodificadores do aparelho.",
+                    color = XColors.Body, fontSize = 12.sp, modifier = Modifier.padding(top = 3.dp))
+            }
+        }
+        items((0 until 4).toList(), key = { it }) { index ->
+            val channel = channels.firstOrNull { it.id == slotIds.getOrNull(index) }
+            if (channel == null) EmptyTile(index) { picking = index }
+            else MultiTile(index, channel, audible == index, enabled,
+                onSelect = { onAudible(index) }, onRemove = { onSetSlot(index, null) },
+                onFullscreen = { onPlay(PlayerRequest(channel.name, channel.url, true, listOf(channel), 0, channel.fallbackUrl)) })
+        }
+    }
+    picking?.let { slot ->
+        ChannelPicker(channels, onDismiss = { picking = null }) { channel ->
+            onSetSlot(slot, channel.id); onAudible(slot); picking = null
+        }
+    }
+}
+
+@OptIn(ExperimentalFoundationApi::class)
+@Composable
+private fun EmptyTile(index: Int, onClick: () -> Unit) {
+    val shape = RoundedCornerShape(12.dp)
+    Column(Modifier.fillMaxWidth().aspectRatio(16f / 9f).focusGlow(shape, zoom = 1f).clip(shape)
+        .background(XColors.Panel).border(1.dp, XColors.Line, shape)
+        .combinedClickable(onClickLabel = "Adicionar canal ${index + 1}", onClick = onClick),
+        horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.Center) {
+        Icon(Icons.Filled.AddCircleOutline, "Adicionar canal ${index + 1}", tint = XColors.Accent, modifier = Modifier.size(30.dp))
+        Text("Adicionar canal", color = XColors.TextDim, fontSize = 13.sp, modifier = Modifier.padding(top = 6.dp))
+    }
+}
+
+@OptIn(ExperimentalFoundationApi::class)
+@Composable
+private fun ChannelPicker(channels: List<Channel>, onDismiss: () -> Unit, onChoose: (Channel) -> Unit) {
+    var query by remember { mutableStateOf("") }
+    val filtered = remember(channels, query) { channels.filter { it.name.contains(query, true) } }
+    Dialog(onDismissRequest = onDismiss) {
+        GlassPanel(Modifier.fillMaxWidth().widthIn(max = 500.dp).heightIn(max = 560.dp), RoundedCornerShape(16.dp)) {
+            Column(Modifier.fillMaxWidth().padding(20.dp)) {
+                Text("Escolher canal", color = XColors.Text, fontSize = 20.sp, fontWeight = FontWeight.SemiBold)
+                PillField(query, { query = it }, "Buscar canal", Modifier.fillMaxWidth().padding(top = 14.dp))
+                LazyColumn(Modifier.fillMaxWidth().heightIn(max = 390.dp).padding(top = 12.dp)) {
+                    if (filtered.isEmpty()) item { Text("Nenhum canal encontrado.", color = XColors.TextDim, modifier = Modifier.padding(12.dp)) }
+                    items(filtered, key = { it.id }) { channel ->
+                        val shape = RoundedCornerShape(8.dp)
+                        Row(Modifier.fillMaxWidth().testTag("choose-channel-${channel.id}").focusGlow(shape, zoom = 1f).clip(shape)
+                            .combinedClickable { onChoose(channel) }.padding(horizontal = 12.dp, vertical = 12.dp),
+                            verticalAlignment = Alignment.CenterVertically) {
+                            Icon(Icons.Filled.LiveTv, null, tint = XColors.TextDim, modifier = Modifier.size(20.dp))
+                            Text("${channel.number}. ${channel.name}", color = XColors.Text, fontSize = 14.sp,
+                                modifier = Modifier.padding(start = 12.dp), maxLines = 1, overflow = TextOverflow.Ellipsis)
+                        }
+                    }
+                }
+                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
+                    IconAction(Icons.Filled.Close, "Fechar", onClick = onDismiss)
+                }
+            }
+        }
+    }
+}
+
+@AndroidXOptIn(UnstableApi::class)
+@OptIn(ExperimentalFoundationApi::class)
+@Composable
+private fun MultiTile(index: Int, channel: Channel, active: Boolean, enabled: Boolean,
+                      onSelect: () -> Unit, onRemove: () -> Unit, onFullscreen: () -> Unit) {
+    val shape = RoundedCornerShape(12.dp)
+    Box(Modifier.fillMaxWidth().aspectRatio(16f / 9f).focusGlow(shape, zoom = 1f).clip(shape)
+        .background(Color.Black).border(if (active) 2.dp else 1.dp, if (active) XColors.Accent else XColors.Line, shape)
+        .combinedClickable(onClick = onSelect)) {
+        if (enabled) MultiPlayer(index, channel, active, Modifier.fillMaxSize())
+        Column(Modifier.align(Alignment.BottomCenter).fillMaxWidth().background(Color(0xCC0D0F12))) {
+            Row(Modifier.fillMaxWidth().padding(start = 10.dp), verticalAlignment = Alignment.CenterVertically) {
+                Text(channel.name, color = XColors.Text, fontSize = 13.sp, fontWeight = FontWeight.SemiBold,
+                    maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f))
+                IconAction(if (active) Icons.Filled.VolumeUp else Icons.Filled.VolumeOff,
+                    if (active) "Som ativo na tela ${index + 1}" else "Ativar som da tela ${index + 1}", onClick = onSelect)
+                IconAction(Icons.Filled.Fullscreen, "Abrir tela ${index + 1}", onClick = onFullscreen)
+                IconAction(Icons.Filled.Close, "Remover tela ${index + 1}", onClick = onRemove)
+            }
+        }
+    }
+}
+
+@AndroidXOptIn(UnstableApi::class)
+@Composable
+private fun MultiPlayer(index: Int, channel: Channel, active: Boolean, modifier: Modifier = Modifier) {
+    val context = LocalContext.current
+    val owner = LocalLifecycleOwner.current
+    val player = remember(channel.id, channel.url) {
+        buildPlayer(context, handleAudioFocus = false).apply {
+            volume = 0f; setMediaItem(MediaItem.fromUri(channel.url)); prepare(); playWhenReady = true
+        }
+    }
+    var state by remember(player) { mutableStateOf("buffering") }
+    var fallbackTried by remember(player) { mutableStateOf(false) }
+    DisposableEffect(player, channel.fallbackUrl) {
+        val listener = object : Player.Listener {
+            override fun onIsPlayingChanged(isPlaying: Boolean) { if (isPlaying) state = "playing" else if (state != "error") state = "paused" }
+            override fun onPlaybackStateChanged(playbackState: Int) {
+                if (playbackState == Player.STATE_BUFFERING) state = "buffering"
+                if (playbackState == Player.STATE_READY && player.isPlaying) state = "playing"
+            }
+            override fun onPlayerError(error: PlaybackException) {
+                if (!fallbackTried && !channel.fallbackUrl.isNullOrBlank() && channel.fallbackUrl != channel.url) {
+                    fallbackTried = true; player.setMediaItem(MediaItem.fromUri(channel.fallbackUrl)); player.prepare()
+                    player.playWhenReady = owner.lifecycle.currentState.isAtLeast(Lifecycle.State.STARTED)
+                } else state = "error"
+            }
+        }
+        player.addListener(listener)
+        onDispose { player.removeListener(listener); player.release() }
+    }
+    DisposableEffect(owner, player) {
+        var resume = false
+        val observer = LifecycleEventObserver { _, event ->
+            when (event) {
+                Lifecycle.Event.ON_STOP -> { resume = player.playWhenReady; player.pause() }
+                Lifecycle.Event.ON_START -> if (resume) { player.play(); resume = false }
+                else -> Unit
+            }
+        }
+        owner.lifecycle.addObserver(observer)
+        onDispose { owner.lifecycle.removeObserver(observer) }
+    }
+    LaunchedEffect(player, active) {
+        player.volume = if (active) 1f else 0f
+        player.setAudioAttributes(AudioAttributes.DEFAULT, active)
+    }
+    Box(modifier.testTag("multi-player-${index + 1}").semantics { stateDescription = state }) {
+        AndroidView(factory = { c -> PlayerView(c).apply {
+            useController = false; this.player = player
+            isFocusable = false; isFocusableInTouchMode = false; descendantFocusability = ViewGroup.FOCUS_BLOCK_DESCENDANTS
+        } }, modifier = Modifier.fillMaxSize())
+        if (state == "error") Text("Não foi possível reproduzir este canal.", color = XColors.Text, fontSize = 12.sp,
+            modifier = Modifier.align(Alignment.Center).background(Color(0xCC0D0F12)).padding(8.dp))
+    }
+}

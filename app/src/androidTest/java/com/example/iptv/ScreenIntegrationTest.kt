@@ -1,6 +1,7 @@
 package com.example.iptv
 
 import android.content.Context
+import android.content.pm.ActivityInfo
 import android.graphics.Bitmap
 import android.os.ParcelFileDescriptor
 import androidx.compose.ui.input.key.Key
@@ -8,6 +9,7 @@ import androidx.compose.ui.semantics.SemanticsActions
 import androidx.compose.ui.semantics.SemanticsProperties
 import androidx.compose.ui.semantics.getOrNull
 import androidx.compose.ui.test.assertIsFocused
+import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.assertTextContains
 import androidx.compose.ui.test.ExperimentalTestApi
 import androidx.compose.ui.test.SemanticsMatcher
@@ -104,6 +106,11 @@ class ScreenIntegrationTest {
                     guideRequests.incrementAndGet()
                     return MockResponse().setHeader("Content-Type", "application/xml").setBody(guide())
                 }
+                if (path.startsWith("/art/")) {
+                    val name = path.substringAfterLast('/')
+                    val bytes = InstrumentationRegistry.getInstrumentation().targetContext.assets.open("demo/$name").use { it.readBytes() }
+                    return MockResponse().setHeader("Content-Type", "image/webp").setBody(Buffer().write(bytes))
+                }
                 if (path.startsWith("/live/") || path.startsWith("/movie/") || path.startsWith("/series/")) {
                     streamPaths.add(path)
                     return MockResponse().setHeader("Content-Type", "video/mp2t").setBody(Buffer().write(video))
@@ -120,10 +127,17 @@ class ScreenIntegrationTest {
                         """{"epg_listings":[{"id":"1","title":"$title","start_timestamp":"${now - 60}","stop_timestamp":"${now + 3600}"}]}"""
                     }
                     "get_vod_categories" -> """[{"category_id":"10","category_name":"Ação"}]"""
-                    "get_vod_streams" -> """[{"stream_id":101,"name":"Filme Teste","category_id":"10","container_extension":"ts","rating":"8.0"}]"""
-                    "get_vod_info" -> """{"info":{"plot":"Sinopse real","genre":"Ação"}}"""
+                    "get_vod_streams" -> {
+                        val art = listOf("black-harbor", "summer-static", "house-of-tides", "field-notes", "white-room-six", "open-late", "crimson-skylark", "the-voltage-guard")
+                        (101..130).joinToString(prefix = "[", postfix = "]") { id ->
+                            val name = if (id == 101) "Filme Teste" else "Filme $id"
+                            val poster = server.url("/art/poster-${art[(id - 101) % art.size]}.webp")
+                            """{"stream_id":$id,"name":"$name","category_id":"10","container_extension":"ts","rating":"8.0","stream_icon":"$poster"}"""
+                        }
+                    }
+                    "get_vod_info" -> """{"info":{"plot":"Sinopse real","genre":"Ação","backdrop_path":["${server.url("/art/backdrop-black-harbor.webp")}"]}}"""
                     "get_series_categories" -> """[{"category_id":"20","category_name":"Drama"}]"""
-                    "get_series" -> """[{"series_id":101,"name":"Série Teste","category_id":"20","genre":"Drama"}]"""
+                    "get_series" -> """[{"series_id":101,"name":"Série Teste","category_id":"20","genre":"Drama","cover":"${server.url("/art/poster-skyline-sentinels.webp")}","backdrop_path":["${server.url("/art/backdrop-skyline-sentinels.webp")}"]}]"""
                     "get_series_info" -> """{"episodes":{"1":[{"id":"201","episode_num":1,"season":1,"title":"Primeiro","container_extension":"ts"},{"id":"202","episode_num":2,"season":1,"title":"Segundo","container_extension":"ts"}]}}"""
                     else -> "{}"
                 }
@@ -135,26 +149,33 @@ class ScreenIntegrationTest {
 
     @After fun stopPanel() { server.shutdown() }
 
-    @Test fun suppliedScreensUseRealSessionCatalogFavoritesEpgAndPlayback() {
+    @Test fun nativeScreensUseRealSessionCatalogFavoritesEpgAndPlayback() {
         capture("screen-login.png")
         compose.onNodeWithText("Servidor Xtream").performScrollTo().performTextInput(server.url("/").toString())
         compose.onNodeWithText("Usuário").performScrollTo().performTextInput("alice")
         compose.onNodeWithText("Senha").performScrollTo().performTextInput("senha")
         compose.onNodeWithContentDescription("Entrar").performScrollTo().performClick()
-
         compose.waitUntil(30_000) { compose.onAllNodesWithContentDescription("TV ao vivo").fetchSemanticsNodes().isNotEmpty() }
         compose.waitUntil(10_000) { !keyboardIsVisible() }
         val vm = ViewModelProvider(compose.activity)[AppViewModel::class.java]
-        compose.waitUntil(30_000) { vm.content.channels.size == 2 && vm.content.movies.size == 1 && vm.content.series.size == 1 }
+        compose.waitUntil(30_000) { vm.content.channels.size == 2 && vm.content.movies.size == 30 && vm.content.series.size == 1 }
         val app = compose.activity.application as IPTVApplication
         assertEquals(1_900_000_000_000L, app.repository.account.value?.expiresAtMillis ?: 0L)
         compose.waitUntil(30_000) { app.epgRepository.guide.value.programCount == 1 }
+        compose.runOnIdle { vm.saveProgress(com.xtream.player.data.PlayerRequest("Filme Teste", "unused", false, libraryKey = "vod:101"), 20_000, 100_000) }
         capture("screen-home.png")
+        listOf("Início", "TV ao vivo", "Filmes", "Séries", "Multitela", "Configurações").forEach {
+            compose.onNodeWithContentDescription(it).assertExists()
+        }
 
-        // The same numeric ID for a movie and a series must not collide.
+        // Movie and series may have the same numerical id; pagination and favorite keys stay distinct.
         compose.onNodeWithContentDescription("Filmes").performClick()
         compose.waitUntil(10_000) { exists("poster-vod:101") }
         capture("screen-movies.png")
+        compose.onNodeWithContentDescription("Próxima página").performClick()
+        compose.waitUntil(10_000) { exists("poster-vod:125") && !exists("poster-vod:101") }
+        compose.onNodeWithContentDescription("Página anterior").performClick()
+        compose.waitUntil(10_000) { exists("poster-vod:101") }
         compose.onNodeWithTag("search-field").performTextInput("inexistente")
         compose.waitUntil(10_000) { !exists("poster-vod:101") }
         compose.onNodeWithTag("search-field").performTextClearance()
@@ -162,11 +183,12 @@ class ScreenIntegrationTest {
         compose.onNodeWithTag("poster-vod:101").performSemanticsAction(SemanticsActions.OnLongClick)
         compose.onNodeWithContentDescription("Séries").performClick()
         compose.waitUntil(10_000) { exists("poster-series:101") }
-        capture("screen-series.png")
         compose.onNodeWithTag("poster-series:101").performSemanticsAction(SemanticsActions.OnLongClick)
         assertTrue(vm.favorites.containsAll(listOf("vod:101", "series:101")))
         compose.onNodeWithTag("poster-series:101").performClick()
-        compose.waitUntil(20_000) { textExists("T1 E2 · Segundo") }
+        compose.waitUntil(20_000) { textExists("Temporada 1") }
+        capture("screen-series.png")
+        compose.onNodeWithTag("detail-list").performScrollToNode(hasText("T1 E2 · Segundo"))
         compose.onNodeWithText("T1 E2 · Segundo").performClick()
         compose.waitUntil(30_000) { streamPaths.any { it.endsWith("/202.ts") } && playerState() == "playing" }
         compose.waitUntil(10_000) { !keyboardIsVisible() }
@@ -190,9 +212,7 @@ class ScreenIntegrationTest {
         useRemoteInputMode()
         compose.onNodeWithTag("channel-2").performSemanticsAction(SemanticsActions.RequestFocus)
         compose.onNodeWithTag("channel-2").assertIsFocused()
-        compose.waitUntil(10_000) {
-            runCatching { compose.onNodeWithTag("preview-channel").assertTextContains("Canal Esportes", substring = true) }.isSuccess
-        }
+        compose.waitUntil(10_000) { runCatching { compose.onNodeWithTag("preview-channel").assertTextContains("Canal Esportes", substring = true) }.isSuccess }
         compose.waitUntil(20_000) { shortRequests.get() > 0 && vm.epg["sports"].orEmpty().isNotEmpty() }
         compose.onNodeWithTag("channel-2").performSemanticsAction(SemanticsActions.OnLongClick)
         assertTrue(vm.favorites.contains("ch:2"))
@@ -208,8 +228,8 @@ class ScreenIntegrationTest {
         compose.waitUntil(10_000) { runCatching { compose.onNodeWithTag("channel-1").assertIsFocused() }.isSuccess }
         compose.onNodeWithTag("preview-channel").assertTextContains("Canal Notícias", substring = true)
 
-        compose.onNodeWithContentDescription("Favoritos").performClick()
-        compose.onNodeWithText("FAVORITOS").assertExists()
+        compose.onNodeWithContentDescription("Início").performClick()
+        compose.onNodeWithTag("home-list").performScrollToNode(hasText("Filmes e séries favoritos"))
         compose.waitUntil(10_000) { exists("poster-vod:101") && exists("poster-series:101") }
         capture("screen-favorites.png")
         val credentials = app.repository.currentCredentials()!!
@@ -224,18 +244,58 @@ class ScreenIntegrationTest {
         reopened.saveProgress("vod:101", 99_000, 100_000, null)
         assertTrue(reopened.progress()["vod:101"] == null)
 
+        // Two separate Media3 players must be playing at the same time, not merely placeholders.
+        compose.onNodeWithContentDescription("Multitela").performClick()
+        compose.onNodeWithContentDescription("Adicionar canal 1").performClick()
+        compose.onNodeWithTag("choose-channel-1").performClick()
+        compose.onNodeWithContentDescription("Adicionar canal 2").performClick()
+        compose.onNodeWithTag("choose-channel-2").performClick()
+        compose.waitUntil(30_000) { multiState(1) == "playing" && multiState(2) == "playing" }
+        compose.onNodeWithContentDescription("Som ativo na tela 2").assertExists()
+        compose.onNodeWithContentDescription("Ativar som da tela 1").performClick()
+        compose.onNodeWithContentDescription("Som ativo na tela 1").assertExists()
+        capture("screen-multi.png")
+
         compose.onNodeWithContentDescription("Configurações").performClick()
-        compose.onNodeWithText("Guia de programação (EPG)").assertExists()
-        compose.onNodeWithText("Conta").assertExists()
+        compose.onNodeWithText("Guia de programação (EPG)").performScrollTo().assertExists()
         val count = guideRequests.get()
         compose.onNodeWithText("Atualizar EPG").performScrollTo().performClick()
         compose.waitUntil(30_000) { guideRequests.get() > count && !vm.epgLoading && vm.epgUpdatedAt != null }
+        compose.onNodeWithTag("credential-user").performScrollTo().performTextClearance().performTextInput("bob")
+        compose.onNodeWithText("Salvar e conectar").performScrollTo().performClick()
+        compose.waitUntil(30_000) { vm.session?.username == "bob" && !vm.loading }
+        assertEquals("bob", app.repository.currentCredentials()?.username)
         capture("screen-settings.png")
         compose.onNodeWithText("Sair da conta").performScrollTo().performClick()
-        compose.waitUntil(10_000) { textExists("Bem-vindo de volta") }
+        compose.waitUntil(10_000) { textExists("Adicionar conexão") }
         assertTrue(app.repository.currentCredentials() == null)
         assertEquals(0, app.epgRepository.guide.value.programCount)
         assertFalse(vm.favorites.isNotEmpty())
+    }
+
+    @Test fun portraitTouchLayoutKeepsTheSixDestinationsUsable() {
+        try {
+            compose.runOnUiThread { compose.activity.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_PORTRAIT }
+            shell("wm size 480x900")
+            compose.waitUntil(20_000) { compose.activity.window.decorView.width in 1..599 }
+            compose.onNodeWithText("Servidor Xtream").performScrollTo().performTextInput(server.url("/").toString())
+            compose.onNodeWithText("Usuário").performScrollTo().performTextInput("alice")
+            compose.onNodeWithText("Senha").performScrollTo().performTextInput("senha")
+            compose.onNodeWithContentDescription("Entrar").performScrollTo().performClick()
+            compose.waitUntil(30_000) { compose.onAllNodesWithContentDescription("Multitela").fetchSemanticsNodes().isNotEmpty() }
+            compose.waitUntil(10_000) { !keyboardIsVisible() }
+            listOf("Início", "TV ao vivo", "Filmes", "Séries", "Multitela", "Configurações").forEach {
+                compose.onNodeWithContentDescription(it).assertIsDisplayed()
+            }
+            compose.onNodeWithContentDescription("Filmes").performClick()
+            compose.waitUntil(30_000) { exists("poster-vod:101") }
+            capture("screen-phone.png")
+            compose.onNodeWithContentDescription("Multitela").performClick()
+            compose.onNodeWithContentDescription("Adicionar canal 1").assertIsDisplayed()
+        } finally {
+            shell("wm size 1376x768")
+            compose.runOnUiThread { compose.activity.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED }
+        }
     }
 
     @Test fun oldCachedAccountDatesAreCorrectedWithoutNetwork() {
@@ -248,6 +308,12 @@ class ScreenIntegrationTest {
         assertEquals(1_900_000_000_000L, cached?.expiresAtMillis ?: 0L)
         assertEquals(1_700_000_000_000L, cached?.createdAtMillis ?: 0L)
         app.repository.logout()
+    }
+
+    private fun shell(command: String) {
+        val output = InstrumentationRegistry.getInstrumentation().uiAutomation.executeShellCommand(command)
+        ParcelFileDescriptor.AutoCloseInputStream(output).use { it.readBytes() }
+        compose.waitForIdle()
     }
 
     private fun useRemoteInputMode() {
@@ -267,6 +333,9 @@ class ScreenIntegrationTest {
     }
     private fun keyboardIsVisible(): Boolean =
         ViewCompat.getRootWindowInsets(compose.activity.window.decorView)?.isVisible(WindowInsetsCompat.Type.ime()) == true
+    private fun multiState(index: Int): String? = runCatching {
+        compose.onNodeWithTag("multi-player-$index").fetchSemanticsNode().config.getOrNull(SemanticsProperties.StateDescription)
+    }.getOrNull()
     private fun playerState(): String? = runCatching {
         compose.onNodeWithTag("player-root").fetchSemanticsNode().config.getOrNull(SemanticsProperties.StateDescription)
     }.getOrNull()

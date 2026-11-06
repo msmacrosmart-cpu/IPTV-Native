@@ -58,7 +58,6 @@ import androidx.media3.ui.AspectRatioFrameLayout
 import androidx.media3.ui.PlayerView
 import com.xtream.player.data.PlayerRequest
 import com.xtream.player.data.Channel
-import com.xtream.player.data.AppViewModel
 import com.xtream.player.ui.components.FocusBrush
 import com.xtream.player.ui.components.GlassPanel
 import com.xtream.player.ui.components.focusGlow
@@ -330,17 +329,22 @@ fun PlayerScreen(request: PlayerRequest, onBack: () -> Unit, previewMode: Boolea
 
         // ---------- Controles
         AnimatedVisibility(controls && !locked, Modifier.fillMaxSize(), enter = fadeIn(), exit = fadeOut()) {
-            Box(Modifier.fillMaxSize()) {
+            BoxWithConstraints(Modifier.fillMaxSize()) {
+                val compactControls = maxWidth < 760.dp
                 Box(Modifier.align(Alignment.TopCenter).fillMaxWidth().height(150.dp).background(Brush.verticalGradient(listOf(Color(0xCC000000), Color.Transparent))))
                 Box(Modifier.align(Alignment.BottomCenter).fillMaxWidth().height(230.dp).background(Brush.verticalGradient(listOf(Color.Transparent, Color(0xE6000000)))))
 
-                // Topo: título + LIVE | ferramentas
-                Row(Modifier.align(Alignment.TopCenter).fillMaxWidth().padding(horizontal = 28.dp, vertical = 18.dp), verticalAlignment = Alignment.CenterVertically) {
-                    RoundBtn(Icons.Filled.ArrowBack, 44, "Voltar") { onBack() }
-                    Text(title, color = Color.White, fontSize = 30.sp, fontWeight = FontWeight.Medium, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.padding(start = 14.dp, end = 12.dp).weight(1f, fill = false))
-                    if (isLive) Text("LIVE", color = Color.White, fontSize = 14.sp, fontWeight = FontWeight.Bold, modifier = Modifier.clip(RoundedCornerShape(8.dp)).background(XColors.Live).padding(horizontal = 10.dp, vertical = 4.dp))
-                    Spacer(Modifier.weight(1f))
-                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
+                // Title and tools wrap into separate rows; tools remain reachable by touch/D-pad on phones.
+                Column(Modifier.align(Alignment.TopCenter).fillMaxWidth().padding(horizontal = if (compactControls) 12.dp else 24.dp, vertical = 12.dp)) {
+                    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                        RoundBtn(Icons.Filled.ArrowBack, 44, "Voltar") { onBack() }
+                        Text(title, color = Color.White, fontSize = if (compactControls) 20.sp else 26.sp, fontWeight = FontWeight.Medium,
+                            maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.padding(start = 12.dp, end = 10.dp).weight(1f))
+                        if (isLive) Text("AO VIVO", color = Color.White, fontSize = 12.sp, fontWeight = FontWeight.Bold,
+                            modifier = Modifier.clip(RoundedCornerShape(6.dp)).background(XColors.Live.copy(alpha = .7f)).padding(horizontal = 8.dp, vertical = 4.dp))
+                    }
+                    Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()).padding(top = 6.dp),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
                         Tool(Icons.Filled.Speed, "${"%.2g".format(speed)}x", speed != 1f) { dlg = Dlg.Speed }
                         Tool(Icons.Filled.AspectRatio, aspect.label, aspect != Aspect.Fit) { dlg = Dlg.Aspect }
                         Tool(Icons.Filled.Repeat, when { pointA != null && pointB != null -> "A-B ●"; pointA != null -> "A→"; else -> "A-B" }, pointA != null) {
@@ -357,9 +361,10 @@ fun PlayerScreen(request: PlayerRequest, onBack: () -> Unit, previewMode: Boolea
                 }
 
                 // Base
-                Column(Modifier.align(Alignment.BottomCenter).fillMaxWidth().padding(horizontal = 28.dp, vertical = 18.dp)) {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Row(Modifier.weight(1f), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                Column(Modifier.align(Alignment.BottomCenter).fillMaxWidth().padding(horizontal = if (compactControls) 12.dp else 28.dp, vertical = 18.dp)) {
+                    Row(Modifier.then(if (compactControls) Modifier.horizontalScroll(rememberScrollState()) else Modifier.fillMaxWidth()),
+                        verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Row(Modifier.then(if (compactControls) Modifier else Modifier.weight(1f)), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                             if (hasPlaylist) {
                                 PBtn("Previous Channel", Icons.Filled.SkipPrevious) { changeChannel(-1) }
                                 PBtn("Next Channel", Icons.Filled.SkipNext) { changeChannel(+1) }
@@ -376,7 +381,7 @@ fun PlayerScreen(request: PlayerRequest, onBack: () -> Unit, previewMode: Boolea
                                 .combinedClickableCompat { togglePlay() },
                             contentAlignment = Alignment.Center,
                         ) { Icon(if (isPlaying) Icons.Filled.Pause else Icons.Filled.PlayArrow, if (isPlaying) "Pausar" else "Reproduzir", tint = XColors.Accent, modifier = Modifier.size(40.dp)) }
-                        Row(Modifier.weight(1f), horizontalArrangement = Arrangement.spacedBy(12.dp, Alignment.End)) {
+                        Row(Modifier.then(if (compactControls) Modifier else Modifier.weight(1f)), horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.End)) {
                             PBtn("Audio Settings", Icons.Filled.VolumeUp) { dlg = Dlg.Audio }
                             PBtn("Subtitles", Icons.Filled.ClosedCaption) { dlg = Dlg.Subs }
                         }
@@ -465,7 +470,7 @@ private fun OptionDialog(title: String, options: List<Opt>, onDismiss: () -> Uni
                         Row(
                             Modifier.fillMaxWidth().then(if (i == 0) Modifier.focusRequester(first) else Modifier)
                                 .focusGlow(shape, zoom = 1.02f).clip(shape)
-                                .background(if (o.selected) Color(0x33F0564A) else Color(0x14FFFFFF))
+                                .background(if (o.selected) XColors.Selection else Color(0x14FFFFFF))
                                 .combinedClickableCompat(o.onClick).padding(horizontal = 16.dp, vertical = 12.dp),
                             verticalAlignment = Alignment.CenterVertically,
                         ) {
@@ -501,7 +506,7 @@ private fun Tool(icon: ImageVector, label: String, active: Boolean, onClick: () 
     val shape = RoundedCornerShape(50)
     Row(
         Modifier.focusGlow(shape, 2.dp, 1.05f).clip(shape)
-            .background(if (active) Color(0x55F0564A) else Color(0x29FFFFFF))
+            .background(if (active) XColors.Selection else Color(0x29FFFFFF))
             .combinedClickableCompat(onClick).padding(horizontal = 12.dp, vertical = 8.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
@@ -516,13 +521,4 @@ private fun RoundBtn(icon: ImageVector, size: Int, label: String, onClick: () ->
         Modifier.size(size.dp).focusGlow(CircleShape, 2.dp, 1.08f).clip(CircleShape).background(Color(0x44000000)).combinedClickableCompat(onClick),
         contentAlignment = Alignment.Center,
     ) { Icon(icon, label, tint = Color.White, modifier = Modifier.size((size * 0.5f).dp)) }
-}
-
-
-/** Series selection uses the same dialog styling as the supplied player controls. */
-@Composable
-fun EpisodeDialog(selection: AppViewModel.EpisodeSelection, onDismiss: () -> Unit, onPick: (AppViewModel.EpisodeChoice) -> Unit) {
-    OptionDialog(selection.item.title, selection.choices.map { choice ->
-        Opt(choice.label, false) { onPick(choice) }
-    }, onDismiss)
 }

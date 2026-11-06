@@ -9,7 +9,7 @@ import androidx.core.view.WindowInsetsControllerCompat
 import com.xtream.player.ui.XtreamApp
 import com.xtream.player.ui.theme.XtreamTheme
 
-/** Hosts the supplied XtreamTV interface while retaining the existing application ID/session. */
+/** Hosts the native IPTVnator-inspired interface while retaining the existing application ID/session. */
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
