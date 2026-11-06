@@ -141,10 +141,10 @@ private fun HeroCarousel(slides: List<VodItem>, height: androidx.compose.ui.unit
     val pager = rememberPagerState(pageCount = { slides.size })
     val scope = rememberCoroutineScope()
     var hasFocus by remember { mutableStateOf(false) }
-    LaunchedEffect(pager, slides.size, hasFocus) {
+    LaunchedEffect(pager, slides.size, hasFocus, loadingHeroKey) {
         while (slides.size > 1) {
             delay(8_000)
-            if (!hasFocus && !pager.isScrollInProgress) pager.animateScrollToPage((pager.currentPage + 1) % slides.size)
+            if (!hasFocus && loadingHeroKey == null && !pager.isScrollInProgress) pager.animateScrollToPage((pager.currentPage + 1) % slides.size)
         }
     }
     Box(Modifier.fillMaxWidth().height(height).onFocusChanged { hasFocus = it.hasFocus }.focusGroup()) {

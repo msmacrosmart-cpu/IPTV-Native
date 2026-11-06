@@ -249,7 +249,7 @@ class ScreenIntegrationTest {
         // On the series hero, Assistir resolves episodes and resumes the saved episode.
         compose.runOnIdle {
             vm.saveProgress(com.xtream.player.data.PlayerRequest("Série Teste", "unused", false,
-                libraryKey = "series:101", episodeId = "202"), 1_000, 100_000)
+                libraryKey = "series:101", episodeId = "202"), 6_000, 100_000)
         }
         compose.onNodeWithContentDescription("Home").performClick()
         compose.onNodeWithTag("home-list").performScrollToIndex(0)
@@ -261,7 +261,7 @@ class ScreenIntegrationTest {
         val previousEpisodeRequests = streamPaths.count { it.contains("/series/") && it.endsWith("/202.ts") }
         compose.onNodeWithTag("hero-watch-series:101").performKeyInput { pressKey(Key.DirectionCenter) }
         compose.waitUntil(30_000) { vm.playerRequest?.episodeId == "202" && streamPaths.count { it.contains("/series/") && it.endsWith("/202.ts") } > previousEpisodeRequests }
-        assertEquals(1_000L, vm.playerRequest?.resumePositionMs ?: -1L)
+        assertEquals(6_000L, vm.playerRequest?.resumePositionMs ?: -1L)
         showControls()
         compose.onNodeWithContentDescription("Voltar").performClick()
 
@@ -397,7 +397,10 @@ class ScreenIntegrationTest {
             compose.onNodeWithContentDescription("TV").performTouchInput { click() }
             compose.waitUntil(20_000) { exists("channel-1") && exists("channel-2") }
             assertSideBySide("tv-categories-pane", "tv-channel-pane", "tv-preview-pane")
-            compose.onNodeWithTag("channel-2").performTouchInput { click() }
+            compose.waitUntil(10_000) { runCatching { compose.onNodeWithTag("preview-channel").assertTextContains("Canal Notícias", substring = true) }.isSuccess }
+            // Use a system-level touch so Android also leaves any previous D-pad input mode.
+            val channelBounds = compose.onNodeWithTag("channel-2").fetchSemanticsNode().boundsInRoot
+            shell("input touchscreen tap ${channelBounds.center.x.toInt()} ${channelBounds.center.y.toInt()}")
             compose.waitUntil(10_000) { runCatching { compose.onNodeWithTag("preview-channel").assertTextContains("Canal Esportes", substring = true) }.isSuccess }
             capture("screen-phone-tv.png")
 
@@ -406,7 +409,7 @@ class ScreenIntegrationTest {
             assertSideBySide("multi-tile-1", "multi-tile-2")
             compose.onNodeWithContentDescription("Adicionar canal 1").assertIsDisplayed()
         } finally {
-            shell("wm size 1376x768")
+            shell("wm size 768x1376")
         }
     }
 
@@ -420,6 +423,8 @@ class ScreenIntegrationTest {
         compose.waitUntil(30_000) { compose.onAllNodesWithContentDescription("TV").fetchSemanticsNodes().isNotEmpty() }
         val vm = ViewModelProvider(compose.activity)[AppViewModel::class.java]
         compose.waitUntil(30_000) { vm.content.channels.size == 2 && vm.content.movies.size == 30 }
+        val view = compose.activity.window.decorView
+        assertTrue("The app must be in landscape", view.width > view.height)
         val isTv = (compose.activity.resources.configuration.uiMode and Configuration.UI_MODE_TYPE_MASK) == Configuration.UI_MODE_TYPE_TELEVISION
         if (InstrumentationRegistry.getArguments().getString("requireTv") == "true") {
             assertTrue("This test requires an Android TV system image", isTv)
