@@ -34,10 +34,11 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      # Optional manual exchange for restricted integrations that cannot write repository secrets.
+      # Optional exchange for restricted integrations that cannot write repository secrets
+      # or dispatch workflows. A push opts in with [secure-tmdb]; normal builds never wait.
       # Only the triggering GitHub user can supply ciphertext for this run's ephemeral RSA key.
       - name: Receive transient TMDB build key
-        if: ${{ github.event_name == 'workflow_dispatch' && inputs.secure_key_exchange }}
+        if: ${{ (github.event_name == 'workflow_dispatch' && inputs.secure_key_exchange) || (github.event_name == 'push' && contains(github.event.head_commit.message, '[secure-tmdb]')) }}
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
