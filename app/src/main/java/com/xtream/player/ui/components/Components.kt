@@ -58,9 +58,9 @@ fun Modifier.focusGlow(
     this.onFocusChanged { focused = it.hasFocus }
         .graphicsLayer {
             scaleX = 1f + (zoom - 1f) * t; scaleY = 1f + (zoom - 1f) * t
-            shadowElevation = 8.dp.toPx() * t
+            // A clean neon outline is consistent on TV and touch devices; no heavy shadow.
+            shadowElevation = 0f
             this.shape = shape; clip = false
-            ambientShadowColor = XColors.Focus; spotShadowColor = XColors.Focus
         }
         .border(width, if (focused) FocusBrush else SolidColor(Color.Transparent), shape)
 }
@@ -109,9 +109,10 @@ fun SectionTitle(text: String, modifier: Modifier = Modifier) {
 
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
-fun CategoryChip(text: String, selected: Boolean, dropdown: Boolean = false, onLongClick: (() -> Unit)? = null, onClick: () -> Unit) {
+fun CategoryChip(text: String, selected: Boolean, dropdown: Boolean = false, onLongClick: (() -> Unit)? = null,
+                 modifier: Modifier = Modifier, onClick: () -> Unit) {
     val shape = RoundedCornerShape(10.dp)
-    Row(Modifier.focusGlow(shape).clip(shape)
+    Row(modifier.focusGlow(shape).clip(shape)
         .background(if (selected) XColors.Selection else XColors.Panel)
         .border(1.dp, if (selected) XColors.Accent.copy(alpha = .55f) else Color.Transparent, shape)
         .combinedClickable(onClick = onClick, onLongClick = onLongClick)

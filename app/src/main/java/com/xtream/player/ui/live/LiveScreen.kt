@@ -69,7 +69,8 @@ fun LiveScreen(content: ContentState, epg: Map<String, List<Programme>>, favorit
     }
     val counts = remember(content.channels) { content.channels.groupingBy { it.categoryId }.eachCount() }
     var focusedId by rememberSaveable { mutableStateOf<String?>(null) }
-    var previewId by rememberSaveable { mutableStateOf<String?>(null) }
+    // Do not restore playback as saved UI state after recreation or navigation.
+    var previewId by remember { mutableStateOf<String?>(null) }
     val listState = rememberLazyListState()
     val focusRequesters = remember { mutableMapOf<String, FocusRequester>() }
     LaunchedEffect(previewEnabled, restoreChannelId, channels) {
@@ -129,7 +130,9 @@ fun LiveScreen(content: ContentState, epg: Map<String, List<Programme>>, favorit
     @Composable fun Preview(modifier: Modifier) {
         // Preserve the existing live preview, sound, fullscreen and EPG controls.
         PreviewPanel(preview, preview?.let { epg[it.epgId] }, now, muted, previewEnabled, false, time24Hour,
-            modifier.testTag("tv-preview-pane"), onMute = { muted = !muted }, onPlay = { preview?.let(::play) })
+            modifier.testTag("tv-preview-pane"), onMute = { muted = !muted }, onPlay = {
+                preview?.let { channel -> previewId = null; play(channel) }
+            })
     }
     Row(Modifier.fillMaxSize().padding(8.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
         val shape = RoundedCornerShape(14.dp)

@@ -71,6 +71,7 @@ data class UserSettings(
     val time24Hour: Boolean = true,
     val showChannelEpg: Boolean = true,
     val subtitlesEnabled: Boolean = true,
+    val autoplayNextEpisode: Boolean = false,
     val userAgent: String = DEFAULT_USER_AGENT,
     val multiScreens: Int = 4,
     val livePlayer: PlaybackApp = PlaybackApp.INTERNAL,

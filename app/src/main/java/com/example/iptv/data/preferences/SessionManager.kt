@@ -138,6 +138,7 @@ class SessionManager(context: Context) {
             time24Hour = prefs.getBoolean(KEY_TIME_24, true),
             showChannelEpg = prefs.getBoolean(KEY_SHOW_EPG, true),
             subtitlesEnabled = prefs.getBoolean(KEY_SUBTITLES, true),
+            autoplayNextEpisode = prefs.getBoolean(KEY_NEXT_EPISODE, false),
             userAgent = prefs.getString(KEY_USER_AGENT, DEFAULT_USER_AGENT).orEmpty().ifBlank { DEFAULT_USER_AGENT },
             multiScreens = prefs.getInt(KEY_MULTI_SCREENS, 4).coerceIn(1, 4),
             livePlayer = playbackApp(KEY_LIVE_PLAYER), moviePlayer = playbackApp(KEY_MOVIE_PLAYER),
@@ -164,6 +165,7 @@ class SessionManager(context: Context) {
             .putBoolean(KEY_TIME_24, settings.time24Hour)
             .putBoolean(KEY_SHOW_EPG, settings.showChannelEpg)
             .putBoolean(KEY_SUBTITLES, settings.subtitlesEnabled)
+            .putBoolean(KEY_NEXT_EPISODE, settings.autoplayNextEpisode)
             .putString(KEY_USER_AGENT, settings.userAgent)
             .putInt(KEY_MULTI_SCREENS, settings.multiScreens.coerceIn(1, 4))
             .putString(KEY_LIVE_PLAYER, settings.livePlayer.name)
@@ -370,6 +372,7 @@ class SessionManager(context: Context) {
         private const val KEY_TIME_24 = "setting_time_24"
         private const val KEY_SHOW_EPG = "setting_show_epg"
         private const val KEY_SUBTITLES = "setting_subtitles"
+        private const val KEY_NEXT_EPISODE = "setting_next_episode"
         private const val KEY_USER_AGENT = "setting_user_agent"
         private const val KEY_MULTI_SCREENS = "setting_multi_screens"
         private const val KEY_LIVE_PLAYER = "setting_live_player"

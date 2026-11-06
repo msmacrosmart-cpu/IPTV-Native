@@ -37,7 +37,7 @@ import kotlin.math.sin
 @Composable
 fun LoadingScreen(message: String) {
     BoxWithConstraints(Modifier.fillMaxSize().background(Color.Black).testTag("loading-screen")
-        .pointerInput(Unit) { awaitPointerEventScope { while (true) awaitPointerEvent().changes.forEach { it.consume() } } }, 
+        .pointerInput(Unit) { awaitPointerEventScope { while (true) awaitPointerEvent().changes.forEach { it.consume() } } },
         contentAlignment = Alignment.Center) {
         val compact = maxHeight < 380.dp
         Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.Center) {

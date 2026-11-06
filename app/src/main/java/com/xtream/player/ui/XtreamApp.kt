@@ -9,6 +9,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.key
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.ui.Modifier
@@ -130,8 +131,12 @@ fun XtreamApp(vm: AppViewModel = viewModel()) {
             }
         }
         composable("player") {
-            vm.playerRequest?.let { request -> PlayerScreen(request, onBack = { nav.popBackStack() }, onProgress = vm::saveProgress,
-                onChannelChanged = vm::channelPlaying) }
+            vm.playerRequest?.let { request ->
+                key(request.episodeId, request.url) {
+                    PlayerScreen(request, onBack = { nav.popBackStack() }, onProgress = vm::saveProgress,
+                        onChannelChanged = vm::channelPlaying, onEnded = vm::nextEpisode)
+                }
+            }
         }
       }
       if (vm.loading) LoadingScreen(vm.loadingMessage)

@@ -24,7 +24,7 @@ object XColors {
     val Accent = Color(0xFFE2E4E8)
     val Blue = Accent
     val BlueSoft = Color(0xFFF0F1F3)
-    val Focus = Color(0xFFFFFFFF)
+    val Focus = Color(0xFF86B8FF)
     val Text = Color(0xFFE3E4E7)
     val TextDim = Color(0xFFB4B6BB)
     val Body = Color(0xFF999CA3)

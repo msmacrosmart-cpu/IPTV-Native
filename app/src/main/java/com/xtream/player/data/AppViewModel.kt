@@ -648,14 +648,15 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
         val savedId = history[item.favoriteKey]?.episodeId
         val choice = choices.firstOrNull { it.episode.id == savedId } ?: choices.firstOrNull()
         if (choice == null) { notice = "Nenhum episódio disponível para esta série."; return }
-        onReady(episodeRequest(item, choice))
+        onReady(episodeRequest(item, choice, choices))
     }
 
-    private fun episodeRequest(item: VodItem, choice: EpisodeChoice): PlayerRequest {
+    private fun episodeRequest(item: VodItem, choice: EpisodeChoice, choices: List<EpisodeChoice>): PlayerRequest {
         val key = item.favoriteKey
         val saved = history[key]?.takeIf { it.episodeId == choice.episode.id }
         return PlayerRequest("${item.title} · ${choice.label}", choice.url, false,
-            libraryKey = key, episodeId = choice.episode.id, resumePositionMs = saved?.position ?: 0L)
+            libraryKey = key, episodeId = choice.episode.id, resumePositionMs = saved?.position ?: 0L,
+            seriesTitle = item.title, episodes = choices.map { EpisodePlayback(it.episode.id, it.label, it.url) })
     }
 
     fun playSeries(onReady: (PlayerRequest) -> Unit) {
@@ -667,7 +668,17 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
 
     fun playEpisode(choice: EpisodeChoice, onReady: (PlayerRequest) -> Unit) {
         val selection = episodeSelection ?: return
-        onReady(episodeRequest(selection.item, choice))
+        onReady(episodeRequest(selection.item, choice, selection.choices))
+    }
+
+    /** Called only after Media3 reaches the end of a series episode. */
+    fun nextEpisode(finished: PlayerRequest) {
+        if (!repository.settings.value.autoplayNextEpisode || playerRequest != finished) return
+        val index = finished.episodes.indexOfFirst { it.id == finished.episodeId }
+        if (index < 0) return
+        val next = finished.episodes.getOrNull(index + 1) ?: return
+        playerRequest = finished.copy(title = "${finished.seriesTitle.orEmpty()} · ${next.title}",
+            url = next.url, episodeId = next.id, resumePositionMs = 0L)
     }
 
     fun saveProgress(request: PlayerRequest, position: Long, duration: Long) {

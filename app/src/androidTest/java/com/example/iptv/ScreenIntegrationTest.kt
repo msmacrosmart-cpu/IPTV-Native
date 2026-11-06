@@ -94,6 +94,8 @@ class ScreenIntegrationTest {
         override fun before() {
             val app = InstrumentationRegistry.getInstrumentation().targetContext.applicationContext as IPTVApplication
             app.repository.logout()
+            app.getSharedPreferences("iptv_native_profiles", Context.MODE_PRIVATE).edit().clear().commit()
+            app.getSharedPreferences("xtream_library", Context.MODE_PRIVATE).edit().clear().commit()
             app.epgRepository.clear()
         }
     }
@@ -135,6 +137,11 @@ class ScreenIntegrationTest {
     private val blockNextVod = AtomicBoolean(false)
     private val vodBlocked = CountDownLatch(1)
     private val releaseVod = CountDownLatch(1)
+    private val blockStartupStages = AtomicBoolean(false)
+    private val stageActions = listOf("get_live_categories", "get_live_streams", "get_vod_streams", "get_series")
+    private val stageReached = stageActions.associateWith { CountDownLatch(1) }
+    private val stageRelease = stageActions.associateWith { CountDownLatch(1) }
+    private val streamAgents = CopyOnWriteArrayList<String>()
     private val video by lazy {
         InstrumentationRegistry.getInstrumentation().context.assets.open("test-pattern.ts").use { it.readBytes() }
     }
@@ -149,6 +156,10 @@ class ScreenIntegrationTest {
                 if (action in setOf("get_live_categories", "get_live_streams", "get_vod_categories", "get_vod_streams", "get_series_categories", "get_series"))
                     catalogueRequests.incrementAndGet()
                 if (offline.get()) return MockResponse().setResponseCode(503)
+                if (blockStartupStages.get() && action != null && action in stageActions) {
+                    stageReached.getValue(action).countDown()
+                    if (!stageRelease.getValue(action).await(40, TimeUnit.SECONDS)) return MockResponse().setResponseCode(503)
+                }
                 if (action == "get_vod_streams" && failVodStreams.get())
                     return MockResponse().setHeader("Content-Type", "application/json").setBody("""{"error":"temporarily unavailable"}""")
                 if (action == "get_vod_streams" && blockNextVod.compareAndSet(true, false)) {
@@ -166,6 +177,7 @@ class ScreenIntegrationTest {
                 }
                 if (path.startsWith("/live/") || path.startsWith("/movie/") || path.startsWith("/series/")) {
                     streamPaths.add(path)
+                    streamAgents.add(request.getHeader("User-Agent").orEmpty())
                     return MockResponse().setHeader("Content-Type", "video/mp2t").setBody(Buffer().write(video))
                 }
                 if (!path.endsWith("/player_api.php")) return MockResponse().setResponseCode(404)
@@ -206,10 +218,15 @@ class ScreenIntegrationTest {
         server.start()
     }
 
-    @After fun stopPanel() { server.shutdown() }
+    @After fun stopPanel() {
+        releaseVod.countDown()
+        stageRelease.values.forEach { it.countDown() }
+        server.shutdown()
+    }
 
     @OptIn(ExperimentalTestApi::class)
     @Test fun nativeScreensUseRealSessionCatalogFavoritesEpgAndPlayback() {
+        compose.waitUntil(10_000) { existsUnmerged("app-background") }
         compose.onNodeWithTag("app-background", useUnmergedTree = true).assertExists()
         compose.waitUntil(30_000) { existsUnmerged("app-background-loaded") }
         assertLoginFitsAndIsCentered()
@@ -235,7 +252,25 @@ class ScreenIntegrationTest {
         compose.onNodeWithTag("hero-watch-vod:101").performSemanticsAction(SemanticsActions.RequestFocus)
         compose.waitUntil(30_000) { existsUnmerged("hero-backdrop-loaded-vod:101") }
         compose.onNodeWithTag("hero-details-vod:101").assertIsDisplayed()
+        val watchBounds = compose.onNodeWithTag("hero-watch-vod:101").fetchSemanticsNode().boundsInRoot
+        val detailsBounds = compose.onNodeWithTag("hero-details-vod:101").fetchSemanticsNode().boundsInRoot
+        val heroBounds = compose.onNodeWithTag("hero-carousel").fetchSemanticsNode().boundsInRoot
+        assertTrue("Hero actions must not overlap", watchBounds.right < detailsBounds.left)
+        assertTrue("The hero must extend across the content pane", heroBounds.width > watchBounds.width * 3)
         capture("screen-home.png")
+        compose.onNodeWithTag("hero-watch-vod:101").performKeyInput { pressKey(Key.DirectionRight) }
+        compose.waitUntil(10_000) { runCatching { compose.onNodeWithTag("hero-details-vod:101").assertIsFocused() }.isSuccess }
+        compose.onNodeWithTag("hero-details-vod:101").performKeyInput { pressKey(Key.DirectionRight) }
+        compose.waitUntil(10_000) { runCatching { compose.onNodeWithTag("hero-details-vod:102").assertIsFocused() }.isSuccess }
+        compose.onNodeWithTag("hero-details-vod:102").performKeyInput { pressKey(Key.DirectionLeft) }
+        compose.waitUntil(10_000) { runCatching { compose.onNodeWithTag("hero-watch-vod:102").assertIsFocused() }.isSuccess }
+        compose.onNodeWithTag("hero-watch-vod:102").performKeyInput { pressKey(Key.DirectionLeft) }
+        compose.waitUntil(10_000) { runCatching { compose.onNodeWithTag("hero-watch-vod:101").assertIsFocused() }.isSuccess }
+        listOf("Continuar assistindo", "Canais favoritos ao vivo", "Filmes e séries favoritos").forEach { title ->
+            assertTrue("Empty rail must be completely absent: $title", runCatching {
+                compose.onNodeWithTag("home-list").performScrollToNode(hasText(title))
+            }.isFailure)
+        }
         // Two separate top-ten rails are ranked by panel score; the playlist block is gone.
         assertFalse(textExists("Xtream · 2 canais"))
         compose.onNodeWithTag("home-list").performScrollToNode(hasText("Top 10 filmes · por nota do provedor"))
@@ -332,16 +367,23 @@ class ScreenIntegrationTest {
         compose.onNodeWithText("Todos").performClick()
         compose.onNodeWithTag("channel-list").performScrollToNode(hasTestTag("channel-2"))
         useRemoteInputMode()
+        val liveBeforeFocus = streamPaths.count { it.startsWith("/live/") }
         compose.onNodeWithTag("channel-1").performSemanticsAction(SemanticsActions.RequestFocus)
         compose.onNodeWithTag("channel-1").assertIsFocused().performKeyInput { pressKey(Key.DirectionDown) }
         compose.onNodeWithTag("channel-2").assertIsFocused()
-        compose.waitUntil(10_000) { runCatching { compose.onNodeWithTag("preview-channel").assertTextContains("Canal Esportes", substring = true) }.isSuccess }
         compose.waitUntil(20_000) { shortRequests.get() > 0 && vm.epg["sports"].orEmpty().isNotEmpty() }
+        Thread.sleep(700)
+        assertEquals("D-pad focus must not start a stream", liveBeforeFocus, streamPaths.count { it.startsWith("/live/") })
+        compose.onNodeWithText("Selecione um canal").assertExists()
         compose.onNodeWithTag("channel-2").performSemanticsAction(SemanticsActions.OnLongClick)
         assertTrue(vm.favorites.contains("ch:2"))
-        capture("screen-live.png")
         compose.onNodeWithTag("channel-2").performClick()
-        compose.waitUntil(30_000) { streamPaths.any { it.endsWith("/2.ts") } && playerState() == "playing" }
+        compose.waitUntil(30_000) { streamPaths.any { it.endsWith("/2.ts") } && exists("preview-channel") }
+        compose.onNodeWithTag("preview-channel").assertTextContains("Canal Esportes", substring = true)
+        capture("screen-live.png")
+        // A second explicit selection opens the selected preview in fullscreen.
+        compose.onNodeWithTag("channel-2").performClick()
+        compose.waitUntil(30_000) { playerState() == "playing" }
         showControls()
         val firstChannelRequests = streamPaths.count { it.endsWith("/1.ts") }
         compose.onNodeWithText("Next Channel").performClick()
@@ -349,7 +391,8 @@ class ScreenIntegrationTest {
         compose.onNodeWithContentDescription("Voltar").performClick()
         compose.waitUntil(10_000) { exists("channel-2") }
         compose.waitUntil(10_000) { runCatching { compose.onNodeWithTag("channel-1").assertIsFocused() }.isSuccess }
-        compose.onNodeWithTag("preview-channel").assertTextContains("Canal Notícias", substring = true)
+        compose.onNodeWithText("Selecione um canal").assertExists()
+        assertFalse("Returning focus alone must not restart the preview", exists("preview-channel"))
 
         compose.onNodeWithContentDescription("Home").performClick()
         compose.onNodeWithTag("home-list").performScrollToNode(hasText("Filmes e séries favoritos"))
@@ -383,6 +426,11 @@ class ScreenIntegrationTest {
         compose.onNodeWithContentDescription("Ativar som da tela 1").performClick()
         compose.onNodeWithContentDescription("Som ativo na tela 1").assertExists()
         compose.waitUntil(10_000) { multiState(1) == "playing" && multiState(2) == "playing" }
+        compose.onNodeWithTag("multi-count-2").performClick()
+        compose.waitUntil(10_000) { !exists("multi-tile-3") && !exists("multi-tile-4") }
+        assertEquals(2, vm.settings.multiScreens)
+        compose.onNodeWithTag("multi-count-4").performClick()
+        compose.waitUntil(10_000) { exists("multi-tile-3") && exists("multi-tile-4") && multiState(1) == "playing" && multiState(2) == "playing" }
         capture("screen-multi.png")
 
         compose.onNodeWithContentDescription("Configurações").performClick()
@@ -453,7 +501,8 @@ class ScreenIntegrationTest {
             compose.onNodeWithContentDescription("TV").performTouchInput { click() }
             compose.waitUntil(20_000) { exists("channel-1") && exists("channel-2") }
             assertSideBySide("tv-categories-pane", "tv-channel-pane", "tv-preview-pane")
-            compose.waitUntil(10_000) { runCatching { compose.onNodeWithTag("preview-channel").assertTextContains("Canal Notícias", substring = true) }.isSuccess }
+            compose.onNodeWithText("Selecione um canal").assertExists()
+            assertFalse("Opening TV must not start a preview", exists("preview-channel"))
             // Use a system-level touch so Android also leaves any previous D-pad input mode.
             val channelBounds = compose.onNodeWithTag("channel-2").fetchSemanticsNode().boundsInRoot
             shell("input touchscreen tap ${channelBounds.center.x.toInt()} ${channelBounds.center.y.toInt()}")
@@ -521,9 +570,14 @@ class ScreenIntegrationTest {
         compose.waitUntil(20_000) { exists("channel-1") && exists("channel-2") }
         if (isTv) traceIme("TV opened")
         assertSideBySide("tv-categories-pane", "tv-channel-pane", "tv-preview-pane")
+        val liveBeforeFocus = streamPaths.count { it.startsWith("/live/") }
         compose.onNodeWithTag("channel-1").performSemanticsAction(SemanticsActions.RequestFocus)
             .assertIsFocused().performKeyInput { pressKey(Key.DirectionDown) }
         compose.onNodeWithTag("channel-2").assertIsFocused()
+        Thread.sleep(700)
+        assertEquals("Focusing TV channels must not play them", liveBeforeFocus, streamPaths.count { it.startsWith("/live/") })
+        assertFalse(exists("preview-channel"))
+        compose.onNodeWithTag("channel-2").performKeyInput { pressKey(Key.DirectionCenter) }
         compose.waitUntil(10_000) { runCatching { compose.onNodeWithTag("preview-channel").assertTextContains("Canal Esportes", substring = true) }.isSuccess }
         if (isTv) {
             // A floating Android TV IME is not always reflected in WindowInsets; inspect the
@@ -531,6 +585,133 @@ class ScreenIntegrationTest {
             compose.waitUntil(15_000) { !keyboardIsVisible() && !systemImeShown() }
             capture("screen-android-tv.png")
         }
+    }
+
+    @Test fun firstLoginDisplaysRealCatalogStagesBeforeHome() {
+        blockStartupStages.set(true)
+        compose.waitUntil(10_000) { textExists("Adicionar conexão") }
+        compose.onNodeWithText("Servidor Xtream").performScrollTo().performTextInput(server.url("/").toString())
+        compose.onNodeWithText("Usuário").performScrollTo().performTextInput("alice")
+        compose.onNodeWithText("Senha").performScrollTo().performTextInput("senha")
+        compose.onNodeWithContentDescription("Entrar").performScrollTo().performClick()
+        try {
+            listOf(
+                "get_live_categories" to "Baixando Playlist",
+                "get_live_streams" to "Baixando Canais",
+                "get_vod_streams" to "Baixando Filmes",
+                "get_series" to "Baixando Séries",
+            ).forEach { (action, label) ->
+                compose.waitUntil(25_000) {
+                    stageReached.getValue(action).count == 0L &&
+                        runCatching { compose.onNodeWithTag("loading-message").assertTextContains(label) }.isSuccess
+                }
+                compose.onNodeWithTag("loading-screen").assertIsDisplayed()
+                assertFalse("Home cannot open while $label is still in flight", exists("home-list"))
+                stageRelease.getValue(action).countDown()
+            }
+            compose.waitUntil(30_000) { exists("home-list") && !exists("loading-screen") }
+        } finally {
+            stageRelease.values.forEach { it.countDown() }
+            blockStartupStages.set(false)
+        }
+    }
+
+    @Test fun profilesRestoreOfflineWithIsolatedSettingsFavoritesAndHistory() {
+        connectToPanel()
+        val app = compose.activity.application as IPTVApplication
+        val vm = ViewModelProvider(compose.activity)[AppViewModel::class.java]
+        compose.waitUntil(30_000) { vm.content.movies.size == 30 && vm.epg["news"].orEmpty().isNotEmpty() }
+        val alice = vm.profiles.single { it.username == "alice" }.id
+        val originalStart = vm.epg.getValue("news").first().start
+        compose.runOnIdle {
+            vm.toggleFavorite("ch:1")
+            vm.saveProgress(com.xtream.player.data.PlayerRequest("Filme", "unused", false, libraryKey = "vod:101"), 20_000, 100_000)
+            vm.updateUserSettings(vm.settings.copy(bufferSeconds = 30, streamFormat = com.example.iptv.data.model.StreamFormat.HLS,
+                autoUpdateEpg = false, epgOffsetHours = 1, userAgent = "IPTV-Test-Agent/1.0"))
+        }
+        assertEquals(originalStart + 3_600_000L, vm.epg.getValue("news").first().start)
+        assertTrue(vm.content.channels.first().url.endsWith(".m3u8"))
+        compose.runOnIdle { vm.login(server.url("/").toString(), "bob", "senha") {} }
+        compose.waitUntil(30_000) { !vm.loading && vm.session?.username == "bob" && vm.content.movies.size == 30 }
+        assertEquals(2, vm.profiles.size)
+        assertTrue("Another profile must not inherit favorites", vm.favorites.isEmpty())
+        assertEquals(15, vm.settings.bufferSeconds)
+        compose.runOnIdle { vm.toggleFavorite("ch:2") }
+        offline.set(true)
+        compose.runOnIdle { vm.switchProfile(alice) }
+        compose.waitUntil(30_000) { !vm.loading && vm.session?.username == "alice" && vm.content.movies.size == 30 }
+        assertTrue(vm.favorites.contains("ch:1"))
+        assertFalse(vm.favorites.contains("ch:2"))
+        assertEquals(30, vm.settings.bufferSeconds)
+        assertEquals("IPTV-Test-Agent/1.0", vm.settings.userAgent)
+        assertEquals(1, vm.settings.epgOffsetHours)
+        assertTrue(vm.content.movies.first { it.id == "101" }.progress > 0f)
+        val stored = app.getSharedPreferences("iptv_native_profiles", Context.MODE_PRIVATE).all.toString()
+        assertFalse("Profile passwords must not be stored as plaintext", stored.contains("senha"))
+        offline.set(false)
+        compose.onNodeWithContentDescription("TV").performClick()
+        compose.waitUntil(10_000) { exists("channel-1") }
+        compose.onNodeWithTag("channel-1").performClick()
+        compose.waitUntil(30_000) { streamAgents.contains("IPTV-Test-Agent/1.0") }
+        val bob = vm.profiles.single { it.username == "bob" }.id
+        compose.runOnIdle { vm.removeProfile(bob) }
+        compose.waitUntil(10_000) { vm.profiles.size == 1 }
+        assertEquals("alice", vm.profiles.single().username)
+        offline.set(false)
+    }
+
+    @Test fun seriesCanAdvanceToNextEpisodeWhenEnabled() {
+        connectToPanel()
+        val vm = ViewModelProvider(compose.activity)[AppViewModel::class.java]
+        compose.waitUntil(30_000) { vm.content.series.isNotEmpty() }
+        compose.runOnIdle { vm.updateUserSettings(vm.settings.copy(autoplayNextEpisode = true)) }
+        compose.onNodeWithContentDescription("Séries").performClick()
+        compose.onNodeWithTag("poster-series:101").performClick()
+        compose.waitUntil(20_000) { textExists("T1 E1 · Primeiro") }
+        compose.onNodeWithTag("detail-list").performScrollToNode(hasText("T1 E1 · Primeiro"))
+        compose.onNodeWithText("T1 E1 · Primeiro").performClick()
+        compose.waitUntil(30_000) { streamPaths.any { it.endsWith("/201.ts") } && playerState() == "playing" }
+        compose.waitUntil(45_000) { vm.playerRequest?.episodeId == "202" && streamPaths.any { it.endsWith("/202.ts") } }
+    }
+
+    @Test fun parentalLocksFilterHomeLiveAndMultiUntilPinUnlocks() {
+        connectToPanel()
+        val vm = ViewModelProvider(compose.activity)[AppViewModel::class.java]
+        compose.waitUntil(30_000) { vm.content.channels.size == 2 && vm.content.movies.size == 30 }
+        compose.runOnIdle { vm.setParentalPin("", "1234", "1234") {} }
+        compose.waitUntil(30_000) { vm.parentalUnlocked && !vm.parentalBusy }
+        compose.runOnIdle {
+            vm.toggleLockedCategory("live:2")
+            vm.toggleLockedCategory("vod:10")
+            vm.toggleLockedCategory("series:20")
+            vm.lockParental()
+        }
+        compose.onNodeWithContentDescription("Home").performClick()
+        compose.waitUntil(10_000) { exists("hero-empty") }
+        compose.onNodeWithContentDescription("TV").performClick()
+        compose.waitUntil(10_000) { exists("channel-1") && !exists("channel-2") }
+        compose.onNodeWithContentDescription("Multitela").performClick()
+        compose.onNodeWithContentDescription("Adicionar canal 1").performClick()
+        compose.waitUntil(10_000) { exists("choose-channel-1") }
+        assertFalse(exists("choose-channel-2"))
+        compose.onNodeWithContentDescription("Fechar").performClick()
+        val result = java.util.concurrent.atomic.AtomicReference<String?>()
+        compose.runOnIdle { vm.unlockParental("9999") { result.set(it) } }
+        compose.waitUntil(30_000) { !vm.parentalBusy && result.get() != null }
+        assertFalse(vm.parentalUnlocked)
+        compose.runOnIdle { vm.unlockParental("1234") { result.set(it) } }
+        compose.waitUntil(30_000) { vm.parentalUnlocked && !vm.parentalBusy }
+        compose.onNodeWithContentDescription("TV").performClick()
+        compose.waitUntil(10_000) { exists("channel-1") && exists("channel-2") }
+    }
+
+    private fun connectToPanel() {
+        compose.waitUntil(10_000) { textExists("Adicionar conexão") }
+        compose.onNodeWithText("Servidor Xtream").performScrollTo().performTextInput(server.url("/").toString())
+        compose.onNodeWithText("Usuário").performScrollTo().performTextInput("alice")
+        compose.onNodeWithText("Senha").performScrollTo().performTextInput("senha")
+        compose.onNodeWithContentDescription("Entrar").performScrollTo().performClick()
+        compose.waitUntil(30_000) { exists("home-list") }
     }
 
     @Test fun cacheRestoresCatalogHeroAndGuidesOfflineAndSurvivesPartialFailures() {

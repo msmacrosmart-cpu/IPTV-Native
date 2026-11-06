@@ -75,6 +75,8 @@ data class ContentState(
     val series: List<VodItem>,
 )
 
+data class EpisodePlayback(val id: String, val title: String, val url: String)
+
 data class PlayerRequest(
     val title: String,
     val url: String,
@@ -85,6 +87,8 @@ data class PlayerRequest(
     val libraryKey: String? = null,
     val episodeId: String? = null,
     val resumePositionMs: Long = 0L,
+    val seriesTitle: String? = null,
+    val episodes: List<EpisodePlayback> = emptyList(),
 )
 
 fun List<Programme>?.nowNext(now: Long): Pair<Programme?, Programme?> {

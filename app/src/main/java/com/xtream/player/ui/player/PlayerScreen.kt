@@ -79,7 +79,7 @@ private data class Opt(val label: String, val selected: Boolean, val onClick: ()
 @Composable
 fun PlayerScreen(request: PlayerRequest, onBack: () -> Unit, previewMode: Boolean = false,
     onProgress: (PlayerRequest, Long, Long) -> Unit = { _, _, _ -> },
-    onChannelChanged: (Channel) -> Unit = {}) {
+    onChannelChanged: (Channel) -> Unit = {}, onEnded: (PlayerRequest) -> Unit = {}) {
     val context = LocalContext.current
     val activity = context as? Activity
     var index by remember { mutableIntStateOf(request.index) }
@@ -121,6 +121,8 @@ fun PlayerScreen(request: PlayerRequest, onBack: () -> Unit, previewMode: Boolea
     val playFocus = remember { FocusRequester() }
     val retryFocus = remember { FocusRequester() }
     val latestProgress by rememberUpdatedState(onProgress)
+    val latestEnded by rememberUpdatedState(onEnded)
+    var endReported by remember(request) { mutableStateOf(false) }
 
     DisposableEffect(player, request) {
         onDispose {
@@ -152,7 +154,14 @@ fun PlayerScreen(request: PlayerRequest, onBack: () -> Unit, previewMode: Boolea
     DisposableEffect(player, url, fallbackUrl) {
         val l = object : Player.Listener {
             override fun onIsPlayingChanged(p: Boolean) { isPlaying = p }
-            override fun onPlaybackStateChanged(s: Int) { buffering = s == Player.STATE_BUFFERING; if (s == Player.STATE_READY) error = null }
+            override fun onPlaybackStateChanged(s: Int) {
+                buffering = s == Player.STATE_BUFFERING
+                if (s == Player.STATE_READY) error = null
+                if (s == Player.STATE_ENDED && !previewMode && !request.isLive && !endReported) {
+                    endReported = true
+                    latestEnded(request)
+                }
+            }
             override fun onPlayerError(e: PlaybackException) {
                 if (!triedFallback && !fallbackUrl.isNullOrBlank() && fallbackUrl != url) {
                     triedFallback = true

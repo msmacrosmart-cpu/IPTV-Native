@@ -63,6 +63,9 @@ fun AdvancedSettings(settings: UserSettings, epgChannels: Int, epgUpdatedAt: Lon
         SettingToggle("Legendas ativadas por padrão", settings.subtitlesEnabled, "setting-subtitles") {
             actions.updateSettings(settings.copy(subtitlesEnabled = it))
         }
+        SettingToggle("Reproduzir próximo episódio automaticamente", settings.autoplayNextEpisode, "setting-next-episode") {
+            actions.updateSettings(settings.copy(autoplayNextEpisode = it))
+        }
         SettingLabel("User agent")
         PillField(agent, { agent = it }, "User agent", Modifier.fillMaxWidth().testTag("setting-user-agent"), imeAction = ImeAction.Done,
             onDone = { actions.updateSettings(settings.copy(userAgent = agent)) })

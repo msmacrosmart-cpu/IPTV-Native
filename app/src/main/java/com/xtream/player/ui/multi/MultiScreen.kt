@@ -114,7 +114,7 @@ fun MultiScreen(channels: List<Channel>, slotIds: List<String?>, audible: Int, e
             Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                 Text("Multitela", color = XColors.Text, fontSize = if (compact) 19.sp else 25.sp,
                     fontWeight = FontWeight.SemiBold, modifier = Modifier.weight(1f))
-                (1..4).forEach { number -> CategoryChip("$number", number == count) { onScreenCount(number) } }
+                (1..4).forEach { number -> CategoryChip("$number", number == count, modifier = Modifier.testTag("multi-count-$number")) { onScreenCount(number) } }
             }
             if (!compact) Text("Som em uma tela por vez · o limite depende das conexões do provedor e do aparelho.",
                 color = XColors.TextDim, fontSize = 12.sp)
