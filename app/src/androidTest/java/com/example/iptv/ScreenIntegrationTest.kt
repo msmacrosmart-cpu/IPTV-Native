@@ -27,6 +27,8 @@ import androidx.compose.ui.test.performTextInput
 import androidx.compose.ui.test.performTextClearance
 import androidx.compose.ui.test.pressKey
 import androidx.lifecycle.ViewModelProvider
+import androidx.core.view.ViewCompat
+import androidx.core.view.WindowInsetsCompat
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
 import com.example.iptv.data.model.PanelCredentials
@@ -141,6 +143,7 @@ class ScreenIntegrationTest {
         compose.onNodeWithContentDescription("Entrar").performScrollTo().performClick()
 
         compose.waitUntil(30_000) { compose.onAllNodesWithContentDescription("TV ao vivo").fetchSemanticsNodes().isNotEmpty() }
+        compose.waitUntil(10_000) { !keyboardIsVisible() }
         val vm = ViewModelProvider(compose.activity)[AppViewModel::class.java]
         compose.waitUntil(30_000) { vm.content.channels.size == 2 && vm.content.movies.size == 1 && vm.content.series.size == 1 }
         val app = compose.activity.application as IPTVApplication
@@ -166,6 +169,7 @@ class ScreenIntegrationTest {
         compose.waitUntil(20_000) { textExists("T1 E2 · Segundo") }
         compose.onNodeWithText("T1 E2 · Segundo").performClick()
         compose.waitUntil(30_000) { streamPaths.any { it.endsWith("/202.ts") } && playerState() == "playing" }
+        compose.waitUntil(10_000) { !keyboardIsVisible() }
         showControls()
         capture("screen-player.png")
         compose.onNodeWithText("Subtitles").performClick()
@@ -261,6 +265,8 @@ class ScreenIntegrationTest {
             .performKeyInput { pressKey(Key.DirectionCenter) }
         compose.waitUntil(10_000) { compose.onAllNodesWithContentDescription("Voltar").fetchSemanticsNodes().isNotEmpty() }
     }
+    private fun keyboardIsVisible(): Boolean =
+        ViewCompat.getRootWindowInsets(compose.activity.window.decorView)?.isVisible(WindowInsetsCompat.Type.ime()) == true
     private fun playerState(): String? = runCatching {
         compose.onNodeWithTag("player-root").fetchSemanticsNode().config.getOrNull(SemanticsProperties.StateDescription)
     }.getOrNull()

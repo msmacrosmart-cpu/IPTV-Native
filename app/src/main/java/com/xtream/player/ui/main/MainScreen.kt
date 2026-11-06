@@ -10,6 +10,9 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
+import androidx.compose.ui.platform.LocalFocusManager
+import androidx.compose.ui.platform.LocalInputModeManager
+import androidx.compose.ui.input.InputMode
 import kotlinx.coroutines.delay
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -53,6 +56,8 @@ fun MainScreen(
     var scopeAll by rememberSaveable { mutableStateOf(false) }
     val searchFocus = remember { FocusRequester() }
     val keyboard = LocalSoftwareKeyboardController.current
+    val focusManager = LocalFocusManager.current
+    val inputMode = LocalInputModeManager.current
     var pendingSearch by remember { mutableStateOf(false) }
     LaunchedEffect(tab, pendingSearch) {
         if (pendingSearch && tab != Tab.Settings) {
@@ -71,7 +76,11 @@ fun MainScreen(
     Box(Modifier.fillMaxSize()) {
         AmbientBackground()
         Row(Modifier.fillMaxSize()) {
-            Sidebar(tab, { tab = it; query = "" }, onSearch = focusSearch)
+            Sidebar(tab, { selected ->
+                keyboard?.hide()
+                if (inputMode.inputMode == InputMode.Touch) focusManager.clearFocus(force = true)
+                tab = selected; query = ""
+            }, onSearch = focusSearch)
             Column(Modifier.weight(1f)) {
                 if (tab != Tab.Settings) {
                     val showScope = tab == Tab.Movies || tab == Tab.Series
