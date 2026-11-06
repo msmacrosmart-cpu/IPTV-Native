@@ -1,6 +1,8 @@
 name: Inspect supplied UI reference
 on:
   workflow_dispatch:
+  push:
+    paths: [".github/workflows/inspect-reference.yml"]
 permissions:
   contents: write
 jobs:
