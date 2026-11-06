@@ -110,7 +110,11 @@ class ScreenIntegrationTest {
                     it.contains("mInputShown") || it.contains("mShowRequested") || it.contains("mCurFocusedWindow") ||
                         it.contains("mCurClient") || it.contains("mCurMethodId") || it.contains("mServedView")
                 }.joinToString("\n")
-                val text = "session=${vm.session?.username} channels=${vm.content.channels.size} " +
+                val safeBounds = runCatching { compose.onNodeWithTag("device-safe-content", useUnmergedTree = true).fetchSemanticsNode().boundsInRoot }.getOrNull()
+                val loginBounds = runCatching { compose.onNodeWithTag("login-panel", useUnmergedTree = true).fetchSemanticsNode().boundsInRoot }.getOrNull()
+                val decor = compose.activity.window.decorView
+                val text = "view=${decor.width}x${decor.height} safe=$safeBounds login=$loginBounds " +
+                    "session=${vm.session?.username} channels=${vm.content.channels.size} " +
                     "movies=${vm.content.movies.size} series=${vm.content.series.size} " +
                     "favorites=${vm.favorites} streams=$streamPaths epg=${vm.epg.keys} " +
                     "windowFocus=${compose.activity.window.decorView.hasWindowFocus()} currentFocus=${compose.activity.currentFocus?.javaClass?.simpleName} " +
@@ -658,12 +662,19 @@ class ScreenIntegrationTest {
     private fun textExists(text: String) = runCatching { compose.onNodeWithText(text).assertExists() }.isSuccess
 
     private fun assertLoginFitsAndIsCentered() {
-        val safe = compose.onNodeWithTag("device-safe-content", useUnmergedTree = true).fetchSemanticsNode().boundsInRoot
-        val panel = compose.onNodeWithTag("login-panel", useUnmergedTree = true).fetchSemanticsNode().boundsInRoot
-        assertTrue("The entire login panel must fit the safe viewport", panel.left >= safe.left && panel.top >= safe.top &&
-            panel.right <= safe.right && panel.bottom <= safe.bottom)
-        assertTrue("Login must be horizontally centered", kotlin.math.abs(panel.center.x - safe.center.x) <= 3f)
-        assertTrue("Login must be vertically centered", kotlin.math.abs(panel.center.y - safe.center.y) <= 3f)
+        // A window resize can update DecorView before Compose has measured the new viewport.
+        // Comparing only the panel to Compose's old safe area would give a false positive.
+        compose.waitUntil(20_000) {
+            runCatching {
+                val view = compose.activity.window.decorView
+                val safe = compose.onNodeWithTag("device-safe-content", useUnmergedTree = true).fetchSemanticsNode().boundsInRoot
+                val panel = compose.onNodeWithTag("login-panel", useUnmergedTree = true).fetchSemanticsNode().boundsInRoot
+                safe.left >= 0f && safe.top >= 0f && safe.right <= view.width + 2f && safe.bottom <= view.height + 2f &&
+                    kotlin.math.abs(safe.center.x - view.width / 2f) <= 3f && kotlin.math.abs(safe.center.y - view.height / 2f) <= 3f &&
+                    panel.left >= safe.left && panel.top >= safe.top && panel.right <= safe.right && panel.bottom <= safe.bottom &&
+                    kotlin.math.abs(panel.center.x - safe.center.x) <= 3f && kotlin.math.abs(panel.center.y - safe.center.y) <= 3f
+            }.getOrDefault(false)
+        }
         compose.onNodeWithTag("login-submit").assertIsDisplayed()
     }
 
