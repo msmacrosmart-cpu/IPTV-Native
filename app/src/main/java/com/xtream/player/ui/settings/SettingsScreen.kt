@@ -78,7 +78,7 @@ fun SettingsScreen(
         ConfirmSettingsDialog("Remover perfil?", "As credenciais, favoritos e histórico locais de ${profile.username} serão removidos deste dispositivo.",
             onDismiss = { removeProfile = null }, onConfirm = { actions.removeProfile(profile.id); removeProfile = null })
     }
-    var page by rememberSaveable(initialPage, session?.username) { mutableStateOf(initialPage) }
+    var page by rememberSaveable(initialPage) { mutableStateOf(initialPage) }
     BackHandler(enabled = page != null) { page = null }
     BoxWithConstraints(Modifier.fillMaxSize()) {
         val gutter = if (maxWidth < 600.dp) 16.dp else 32.dp

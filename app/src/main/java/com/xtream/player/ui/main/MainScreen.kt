@@ -57,6 +57,7 @@ fun MainScreen(session: Session?, content: ContentState, epg: Map<String, List<P
                previewEnabled: Boolean = true, restoreChannelId: String? = null, onChannelRestored: () -> Unit = {}) {
     var tab by rememberSaveable { mutableStateOf(Tab.Home) }
     var settingsPage by rememberSaveable { mutableStateOf<String?>(null) }
+    var settingsVisit by rememberSaveable { mutableIntStateOf(0) }
     var query by rememberSaveable { mutableStateOf("") }
     // Save each catalog's folder, search-in-folders, sort and grid position while
     // its details screen is shown. Keep profiles isolated without storing passwords.
@@ -90,6 +91,7 @@ fun MainScreen(session: Session?, content: ContentState, epg: Map<String, List<P
         actions.onCloseDetails()
         returnToItem = null
         tab = selected; query = ""; settingsPage = null
+        if (selected == Tab.Settings) settingsVisit++
     }
     BackHandler(enabled = detail == null && tab != Tab.Home) { selectTab(Tab.Home) }
 
@@ -123,8 +125,8 @@ fun MainScreen(session: Session?, content: ContentState, epg: Map<String, List<P
                         onSelect = { item -> returnToItem = item.favoriteKey; actions.onOpenDetails(item) },
                         restoreItemKey = returnToItem, onReturnFocusRestored = { returnToItem = null })
                 }
-                Tab.Settings -> SettingsScreen(session, content, epg, epgUpdatedAt, epgLoading, epgMessage,
-                    loading, loginError, profiles, settings, parentalUnlocked, parentalBusy, testingConnection, connectionTest, actions.settings, initialPage = settingsPage)
+                Tab.Settings -> key(settingsVisit) { SettingsScreen(session, content, epg, epgUpdatedAt, epgLoading, epgMessage,
+                    loading, loginError, profiles, settings, parentalUnlocked, parentalBusy, testingConnection, connectionTest, actions.settings, initialPage = settingsPage) }
             }
         }
     }
