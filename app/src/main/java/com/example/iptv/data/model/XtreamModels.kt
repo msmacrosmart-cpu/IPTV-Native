@@ -1,181 +1,171 @@
 package com.example.iptv.data.model
 
-import kotlinx.serialization.SerialName
-import kotlinx.serialization.Serializable
-
-@Serializable
-data class AuthResponse(
-    @SerialName("user_info")
-    val userInfo: UserInfo? = null,
-    @SerialName("server_info")
-    val serverInfo: ServerInfo? = null
-)
-
-@Serializable
-data class UserInfo(
+/** Session credentials for a Xtream Codes panel. */
+data class PanelCredentials(
+    val serverUrl: String = "",
     val username: String = "",
-    val password: String = "",
+    val password: String = ""
+) {
+    val isComplete: Boolean
+        get() = serverUrl.isNotBlank() && username.isNotBlank() && password.isNotBlank()
+}
+
+/** Account information returned by `player_api.php` (no action). */
+data class AccountInfo(
+    val username: String = "",
+    val status: String = "Unknown",
     val message: String = "",
-    val auth: Int = 0,
-    val status: String = "Active",
-    @SerialName("exp_date")
-    val expDate: String? = null,
-    @SerialName("is_trial")
-    val isTrial: String = "0",
-    @SerialName("active_cons")
-    val activeCons: String = "0",
-    @SerialName("created_at")
-    val createdAt: String = "",
-    @SerialName("max_connections")
-    val maxConnections: String = "1",
-    @SerialName("allowed_output_formats")
-    val allowedOutputFormats: List<String> = emptyList()
-)
-
-@Serializable
-data class ServerInfo(
-    val url: String = "",
-    val port: String = "",
-    @SerialName("https_port")
-    val httpsPort: String = "",
-    @SerialName("server_protocol")
+    val isActive: Boolean = false,
+    val isTrial: Boolean = false,
+    val expiresAtMillis: Long? = null,
+    val createdAtMillis: Long? = null,
+    val maxConnections: Int = 1,
+    val activeConnections: Int = 0,
+    val allowedFormats: List<String> = emptyList(),
     val serverProtocol: String = "http",
-    val rtmp_port: String = "",
+    val serverPort: String = "",
     val timezone: String = "UTC",
-    @SerialName("time_now")
-    val timeNow: String = ""
+    val panelUrl: String = "",
+    val syncedAtMillis: Long = System.currentTimeMillis()
+) {
+    val supportsHls: Boolean
+        get() = allowedFormats.isEmpty() || allowedFormats.any { it.contains("m3u8", true) || it.contains("hls", true) }
+
+    val statusLabel: String
+        get() = when {
+            !isActive -> "Inativa"
+            expiresAtMillis != null && expiresAtMillis in 1..System.currentTimeMillis() -> "Expirada"
+            isTrial -> "Período de teste"
+            else -> "Ativa"
+        }
+}
+
+enum class StreamFormat(val label: String, val extension: String) {
+    TS("MPEG-TS", "ts"),
+    HLS("HLS (m3u8)", "m3u8");
+
+    fun other(): StreamFormat = if (this == TS) HLS else TS
+}
+
+enum class VideoDecoder(val label: String) {
+    AUTO("Automático"),
+    HARDWARE("Hardware (preferencial)"),
+    COMPATIBILITY("Compatibilidade (fallback SW)")
+}
+
+data class UserSettings(
+    val streamFormat: StreamFormat = StreamFormat.TS,
+    val bufferSeconds: Int = 15,
+    val decoder: VideoDecoder = VideoDecoder.AUTO,
+    val lastEpgSyncMillis: Long = 0L
 )
 
-@Serializable
 data class LiveCategory(
-    @SerialName("category_id")
-    val categoryId: String,
-    @SerialName("category_name")
-    val categoryName: String,
-    @SerialName("parent_id")
-    val parentId: Int = 0
+    val id: String,
+    val name: String
 )
 
-@Serializable
-data class LiveStream(
-    val num: Int? = null,
+data class LiveChannel(
+    val id: Int,
     val name: String,
-    @SerialName("stream_type")
-    val streamType: String = "live",
-    @SerialName("stream_id")
-    val streamId: Int,
-    @SerialName("stream_icon")
-    val streamIcon: String? = null,
-    @SerialName("epg_channel_id")
+    val streamNumber: Int = 0,
+    val icon: String? = null,
     val epgChannelId: String? = null,
-    val added: String? = null,
-    @SerialName("category_id")
     val categoryId: String? = null,
-    @SerialName("custom_sid")
-    val customSid: String? = null,
-    @SerialName("tv_archive")
-    val tvArchive: Int = 0,
-    @SerialName("direct_source")
-    val directSource: String? = null
+    val hasArchive: Boolean = false
 )
 
-@Serializable
+data class EpgEntry(
+    val id: String,
+    val title: String,
+    val description: String,
+    val startMillis: Long,
+    val endMillis: Long,
+    val isNowPlaying: Boolean
+) {
+    val durationMillis: Long
+        get() = (endMillis - startMillis).coerceAtLeast(0L)
+
+    fun progress(nowMillis: Long): Float {
+        if (durationMillis <= 0L) return 0f
+        val elapsed = nowMillis - startMillis
+        return (elapsed.toFloat() / durationMillis.toFloat()).coerceIn(0f, 1f)
+    }
+
+    fun isCurrent(nowMillis: Long): Boolean = nowMillis in startMillis until endMillis
+}
+
 data class VodCategory(
-    @SerialName("category_id")
-    val categoryId: String,
-    @SerialName("category_name")
-    val categoryName: String,
-    @SerialName("parent_id")
-    val parentId: Int = 0
+    val id: String,
+    val name: String
 )
 
-@Serializable
-data class VodStream(
-    val num: Int? = null,
+data class VodItem(
+    val id: Int,
     val name: String,
-    @SerialName("stream_type")
-    val streamType: String = "movie",
-    @SerialName("stream_id")
-    val streamId: Int,
-    @SerialName("stream_icon")
-    val streamIcon: String? = null,
+    val icon: String? = null,
     val rating: String? = null,
-    @SerialName("rating_5based")
-    val rating5Based: Double? = null,
-    val added: String? = null,
-    @SerialName("category_id")
+    val rating5: Double? = null,
+    val extension: String = "mp4",
     val categoryId: String? = null,
-    @SerialName("container_extension")
-    val containerExtension: String? = "mp4"
+    val plot: String? = null,
+    val addedAtMillis: Long? = null
 )
 
-@Serializable
 data class SeriesCategory(
-    @SerialName("category_id")
-    val categoryId: String,
-    @SerialName("category_name")
-    val categoryName: String,
-    @SerialName("parent_id")
-    val parentId: Int = 0
+    val id: String,
+    val name: String
 )
 
-@Serializable
-data class SeriesStream(
-    val num: Int? = null,
+data class SeriesItem(
+    val id: Int,
     val name: String,
-    @SerialName("series_id")
-    val seriesId: Int,
     val cover: String? = null,
+    val plot: String? = null,
+    val cast: String? = null,
+    val genre: String? = null,
+    val releaseDate: String? = null,
+    val rating: String? = null,
+    val rating5: Double? = null,
+    val backdrop: String? = null,
+    val categoryId: String? = null,
+    val episodeCount: Int? = null
+)
+
+data class Episode(
+    val id: String,
+    val title: String,
+    val season: Int,
+    val number: Int,
+    val extension: String = "mp4",
+    val plot: String? = null,
+    val durationLabel: String? = null,
+    val image: String? = null
+)
+
+data class SeasonEpisodes(
+    val season: Int,
+    val episodes: List<Episode>
+)
+
+data class VodDetails(
     val plot: String? = null,
     val cast: String? = null,
     val director: String? = null,
     val genre: String? = null,
     val releaseDate: String? = null,
-    val rating: String? = null,
-    @SerialName("rating_5based")
-    val rating5Based: Double? = null,
-    @SerialName("backdrop_path")
-    val backdropPath: List<String> = emptyList(),
-    @SerialName("category_id")
-    val categoryId: String? = null
+    val durationLabel: String? = null,
+    val backdrop: String? = null,
+    val rating: String? = null
 )
 
-@Serializable
-data class ShortEpgResponse(
-    @SerialName("epg_listings")
-    val epgListings: List<EpgProgram> = emptyList()
-)
-
-@Serializable
-data class EpgProgram(
-    val id: String? = null,
-    @SerialName("epg_id")
-    val epgId: String? = null,
-    val title: String = "",
-    val lang: String = "",
-    val start: String = "",
-    val end: String = "",
-    val description: String = "",
-    @SerialName("channel_id")
-    val channelId: String? = null,
-    @SerialName("start_timestamp")
-    val startTimestamp: String? = null,
-    @SerialName("stop_timestamp")
-    val stopTimestamp: String? = null,
-    @SerialName("now_playing")
-    val nowPlaying: Int = 0
-)
-
-enum class VideoDecoderType(val title: String) {
-    HARDWARE("Hardware (HW Acelerado)"),
-    SOFTWARE("Software (SW Compatibilidade)"),
-    AUTO("Automático (Recomendado)")
-}
-
-data class UserSettings(
-    val videoDecoder: VideoDecoderType = VideoDecoderType.AUTO,
-    val bufferSizeSeconds: Int = 15,
-    val streamFormat: String = "ts", // "ts" or "m3u8"
-    val lastEpgUpdate: String = "Hoje, 14:30",
-    val isAutoEpgUpdateEnabled: Boolean = true
+/** Everything the player needs to start a stream. */
+data class PlaybackRequest(
+    val url: String,
+    val title: String,
+    val subtitle: String? = null,
+    val fallbackUrl: String? = null,
+    val isLive: Boolean = false,
+    val channelId: Int? = null,
+    val seriesId: Int? = null
 )

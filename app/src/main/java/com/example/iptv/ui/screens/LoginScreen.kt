@@ -1,168 +1,206 @@
 package com.example.iptv.ui.screens
 
 import androidx.compose.animation.AnimatedVisibility
-import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
-import androidx.compose.foundation.clickable
-import androidx.compose.foundation.focusable
-import androidx.compose.foundation.interaction.MutableInteractionSource
-import androidx.compose.foundation.interaction.collectIsFocusedAsState
-import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.safeDrawingPadding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowForward
+import androidx.compose.material.icons.filled.Lock
+import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.Visibility
 import androidx.compose.material.icons.filled.VisibilityOff
-import androidx.compose.material3.*
-import androidx.compose.runtime.*
+import androidx.compose.material.icons.filled.Language
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
+import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.OutlinedTextFieldDefaults
+import androidx.compose.material3.Text
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
-import androidx.compose.ui.draw.scale
-import androidx.compose.ui.draw.shadow
-import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.input.VisualTransformation
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.example.iptv.ui.components.AppLogo
+import com.example.iptv.ui.components.GlassCard
+import com.example.iptv.ui.components.PrimaryButton
 import com.example.iptv.ui.components.TopographicBackground
-import com.example.iptv.ui.theme.*
+import com.example.iptv.ui.theme.AccentCoral
+import com.example.iptv.ui.theme.TextMuted
+import com.example.iptv.ui.theme.TextPrimary
+import com.example.iptv.ui.theme.TextSecondary
 import com.example.iptv.viewmodel.AuthViewModel
 
 /**
- * Tela de Login com Glassmorphism Avançado e Textura Topográfica Damasco.
- * O botão de login possui exatamente o mesmo tamanho (largura e altura) das caixas de texto.
+ * Xtream Codes login. The fields are bound to [AuthViewModel] state, so rotating the device or
+ * opening the keyboard never loses what was typed, and the session is persisted on success.
  */
 @Composable
-fun LoginScreen(
-    viewModel: AuthViewModel,
-    onLoginSuccess: () -> Unit
-) {
-    val serverUrl by viewModel.serverUrl.collectAsState()
-    val username by viewModel.username.collectAsState()
-    val password by viewModel.password.collectAsState()
+fun LoginScreen(viewModel: AuthViewModel) {
+    val serverUrl by viewModel.serverInput.collectAsState()
+    val username by viewModel.usernameInput.collectAsState()
+    val password by viewModel.passwordInput.collectAsState()
     val isLoading by viewModel.isLoading.collectAsState()
     val errorMessage by viewModel.errorMessage.collectAsState()
 
-    var isPasswordVisible by remember { mutableStateOf(false) }
+    var passwordVisible by remember { mutableStateOf(false) }
 
     TopographicBackground {
         Box(
-            modifier = Modifier.fillMaxSize(),
+            modifier = Modifier
+                .fillMaxSize()
+                .safeDrawingPadding()
+                .padding(20.dp),
             contentAlignment = Alignment.Center
         ) {
-            // Cartão Central Glassmorphism (Largura 440dp para TV e Tablet/Mobile)
-            Box(
+            GlassCard(
                 modifier = Modifier
-                    .width(440.dp)
-                    .shadow(32.dp, RoundedCornerShape(32.dp), spotColor = Color(0x66FF574D))
-                    .clip(RoundedCornerShape(32.dp))
-                    .background(
-                        brush = Brush.verticalGradient(
-                            colors = listOf(
-                                Color(0xCC13151C),
-                                Color(0xE60E1015)
-                            )
-                        )
-                    )
-                    .border(
-                        width = 1.2.dp,
-                        brush = Brush.verticalGradient(
-                            colors = listOf(
-                                Color(0x4DFFFFFF),
-                                Color(0x14FFFFFF)
-                            )
-                        ),
-                        shape = RoundedCornerShape(32.dp)
-                    )
-                    .padding(horizontal = 36.dp, vertical = 40.dp)
+                    .widthIn(max = 470.dp)
+                    .fillMaxWidth(0.94f)
+                    .heightIn(max = 620.dp),
+                shape = RoundedCornerShape(28.dp)
             ) {
                 Column(
-                    modifier = Modifier.fillMaxWidth(),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .verticalScroll(rememberScrollState())
+                        .padding(horizontal = 34.dp, vertical = 28.dp),
                     horizontalAlignment = Alignment.CenterHorizontally
                 ) {
-                    // Cabeçalho
+                    AppLogo(markSize = 54)
+
+                    Spacer(modifier = Modifier.height(22.dp))
+
                     Text(
                         text = "Bem-vindo de volta",
-                        fontSize = 28.sp,
-                        fontWeight = FontWeight.Bold,
-                        color = Color.White
+                        color = TextPrimary,
+                        fontSize = 25.sp,
+                        fontWeight = FontWeight.Bold
                     )
-                    Spacer(modifier = Modifier.height(6.dp))
+                    Spacer(modifier = Modifier.height(4.dp))
                     Text(
-                        text = "Conecte-se à sua conta Xtream",
-                        fontSize = 14.sp,
-                        color = Color.White.copy(alpha = 0.55f)
+                        text = "Entre com os dados do seu painel Xtream Codes",
+                        color = TextSecondary,
+                        fontSize = 12.5.sp,
+                        textAlign = TextAlign.Center
                     )
 
-                    Spacer(modifier = Modifier.height(28.dp))
-
-                    // Mensagem de Erro / Validação
                     AnimatedVisibility(visible = errorMessage != null) {
-                        errorMessage?.let { msg ->
-                            Box(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .padding(bottom = 16.dp)
-                                    .clip(RoundedCornerShape(12.dp))
-                                    .background(Color(0x33FF3B30))
-                                    .border(1.dp, Color(0x80FF3B30), RoundedCornerShape(12.dp))
-                                    .padding(horizontal = 14.dp, vertical = 10.dp)
-                            ) {
-                                Text(
-                                    text = msg,
-                                    color = Color(0xFFFF8B8B),
-                                    fontSize = 13.sp
-                                )
+                        Column {
+                            Spacer(modifier = Modifier.height(16.dp))
+                            errorMessage?.let { message ->
+                                Box(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .background(Color(0x33FF3B30), RoundedCornerShape(12.dp))
+                                        .border(1.dp, Color(0x80FF3B30), RoundedCornerShape(12.dp))
+                                        .padding(horizontal = 14.dp, vertical = 10.dp)
+                                ) {
+                                    Text(text = message, color = Color(0xFFFF9B93), fontSize = 12.sp)
+                                }
                             }
                         }
                     }
 
-                    // Campo 1: Servidor Xtream
-                    XtreamInputField(
+                    Spacer(modifier = Modifier.height(20.dp))
+
+                    LoginField(
                         value = serverUrl,
                         onValueChange = viewModel::updateServer,
-                        placeholder = "Servidor Xtream (ex: http://servidor.com:8080)",
+                        placeholder = "http://servidor.com:8080",
+                        icon = Icons.Default.Language,
+                        keyboardType = KeyboardType.Uri,
                         imeAction = ImeAction.Next
                     )
 
-                    Spacer(modifier = Modifier.height(14.dp))
+                    Spacer(modifier = Modifier.height(12.dp))
 
-                    // Campo 2: Usuário
-                    XtreamInputField(
+                    LoginField(
                         value = username,
                         onValueChange = viewModel::updateUsername,
                         placeholder = "Usuário",
+                        icon = Icons.Default.Person,
+                        keyboardType = KeyboardType.Text,
                         imeAction = ImeAction.Next
                     )
 
-                    Spacer(modifier = Modifier.height(14.dp))
+                    Spacer(modifier = Modifier.height(12.dp))
 
-                    // Campo 3: Senha
-                    XtreamInputField(
+                    LoginField(
                         value = password,
                         onValueChange = viewModel::updatePassword,
                         placeholder = "Senha",
-                        isPassword = true,
-                        isPasswordVisible = isPasswordVisible,
-                        onTogglePasswordVisibility = { isPasswordVisible = !isPasswordVisible },
+                        icon = Icons.Default.Lock,
+                        keyboardType = KeyboardType.Password,
                         imeAction = ImeAction.Done,
-                        onDone = { viewModel.login(onLoginSuccess) }
+                        isPassword = true,
+                        passwordVisible = passwordVisible,
+                        onToggleVisibility = { passwordVisible = !passwordVisible },
+                        onDone = viewModel::login
                     )
 
                     Spacer(modifier = Modifier.height(22.dp))
 
-                    // Botão de Login: EXATAMENTE DO MESMO TAMANHO DAS CAIXAS DE TEXTO (fillMaxWidth, altura 56dp, formato pill 24dp)
-                    LoginActionFullWidthButton(
-                        isLoading = isLoading,
-                        onClick = { viewModel.login(onLoginSuccess) }
+                    // Same width (fillMaxWidth), height (56dp) and corner radius (24dp) as the fields.
+                    PrimaryButton(
+                        label = "Entrar  →",
+                        onClick = viewModel::login,
+                        modifier = Modifier.fillMaxWidth(),
+                        loading = isLoading
+                    )
+
+                    Spacer(modifier = Modifier.height(16.dp))
+
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Text(
+                            text = "Aceita",
+                            color = TextMuted,
+                            fontSize = 10.5.sp
+                        )
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Text(
+                            text = "servidor:porta  •  player_api.php  •  get.php?username=…",
+                            color = AccentCoral.copy(alpha = 0.8f),
+                            fontSize = 10.5.sp
+                        )
+                    }
+
+                    Spacer(modifier = Modifier.height(6.dp))
+
+                    Text(
+                        text = "Sua sessão fica salva no dispositivo com criptografia AES (Android Keystore).",
+                        color = TextMuted,
+                        fontSize = 10.sp,
+                        textAlign = TextAlign.Center
                     )
                 }
             }
@@ -170,145 +208,62 @@ fun LoginScreen(
     }
 }
 
-/**
- * Caixa de texto padronizada em formato de pílula glassmorphism escura (altura 56dp).
- */
 @Composable
-private fun XtreamInputField(
+private fun LoginField(
     value: String,
     onValueChange: (String) -> Unit,
     placeholder: String,
-    modifier: Modifier = Modifier,
+    icon: androidx.compose.ui.graphics.vector.ImageVector,
+    keyboardType: KeyboardType,
+    imeAction: ImeAction,
     isPassword: Boolean = false,
-    isPasswordVisible: Boolean = false,
-    onTogglePasswordVisibility: (() -> Unit)? = null,
-    imeAction: ImeAction = ImeAction.Default,
+    passwordVisible: Boolean = false,
+    onToggleVisibility: (() -> Unit)? = null,
     onDone: (() -> Unit)? = null
 ) {
-    val interactionSource = remember { MutableInteractionSource() }
-    val isFocused by interactionSource.collectIsFocusedAsState()
-
-    val borderColor = if (isFocused) AccentCoral else Color.White.copy(alpha = 0.14f)
-    val containerBg = if (isFocused) Color(0x40252835) else Color(0x33181B24)
-
     OutlinedTextField(
         value = value,
         onValueChange = onValueChange,
-        modifier = modifier
+        modifier = Modifier
             .fillMaxWidth()
-            .height(56.dp)
-            .clip(RoundedCornerShape(24.dp))
-            .background(containerBg),
+            .height(56.dp),
         placeholder = {
-            Text(
-                text = placeholder,
-                color = Color.White.copy(alpha = 0.38f),
-                fontSize = 14.sp
-            )
+            Text(text = placeholder, color = TextMuted, fontSize = 13.5.sp)
         },
-        singleLine = true,
-        shape = RoundedCornerShape(24.dp),
-        colors = OutlinedTextFieldDefaults.colors(
-            focusedTextColor = Color.White,
-            unfocusedTextColor = Color.White,
-            focusedBorderColor = borderColor,
-            unfocusedBorderColor = Color.White.copy(alpha = 0.12f),
-            cursorColor = AccentCoral
-        ),
-        visualTransformation = if (isPassword && !isPasswordVisible) PasswordVisualTransformation() else VisualTransformation.None,
-        keyboardOptions = KeyboardOptions(
-            keyboardType = if (isPassword) KeyboardType.Password else KeyboardType.Text,
-            imeAction = imeAction
-        ),
-        keyboardActions = KeyboardActions(onDone = { onDone?.invoke() }),
-        trailingIcon = if (isPassword && onTogglePasswordVisibility != null) {
+        leadingIcon = {
+            Icon(imageVector = icon, contentDescription = null, tint = TextMuted, modifier = Modifier.size(18.dp))
+        },
+        trailingIcon = if (isPassword && onToggleVisibility != null) {
             {
-                IconButton(onClick = onTogglePasswordVisibility) {
+                IconButton(onClick = onToggleVisibility) {
                     Icon(
-                        imageVector = if (isPasswordVisible) Icons.Default.Visibility else Icons.Default.VisibilityOff,
-                        contentDescription = "Alternar Visibilidade",
-                        tint = Color.White.copy(alpha = 0.45f)
+                        imageVector = if (passwordVisible) Icons.Default.Visibility else Icons.Default.VisibilityOff,
+                        contentDescription = "Mostrar senha",
+                        tint = TextMuted,
+                        modifier = Modifier.size(18.dp)
                     )
                 }
             }
-        } else null,
-        interactionSource = interactionSource
-    )
-}
-
-/**
- * Botão com exatamente o mesmo tamanho (largura total e altura de 56dp) e raio de canto (24dp) das caixas de texto.
- */
-@Composable
-private fun LoginActionFullWidthButton(
-    isLoading: Boolean,
-    onClick: () -> Unit
-) {
-    val interactionSource = remember { MutableInteractionSource() }
-    val isFocused by interactionSource.collectIsFocusedAsState()
-
-    val scale by animateFloatAsState(
-        targetValue = if (isFocused) 1.025f else 1.0f,
-        label = "loginButtonScale"
-    )
-
-    Box(
-        modifier = Modifier
-            .fillMaxWidth()
-            .height(56.dp)
-            .scale(scale)
-            .shadow(
-                elevation = if (isFocused) 16.dp else 8.dp,
-                shape = RoundedCornerShape(24.dp),
-                spotColor = AccentCoral
-            )
-            .clip(RoundedCornerShape(24.dp))
-            .background(
-                brush = Brush.horizontalGradient(
-                    colors = listOf(
-                        Color(0xFFFF5247),
-                        Color(0xFFFF6D55)
-                    )
-                )
-            )
-            .border(
-                width = if (isFocused) 2.dp else 1.dp,
-                color = if (isFocused) Color.White else Color.Transparent,
-                shape = RoundedCornerShape(24.dp)
-            )
-            .focusable(interactionSource = interactionSource)
-            .clickable(
-                interactionSource = interactionSource,
-                indication = null,
-                onClick = onClick
-            ),
-        contentAlignment = Alignment.Center
-    ) {
-        if (isLoading) {
-            CircularProgressIndicator(
-                modifier = Modifier.size(24.dp),
-                color = Color.White,
-                strokeWidth = 2.5.dp
-            )
         } else {
-            Row(
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.Center
-            ) {
-                Text(
-                    text = "Entrar",
-                    color = Color.White,
-                    fontSize = 16.sp,
-                    fontWeight = FontWeight.Bold
-                )
-                Spacer(modifier = Modifier.width(10.dp))
-                Icon(
-                    imageVector = Icons.AutoMirrored.Filled.ArrowForward,
-                    contentDescription = "Entrar",
-                    tint = Color.White,
-                    modifier = Modifier.size(20.dp)
-                )
-            }
-        }
-    }
+            null
+        },
+        singleLine = true,
+        shape = RoundedCornerShape(18.dp),
+        colors = OutlinedTextFieldDefaults.colors(
+            focusedBorderColor = AccentCoral,
+            unfocusedBorderColor = Color.White.copy(alpha = 0.12f),
+            focusedTextColor = TextPrimary,
+            unfocusedTextColor = TextPrimary,
+            cursorColor = AccentCoral,
+            focusedContainerColor = Color(0x33202430),
+            unfocusedContainerColor = Color(0x1F171A23)
+        ),
+        visualTransformation = if (isPassword && !passwordVisible) {
+            PasswordVisualTransformation()
+        } else {
+            VisualTransformation.None
+        },
+        keyboardOptions = KeyboardOptions(keyboardType = keyboardType, imeAction = imeAction),
+        keyboardActions = KeyboardActions(onDone = { onDone?.invoke() })
+    )
 }

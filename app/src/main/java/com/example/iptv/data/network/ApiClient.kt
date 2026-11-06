@@ -1,51 +1,67 @@
 package com.example.iptv.data.network
 
+import com.example.iptv.BuildConfig
 import kotlinx.serialization.json.Json
-import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.OkHttpClient
 import okhttp3.logging.HttpLoggingInterceptor
 import retrofit2.Retrofit
-import retrofit2.converter.kotlinx.serialization.asConverterFactory
 import java.util.concurrent.TimeUnit
 
+/**
+ * OkHttp/Retrofit factory for the Xtream Codes API.
+ *
+ * One shared [OkHttpClient] (connection pool reused) and a lightweight Retrofit instance per
+ * panel base URL. No converter factory is needed because the API returns raw JSON bodies that
+ * are parsed by [XtreamParser].
+ */
 object ApiClient {
-    private val json = Json {
+
+    /** Some panels reject requests without a known user agent. */
+    const val USER_AGENT = "IPTVNative/2.0 (Android; +https://github.com)"
+
+    val json: Json = Json {
         ignoreUnknownKeys = true
         isLenient = true
         coerceInputValues = true
+        allowTrailingComma = true
+        explicitNulls = false
     }
 
-    private val okHttpClient: OkHttpClient by lazy {
+    private val httpClient: OkHttpClient by lazy {
         OkHttpClient.Builder()
             .connectTimeout(20, TimeUnit.SECONDS)
-            .readTimeout(25, TimeUnit.SECONDS)
+            .readTimeout(30, TimeUnit.SECONDS)
             .writeTimeout(20, TimeUnit.SECONDS)
-            .addInterceptor(HttpLoggingInterceptor().apply {
-                level = HttpLoggingInterceptor.Level.BASIC
-            })
+            .retryOnConnectionFailure(true)
+            .followRedirects(true)
+            .followSslRedirects(true)
+            .addInterceptor { chain ->
+                val request = chain.request().newBuilder()
+                    .header("User-Agent", USER_AGENT)
+                    .header("Accept", "application/json, text/plain, */*")
+                    .build()
+                chain.proceed(request)
+            }
+            .apply {
+                if (BuildConfig.DEBUG) {
+                    addInterceptor(
+                        HttpLoggingInterceptor().apply {
+                            level = HttpLoggingInterceptor.Level.BASIC
+                        }
+                    )
+                }
+            }
             .build()
     }
 
-    fun create(rawServerUrl: String): XtreamApiService {
-        val sanitizedUrl = sanitizeUrl(rawServerUrl)
-        val contentType = "application/json".toMediaType()
+    fun httpClient(): OkHttpClient = httpClient
 
+    fun create(baseUrl: String): XtreamApiService {
+        val normalized = if (baseUrl.endsWith("/")) baseUrl else "$baseUrl/"
         return Retrofit.Builder()
-            .baseUrl(sanitizedUrl)
-            .client(okHttpClient)
-            .addConverterFactory(json.asConverterFactory(contentType))
+            .baseUrl(normalized)
+            .client(httpClient)
             .build()
             .create(XtreamApiService::class.java)
-    }
-
-    fun sanitizeUrl(url: String): String {
-        var formatted = url.trim()
-        if (!formatted.startsWith("http://") && !formatted.startsWith("https://")) {
-            formatted = "http://$formatted"
-        }
-        if (!formatted.endsWith("/")) {
-            formatted = "$formatted/"
-        }
-        return formatted
     }
 }

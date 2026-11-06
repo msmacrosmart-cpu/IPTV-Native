@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="utf-8"?>
+<network-security-config>
+    <!--
+      Xtream Codes panels are frequently served over plain HTTP (and mixed HTTP/HTTPS
+      streams). The app must be able to reach any host typed by the user, so cleartext
+      traffic stays enabled. HTTPS keeps working normally with the platform trust store.
+    -->
+    <base-config cleartextTrafficPermitted="true">
+        <trust-anchors>
+            <certificates src="system" />
+            <certificates src="user" />
+        </trust-anchors>
+    </base-config>
+</network-security-config>

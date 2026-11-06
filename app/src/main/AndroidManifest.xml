@@ -2,13 +2,13 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:tools="http://schemas.android.com/tools">
 
-    <!-- Network permissions for Xtream Codes API and video streaming -->
+    <!-- Xtream Codes API + streaming -->
     <uses-permission android:name="android.permission.INTERNET" />
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
     <uses-permission android:name="android.permission.ACCESS_WIFI_STATE" />
     <uses-permission android:name="android.permission.WAKE_LOCK" />
 
-    <!-- Android TV / Leanback compatibility flags -->
+    <!-- Android TV / Leanback support (optional, app also runs on phones/tablets) -->
     <uses-feature
         android:name="android.software.leanback"
         android:required="false" />
@@ -17,11 +17,15 @@
         android:required="false" />
 
     <application
-        android:name=".IptvApplication"
-        android:allowBackup="true"
-        android:icon="@android:drawable/sym_def_app_icon"
+        android:name=".IPTVApplication"
+        android:allowBackup="false"
+        android:banner="@drawable/tv_banner"
+        android:hardwareAccelerated="true"
+        android:icon="@mipmap/ic_launcher"
         android:label="@string/app_name"
-        android:roundIcon="@android:drawable/sym_def_app_icon"
+        android:largeHeap="true"
+        android:networkSecurityConfig="@xml/network_security_config"
+        android:roundIcon="@mipmap/ic_launcher_round"
         android:supportsRtl="true"
         android:theme="@style/Theme.IPTVNative"
         android:usesCleartextTraffic="true"
@@ -29,14 +33,16 @@
 
         <activity
             android:name=".MainActivity"
+            android:configChanges="keyboard|keyboardHidden|navigation|orientation|screenLayout|screenSize|smallestScreenSize|uiMode"
             android:exported="true"
-            android:configChanges="keyboard|keyboardHidden|navigation|orientation|screenLayout|screenSize|smallestScreenSize"
-            android:screenOrientation="sensorLandscape"
-            android:theme="@style/Theme.IPTVNative">
+            android:launchMode="singleTop"
+            android:screenOrientation="fullUser"
+            android:theme="@style/Theme.IPTVNative"
+            tools:ignore="DiscouragedApi,LockedOrientationActivity">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />
-                <!-- Leanback TV Launcher category -->
+                <!-- Android TV home screen entry -->
                 <category android:name="android.intent.category.LEANBACK_LAUNCHER" />
             </intent-filter>
         </activity>

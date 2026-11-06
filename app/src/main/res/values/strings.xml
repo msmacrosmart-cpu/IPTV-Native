@@ -1,11 +1,18 @@
 <resources>
     <string name="app_name">IPTV Native</string>
+    <string name="app_tagline">Seu painel Xtream, nativo.</string>
+
     <string name="server_url">Servidor Xtream</string>
     <string name="username">Usuário</string>
     <string name="password">Senha</string>
     <string name="login_button">Entrar</string>
+
     <string name="live_tv">TV ao Vivo</string>
     <string name="movies">Filmes</string>
     <string name="series">Séries</string>
     <string name="settings">Configurações</string>
+    <string name="home">Início</string>
+    <string name="search">Buscar</string>
+    <string name="retry">Tentar novamente</string>
+    <string name="logout">Sair da conta</string>
 </resources>

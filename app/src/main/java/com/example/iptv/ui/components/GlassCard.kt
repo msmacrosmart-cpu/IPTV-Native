@@ -25,19 +25,20 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Shape
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
-import com.example.iptv.ui.theme.*
+import com.example.iptv.ui.theme.AccentCoral
+import com.example.iptv.ui.theme.GlassBorderSubtle
+import com.example.iptv.ui.theme.GlassSurfaceDark
 
 /**
- * Cartão estilizado com efeito Glassmorphism avançado:
- * Superfície translúcida escura, borda suave iluminada e efeito de foco D-pad integrado.
+ * Glassmorphic surface with optional D-pad focus animation.
  */
 @Composable
 fun GlassCard(
     modifier: Modifier = Modifier,
     shape: Shape = RoundedCornerShape(20.dp),
     backgroundColor: Color = GlassSurfaceDark,
-    isFocusable: Boolean = true,
-    elevation: Dp = 8.dp,
+    isFocusable: Boolean = false,
+    elevation: Dp = 6.dp,
     onClick: (() -> Unit)? = null,
     content: @Composable BoxScope.() -> Unit
 ) {
@@ -45,56 +46,52 @@ fun GlassCard(
     val isFocused by interactionSource.collectIsFocusedAsState()
 
     val scale by animateFloatAsState(
-        targetValue = if (isFocused && isFocusable) 1.035f else 1.0f,
-        animationSpec = tween(durationMillis = 180),
+        targetValue = if (isFocused && isFocusable) 1.02f else 1f,
+        animationSpec = tween(durationMillis = 160),
         label = "glassCardScale"
     )
 
     val borderColor by animateColorAsState(
         targetValue = if (isFocused && isFocusable) AccentCoral else GlassBorderSubtle,
-        animationSpec = tween(durationMillis = 180),
+        animationSpec = tween(durationMillis = 160),
         label = "glassCardBorder"
     )
 
-    val shadowElevation = if (isFocused && isFocusable) elevation + 8.dp else elevation
+    val focusModifier = when {
+        isFocusable && onClick != null -> Modifier
+            .focusable(interactionSource = interactionSource)
+            .clickable(interactionSource = interactionSource, indication = null, onClick = onClick)
+
+        isFocusable -> Modifier.focusable(interactionSource = interactionSource)
+        onClick != null -> Modifier.clickable(onClick = onClick)
+        else -> Modifier
+    }
 
     Box(
         modifier = modifier
             .scale(scale)
-            .shadow(shadowElevation, shape, spotColor = if (isFocused) AccentCoral else Color.Black)
+            .shadow(
+                elevation = if (isFocused && isFocusable) elevation + 6.dp else elevation,
+                shape = shape,
+                spotColor = if (isFocused) AccentCoral else Color.Black
+            )
             .clip(shape)
             .background(
                 brush = Brush.verticalGradient(
                     colors = listOf(
-                        backgroundColor.copy(alpha = if (isFocused) 0.85f else 0.70f),
-                        backgroundColor.copy(alpha = if (isFocused) 0.95f else 0.82f)
+                        backgroundColor.copy(alpha = 0.92f),
+                        backgroundColor.copy(alpha = 0.78f)
                     )
                 )
             )
             .border(
                 border = BorderStroke(
-                    width = if (isFocused) 2.dp else 1.dp,
+                    width = if (isFocused && isFocusable) 2.dp else 1.dp,
                     color = borderColor
                 ),
                 shape = shape
             )
-            .then(
-                if (isFocusable) {
-                    Modifier
-                        .focusable(interactionSource = interactionSource)
-                        .then(
-                            if (onClick != null) {
-                                Modifier.clickable(
-                                    interactionSource = interactionSource,
-                                    indication = null,
-                                    onClick = onClick
-                                )
-                            } else Modifier
-                        )
-                } else {
-                    if (onClick != null) Modifier.clickable(onClick = onClick) else Modifier
-                }
-            ),
+            .then(focusModifier),
         content = content
     )
 }

@@ -1,151 +1,495 @@
 package com.example.iptv.viewmodel
 
 import androidx.lifecycle.ViewModel
+import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
-import com.example.iptv.data.model.*
+import com.example.iptv.data.model.ApiResult
+import com.example.iptv.data.model.Episode
+import com.example.iptv.data.model.EpgEntry
+import com.example.iptv.data.model.LiveCategory
+import com.example.iptv.data.model.LiveChannel
+import com.example.iptv.data.model.PlaybackRequest
+import com.example.iptv.data.model.SeasonEpisodes
+import com.example.iptv.data.model.SeriesCategory
+import com.example.iptv.data.model.SeriesItem
+import com.example.iptv.data.model.StreamFormat
+import com.example.iptv.data.model.VideoDecoder
+import com.example.iptv.data.model.VodCategory
+import com.example.iptv.data.model.VodItem
 import com.example.iptv.data.repository.XtreamRepository
-import kotlinx.coroutines.flow.*
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.async
+import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.SharingStarted
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 
-enum class TvNavSection {
-    HOME,
-    LIVE_TV,
-    MOVIES,
-    SERIES,
-    FAVORITES,
-    SETTINGS,
-    SEARCH
+enum class TvNavSection(val label: String, val contentDescription: String) {
+    HOME("Início", "Início"),
+    LIVE_TV("TV ao Vivo", "TV ao Vivo"),
+    MOVIES("Filmes", "Filmes"),
+    SERIES("Séries", "Séries"),
+    SETTINGS("Configurações", "Configurações")
 }
 
-class MainTvViewModel(val repository: XtreamRepository) : ViewModel() {
+/**
+ * Holds the whole catalogue (live, VOD and series), the current filters and the playback
+ * requests. All network work happens in [XtreamRepository]; this class only orchestrates state.
+ */
+class MainTvViewModel(private val repository: XtreamRepository) : ViewModel() {
 
-    // Seção ativa
-    val currentSection = MutableStateFlow(TvNavSection.HOME)
+    val account = repository.account
+    val settings = repository.settings
 
-    // ===== 1. LIVE TV (3 COLUNAS) =====
+    val section = MutableStateFlow(TvNavSection.HOME)
+
+    // ------------------------------------------------------------------ live TV
+
     val liveCategories = MutableStateFlow<List<LiveCategory>>(emptyList())
-    val selectedLiveCategoryId = MutableStateFlow("all")
-    val liveSearchQuery = MutableStateFlow("")
-    val allLiveStreams = MutableStateFlow<List<LiveStream>>(emptyList())
-    val selectedLiveStream = MutableStateFlow<LiveStream?>(null)
-    val livePlayerUrl = MutableStateFlow<String?>(null)
+    val liveAll = MutableStateFlow<List<LiveChannel>>(emptyList())
+    val liveLoading = MutableStateFlow(false)
+    val liveError = MutableStateFlow<String?>(null)
+    val liveCategoryFilter = MutableStateFlow<String?>(null)
+    val liveQuery = MutableStateFlow("")
 
-    val filteredLiveStreams = combine(allLiveStreams, selectedLiveCategoryId, liveSearchQuery) { streams, catId, query ->
-        streams.filter { stream ->
-            val matchesCategory = (catId == "all" || stream.categoryId == catId)
-            val matchesQuery = query.isBlank() || stream.name.contains(query, ignoreCase = true)
-            matchesCategory && matchesQuery
-        }
-    }.stateIn(viewModelScope, SharingStarted.Lazily, emptyList())
-
-    // ===== 2. FILMES / VOD (2 COLUNAS) =====
-    val vodCategories = MutableStateFlow<List<VodCategory>>(emptyList())
-    val selectedVodCategoryId = MutableStateFlow("all")
-    val vodSearchQuery = MutableStateFlow("")
-    val allVodStreams = MutableStateFlow<List<VodStream>>(emptyList())
-    val selectedVodStream = MutableStateFlow<VodStream?>(null)
-
-    val filteredVodStreams = combine(allVodStreams, selectedVodCategoryId, vodSearchQuery) { streams, catId, query ->
-        streams.filter { movie ->
-            val matchesCategory = (catId == "all" || movie.categoryId == catId)
-            val matchesQuery = query.isBlank() || movie.name.contains(query, ignoreCase = true)
-            matchesCategory && matchesQuery
-        }
-    }.stateIn(viewModelScope, SharingStarted.Lazily, emptyList())
-
-    // ===== 3. SÉRIES (2 COLUNAS) =====
-    val seriesCategories = MutableStateFlow<List<SeriesCategory>>(emptyList())
-    val selectedSeriesCategoryId = MutableStateFlow("all")
-    val seriesSearchQuery = MutableStateFlow("")
-    val allSeriesStreams = MutableStateFlow<List<SeriesStream>>(emptyList())
-    val selectedSeriesStream = MutableStateFlow<SeriesStream?>(null)
-
-    val filteredSeriesStreams = combine(allSeriesStreams, selectedSeriesCategoryId, seriesSearchQuery) { series, catId, query ->
-        series.filter { item ->
-            val matchesCategory = (catId == "all" || item.categoryId == catId)
-            val matchesQuery = query.isBlank() || item.name.contains(query, ignoreCase = true)
-            matchesCategory && matchesQuery
-        }
-    }.stateIn(viewModelScope, SharingStarted.Lazily, emptyList())
-
-    // ===== 4. CONFIGURAÇÕES =====
-    val userInfo = repository.userInfo
-    val userSettings = repository.userSettings
-    val pingLatencyMs = MutableStateFlow(42)
-
-    // ===== 5. REPRODUTOR FULLSCREEN =====
-    val fullScreenUrl = MutableStateFlow<String?>(null)
-    val fullScreenTitle = MutableStateFlow<String?>(null)
-
-    init {
-        loadAllData()
-    }
-
-    fun loadAllData() {
-        viewModelScope.launch {
-            // Live TV
-            val cats = repository.getLiveCategories()
-            liveCategories.value = listOf(LiveCategory("all", "Selecionar Todos")) + cats
-            val streams = repository.getLiveStreams()
-            allLiveStreams.value = streams
-            if (streams.isNotEmpty() && selectedLiveStream.value == null) {
-                selectLiveChannel(streams.first())
+    val liveChannels: StateFlow<List<LiveChannel>> =
+        combine(liveAll, liveCategoryFilter, liveQuery) { all, categoryId, query ->
+            all.filter { channel ->
+                val matchesCategory = categoryId == null || channel.categoryId == categoryId
+                val matchesQuery = query.isBlank() || channel.name.contains(query, ignoreCase = true)
+                matchesCategory && matchesQuery
             }
+        }.stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
 
-            // VOD
-            val vCats = repository.getVodCategories()
-            vodCategories.value = listOf(VodCategory("all", "Selecionar Todos")) + vCats
-            allVodStreams.value = repository.getVodStreams()
+    val selectedChannel = MutableStateFlow<LiveChannel?>(null)
+    val preview = MutableStateFlow<PlaybackRequest?>(null)
 
-            // Séries
-            val sCats = repository.getSeriesCategories()
-            seriesCategories.value = listOf(SeriesCategory("all", "Selecionar Todos")) + sCats
-            allSeriesStreams.value = repository.getSeries()
+    val epgEntries = MutableStateFlow<List<EpgEntry>>(emptyList())
+    val epgLoading = MutableStateFlow(false)
+    val epgError = MutableStateFlow<String?>(null)
+
+    // ---------------------------------------------------------------- filmes/VOD
+
+    val vodCategories = MutableStateFlow<List<VodCategory>>(emptyList())
+    val vodAll = MutableStateFlow<List<VodItem>>(emptyList())
+    val vodLoading = MutableStateFlow(false)
+    val vodError = MutableStateFlow<String?>(null)
+    val vodCategoryFilter = MutableStateFlow<String?>(null)
+    val vodQuery = MutableStateFlow("")
+
+    val vodItems: StateFlow<List<VodItem>> =
+        combine(vodAll, vodCategoryFilter, vodQuery) { all, categoryId, query ->
+            all.filter { item ->
+                val matchesCategory = categoryId == null || item.categoryId == categoryId
+                val matchesQuery = query.isBlank() || item.name.contains(query, ignoreCase = true)
+                matchesCategory && matchesQuery
+            }
+        }.stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
+
+    // --------------------------------------------------------------------- series
+
+    val seriesCategories = MutableStateFlow<List<SeriesCategory>>(emptyList())
+    val seriesAll = MutableStateFlow<List<SeriesItem>>(emptyList())
+    val seriesLoading = MutableStateFlow(false)
+    val seriesError = MutableStateFlow<String?>(null)
+    val seriesCategoryFilter = MutableStateFlow<String?>(null)
+    val seriesQuery = MutableStateFlow("")
+
+    val seriesItems: StateFlow<List<SeriesItem>> =
+        combine(seriesAll, seriesCategoryFilter, seriesQuery) { all, categoryId, query ->
+            all.filter { item ->
+                val matchesCategory = categoryId == null || item.categoryId == categoryId
+                val matchesQuery = query.isBlank() || item.name.contains(query, ignoreCase = true)
+                matchesCategory && matchesQuery
+            }
+        }.stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
+
+    val selectedSeries = MutableStateFlow<SeriesItem?>(null)
+    val seriesSeasons = MutableStateFlow<List<SeasonEpisodes>>(emptyList())
+    val seriesDetailLoading = MutableStateFlow(false)
+    val seriesDetailError = MutableStateFlow<String?>(null)
+
+    // ------------------------------------------------------------------ playback
+
+    val fullscreen = MutableStateFlow<PlaybackRequest?>(null)
+    val alert = MutableStateFlow<String?>(null)
+    val pingLatencyMillis = MutableStateFlow<Long?>(null)
+    val pingLoading = MutableStateFlow(false)
+    val epgSyncLabel = MutableStateFlow(repository.epgSyncLabel())
+
+    private var liveJob: Job? = null
+    private var vodJob: Job? = null
+    private var seriesJob: Job? = null
+    private var epgJob: Job? = null
+
+    // --------------------------------------------------------------- navigation
+
+    fun selectSection(target: TvNavSection) {
+        section.value = target
+    }
+
+    // ------------------------------------------------------------------- loading
+
+    fun refreshAll() {
+        loadLive(force = true)
+        loadVod(force = true)
+        loadSeries(force = true)
+    }
+
+    fun loadLive(force: Boolean = false) {
+        if (liveJob?.isActive == true && !force) return
+        liveJob?.cancel()
+        liveJob = viewModelScope.launch {
+            liveLoading.value = true
+            liveError.value = null
+            coroutineScope {
+                val categoriesDeferred = async { repository.liveCategories() }
+                val channelsDeferred = async { repository.liveChannels() }
+                val categoriesResult = categoriesDeferred.await()
+                val channelsResult = channelsDeferred.await()
+
+                when (categoriesResult) {
+                    is ApiResult.Success -> liveCategories.value = categoriesResult.data
+                    is ApiResult.Failure -> Unit
+                }
+
+                when (channelsResult) {
+                    is ApiResult.Success -> {
+                        liveAll.value = channelsResult.data
+                        if (channelsResult.data.isEmpty()) {
+                            liveError.value = "Nenhum canal foi retornado por este painel."
+                        } else if (selectedChannel.value == null) {
+                            selectChannel(channelsResult.data.first())
+                        }
+                    }
+
+                    is ApiResult.Failure -> liveError.value = channelsResult.message
+                }
+            }
+            liveLoading.value = false
         }
     }
 
-    fun selectLiveChannel(channel: LiveStream) {
-        selectedLiveStream.value = channel
-        livePlayerUrl.value = repository.buildLiveStreamUrl(channel.streamId)
+    fun loadVod(force: Boolean = false) {
+        if (vodJob?.isActive == true && !force) return
+        vodJob?.cancel()
+        vodJob = viewModelScope.launch {
+            vodLoading.value = true
+            vodError.value = null
+            coroutineScope {
+                val categoriesDeferred = async { repository.vodCategories() }
+                val itemsDeferred = async { repository.vodItems() }
+                val categoriesResult = categoriesDeferred.await()
+                val itemsResult = itemsDeferred.await()
+
+                if (categoriesResult is ApiResult.Success) {
+                    vodCategories.value = categoriesResult.data
+                }
+                when (itemsResult) {
+                    is ApiResult.Success -> {
+                        vodAll.value = itemsResult.data
+                        if (itemsResult.data.isEmpty()) {
+                            vodError.value = "Nenhum filme encontrado nesta conta."
+                        }
+                    }
+
+                    is ApiResult.Failure -> vodError.value = itemsResult.message
+                }
+            }
+            vodLoading.value = false
+        }
     }
 
-    fun openFullScreen(url: String, title: String) {
-        fullScreenUrl.value = url
-        fullScreenTitle.value = title
+    fun loadSeries(force: Boolean = false) {
+        if (seriesJob?.isActive == true && !force) return
+        seriesJob?.cancel()
+        seriesJob = viewModelScope.launch {
+            seriesLoading.value = true
+            seriesError.value = null
+            coroutineScope {
+                val categoriesDeferred = async { repository.seriesCategories() }
+                val itemsDeferred = async { repository.series() }
+                val categoriesResult = categoriesDeferred.await()
+                val itemsResult = itemsDeferred.await()
+
+                if (categoriesResult is ApiResult.Success) {
+                    seriesCategories.value = categoriesResult.data
+                }
+                when (itemsResult) {
+                    is ApiResult.Success -> {
+                        seriesAll.value = itemsResult.data
+                        if (itemsResult.data.isEmpty()) {
+                            seriesError.value = "Nenhuma série encontrada nesta conta."
+                        }
+                    }
+
+                    is ApiResult.Failure -> seriesError.value = itemsResult.message
+                }
+            }
+            seriesLoading.value = false
+        }
     }
 
-    fun closeFullScreen() {
-        fullScreenUrl.value = null
-        fullScreenTitle.value = null
+    // ------------------------------------------------------------------- live TV
+
+    fun selectChannel(channel: LiveChannel) {
+        selectedChannel.value = channel
+        preview.value = livePlaybackRequest(channel)
+        loadEpg(channel)
     }
 
-    fun updateDecoder(type: VideoDecoderType) {
-        repository.updateDecoder(type)
+    fun selectCategory(categoryId: String?) {
+        liveCategoryFilter.value = categoryId
     }
 
-    fun updateBufferSize(seconds: Int) {
-        repository.updateBufferSize(seconds)
+    fun loadEpg(channel: LiveChannel) {
+        epgJob?.cancel()
+        epgJob = viewModelScope.launch {
+            epgLoading.value = true
+            epgError.value = null
+            epgEntries.value = emptyList()
+            val result = repository.shortEpg(channel.id)
+            if (selectedChannel.value?.id == channel.id) {
+                when (result) {
+                    is ApiResult.Success -> {
+                        epgEntries.value = result.data
+                        repository.markEpgSynced()
+                        epgSyncLabel.value = repository.epgSyncLabel()
+                    }
+
+                    is ApiResult.Failure -> epgError.value = result.message
+                }
+            }
+            epgLoading.value = false
+        }
+    }
+
+    fun retryEpg() {
+        selectedChannel.value?.let { loadEpg(it) }
+    }
+
+    fun openPreviewFullscreen() {
+        preview.value?.let { fullscreen.value = it }
+    }
+
+    fun playChannelFullscreen(channel: LiveChannel) {
+        selectChannel(channel)
+        fullscreen.value = livePlaybackRequest(channel)
+    }
+
+    /** Zaps to the next/previous channel inside the fullscreen player. */
+    fun zapChannel(forward: Boolean) {
+        val current = fullscreen.value ?: return
+        val channels = liveChannels.value.ifEmpty { liveAll.value }
+        if (channels.isEmpty()) return
+
+        val currentId = current.channelId
+        val index = channels.indexOfFirst { it.id == currentId }
+        val nextIndex = when {
+            index < 0 -> 0
+            forward -> (index + 1) % channels.size
+            else -> (index - 1 + channels.size) % channels.size
+        }
+        val next = channels[nextIndex]
+        selectChannel(next)
+        fullscreen.value = livePlaybackRequest(next)
+    }
+
+    private fun livePlaybackRequest(channel: LiveChannel): PlaybackRequest {
+        val format = settings.value.streamFormat
+        val primary = repository.liveStreamUrl(channel.id, format)
+        val alternative = repository.liveStreamUrl(channel.id, format.other())
+        return PlaybackRequest(
+            url = primary,
+            fallbackUrl = alternative.takeIf { it.isNotBlank() && it != primary },
+            title = channel.name,
+            subtitle = "TV ao Vivo",
+            isLive = true,
+            channelId = channel.id
+        )
+    }
+
+    // ------------------------------------------------------------------- filmes
+
+    fun selectVodCategory(categoryId: String?) {
+        vodCategoryFilter.value = categoryId
+    }
+
+    fun playMovie(item: VodItem) {
+        val url = repository.movieStreamUrl(item)
+        if (url.isBlank()) {
+            alert.value = "Sessão inválida. Faça login novamente."
+            return
+        }
+        fullscreen.value = PlaybackRequest(
+            url = url,
+            title = item.name,
+            subtitle = "Filme",
+            isLive = false
+        )
+    }
+
+    // ------------------------------------------------------------------- séries
+
+    fun selectSeriesCategory(categoryId: String?) {
+        seriesCategoryFilter.value = categoryId
+    }
+
+    fun openSeriesDetail(series: SeriesItem) {
+        selectedSeries.value = series
+        seriesSeasons.value = emptyList()
+        seriesDetailError.value = null
+        seriesDetailLoading.value = true
+        viewModelScope.launch {
+            val result = repository.seriesInfo(series.id)
+            if (selectedSeries.value?.id != series.id) {
+                seriesDetailLoading.value = false
+                return@launch
+            }
+            when (result) {
+                is ApiResult.Success -> {
+                    seriesSeasons.value = result.data
+                    if (result.data.isEmpty()) {
+                        seriesDetailError.value = "Nenhum episódio disponível para esta série."
+                    }
+                }
+
+                is ApiResult.Failure -> seriesDetailError.value = result.message
+            }
+            seriesDetailLoading.value = false
+        }
+    }
+
+    fun closeSeriesDetail() {
+        selectedSeries.value = null
+        seriesSeasons.value = emptyList()
+        seriesDetailError.value = null
+    }
+
+    fun playEpisode(series: SeriesItem, season: SeasonEpisodes, episode: Episode) {
+        val url = repository.episodeStreamUrl(episode)
+        if (url.isBlank()) {
+            alert.value = "Sessão inválida. Faça login novamente."
+            return
+        }
+        val subtitle = buildString {
+            append("Temporada ")
+            append(season.season)
+            append(" · Episódio ")
+            append(episode.number)
+            if (episode.title.isNotBlank()) {
+                append(" · ")
+                append(episode.title)
+            }
+        }
+        fullscreen.value = PlaybackRequest(
+            url = url,
+            title = series.name,
+            subtitle = subtitle,
+            isLive = false
+        )
+    }
+
+    // ------------------------------------------------------------------ playback
+
+    fun closeFullscreen() {
+        fullscreen.value = null
+    }
+
+    fun consumeAlert() {
+        alert.value = null
+    }
+
+    // ------------------------------------------------------------------ settings
+
+    fun updateStreamFormat(format: StreamFormat) {
+        repository.updateStreamFormat(format)
+        selectedChannel.value?.let { preview.value = livePlaybackRequest(it) }
+    }
+
+    fun updateBufferSeconds(seconds: Int) {
+        repository.updateBufferSeconds(seconds)
+    }
+
+    fun updateDecoder(decoder: VideoDecoder) {
+        repository.updateDecoder(decoder)
     }
 
     fun refreshEpg() {
-        repository.refreshEpg()
+        selectedChannel.value?.let { loadEpg(it) }
+        repository.markEpgSynced()
+        epgSyncLabel.value = repository.epgSyncLabel()
     }
 
-    fun runPingTest() {
+    fun testLatency() {
+        if (pingLoading.value) return
         viewModelScope.launch {
-            pingLatencyMs.value = (28..65).random()
+            pingLoading.value = true
+            when (val result = repository.ping()) {
+                is ApiResult.Success -> {
+                    pingLatencyMillis.value = result.data
+                    alert.value = "Latência do painel: ${result.data} ms"
+                }
+
+                is ApiResult.Failure -> alert.value = result.message
+            }
+            pingLoading.value = false
         }
     }
 
-    fun clearCache() {
-        // Limpa cache interno
-        viewModelScope.launch {
-            loadAllData()
-        }
-    }
-
-    fun logout(onLoggedOut: () -> Unit) {
+    fun logout() {
         repository.logout()
-        onLoggedOut()
+        reset()
+    }
+
+    /** Clears every cached flow so a new login never shows the previous account's content. */
+    fun reset() {
+        liveJob?.cancel()
+        vodJob?.cancel()
+        seriesJob?.cancel()
+        epgJob?.cancel()
+
+        liveCategories.value = emptyList()
+        liveAll.value = emptyList()
+        liveError.value = null
+        liveCategoryFilter.value = null
+        liveQuery.value = ""
+        selectedChannel.value = null
+        preview.value = null
+        epgEntries.value = emptyList()
+        epgError.value = null
+
+        vodCategories.value = emptyList()
+        vodAll.value = emptyList()
+        vodError.value = null
+        vodCategoryFilter.value = null
+        vodQuery.value = ""
+
+        seriesCategories.value = emptyList()
+        seriesAll.value = emptyList()
+        seriesError.value = null
+        seriesCategoryFilter.value = null
+        seriesQuery.value = ""
+        selectedSeries.value = null
+        seriesSeasons.value = emptyList()
+        seriesDetailError.value = null
+
+        fullscreen.value = null
+        alert.value = null
+        pingLatencyMillis.value = null
+        section.value = TvNavSection.HOME
+    }
+
+    class Factory(private val repository: XtreamRepository) : ViewModelProvider.Factory {
+        @Suppress("UNCHECKED_CAST")
+        override fun <T : ViewModel> create(modelClass: Class<T>): T {
+            if (modelClass.isAssignableFrom(MainTvViewModel::class.java)) {
+                return MainTvViewModel(repository) as T
+            }
+            throw IllegalArgumentException("ViewModel desconhecido: ${modelClass.name}")
+        }
     }
 }

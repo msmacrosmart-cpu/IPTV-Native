@@ -1,0 +1,39 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  IPTV Native — brand mark.
+  Coral gradient disc + white play glyph. Used in-app (login, navigation rail, splash)
+  and as the foreground layer of the adaptive launcher icon.
+-->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:aapt="http://schemas.android.com/aapt"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+
+    <path android:pathData="M54,24 A30,30 0 1,1 53.9,24 Z">
+        <aapt:attr name="android:fillColor">
+            <gradient
+                android:type="linear"
+                android:startX="30"
+                android:startY="26"
+                android:endX="80"
+                android:endY="84"
+                android:startColor="#FFFF8A65"
+                android:centerColor="#FFFF6552"
+                android:endColor="#FFD42F20" />
+        </aapt:attr>
+    </path>
+
+    <!-- Soft inner highlight -->
+    <path
+        android:pathData="M54,24 A30,30 0 1,1 53.9,24 Z"
+        android:fillColor="#14FFFFFF"
+        android:strokeWidth="2"
+        android:strokeColor="#38FFFFFF" />
+
+    <!-- Play glyph -->
+    <path
+        android:pathData="M45,38.5 L72,54 L45,69.5 Z"
+        android:fillColor="#FFFFFFFF" />
+</vector>

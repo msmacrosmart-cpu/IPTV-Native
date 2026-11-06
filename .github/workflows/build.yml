@@ -1,14 +1,23 @@
-name: Android CI - Build Debug APK
+name: Android CI — Build APK
 
 on:
   push:
+    branches: ["**"]
   pull_request:
   workflow_dispatch:
 
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
 jobs:
   build:
-    name: Build Debug APK
+    name: Build Debug + Release APK
     runs-on: ubuntu-latest
+    timeout-minutes: 40
 
     steps:
       - name: Checkout repository
@@ -19,35 +28,63 @@ jobs:
         with:
           java-version: '17'
           distribution: 'temurin'
-          cache: 'gradle'
 
       - name: Set up Gradle
         uses: gradle/actions/setup-gradle@v4
-        with:
-          gradle-version: '8.11.1'
 
-      - name: Accept Android SDK Licenses & Prepare SDK 35
+      - name: Prepare Android SDK 35
         run: |
-          yes | $ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager --licenses || true
-          $ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager "platforms;android-35" "build-tools;35.0.0" || true
+          yes | "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --licenses > /dev/null || true
+          "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" \
+            "platforms;android-35" \
+            "build-tools;35.0.0" \
+            "platform-tools" > /dev/null
 
-      - name: Build Debug APK with Gradle
+      - name: Grant execute permission to Gradle wrapper
+        run: chmod +x ./gradlew
+
+      - name: Verify Gradle / Kotlin toolchain
         run: |
-          if [ -f "./gradlew" ]; then
-            chmod +x ./gradlew
-            ./gradlew assembleDebug --no-daemon --stacktrace
-          elif [ -f "./iptv-native-android/gradlew" ]; then
-            cd iptv-native-android
-            chmod +x ./gradlew
-            ./gradlew assembleDebug --no-daemon --stacktrace
-          else
-            gradle assembleDebug --no-daemon --stacktrace
-          fi
+          ./gradlew --version --no-daemon
 
-      - name: Upload Debug APK Artifact
+      # Compiles every Kotlin source file, the Compose resources and the launcher icons.
+      - name: Build Debug APK
+        run: ./gradlew assembleDebug --no-daemon --stacktrace
+
+      # Same signing config as debug (see app/build.gradle.kts), so the artifact is installable
+      # straight from the Actions run.
+      - name: Build Release APK
+        run: ./gradlew assembleRelease --no-daemon --stacktrace
+
+      - name: Collect APKs
+        run: |
+          mkdir -p artifacts
+          find app/build/outputs/apk -name "*.apk" -exec cp {} artifacts/ \;
+          ls -lh artifacts
+
+      - name: Upload Debug APK
         uses: actions/upload-artifact@v4
         if: success()
         with:
-          name: app-debug-apk
-          path: "**/build/outputs/apk/debug/*.apk"
+          name: IPTV-Native-debug
+          path: app/build/outputs/apk/debug/*.apk
           retention-days: 30
+
+      - name: Upload Release APK
+        uses: actions/upload-artifact@v4
+        if: success()
+        with:
+          name: IPTV-Native-release
+          path: app/build/outputs/apk/release/*.apk
+          retention-days: 30
+
+      - name: Upload reports on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: build-reports
+          path: |
+            app/build/reports/**
+            **/build/reports/**
+          retention-days: 7
+          if-no-files-found: ignore

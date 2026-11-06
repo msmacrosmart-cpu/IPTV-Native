@@ -1,12 +1,19 @@
 package com.example.iptv.ui.screens
 
 import androidx.compose.foundation.background
-import androidx.compose.foundation.border
-import androidx.compose.foundation.clickable
-import androidx.compose.foundation.focusable
-import androidx.compose.foundation.interaction.MutableInteractionSource
-import androidx.compose.foundation.interaction.collectIsFocusedAsState
-import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxHeight
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
@@ -14,189 +21,165 @@ import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Check
-import androidx.compose.material.icons.filled.PlayArrow
-import androidx.compose.material.icons.filled.Search
-import androidx.compose.material.icons.filled.Star
-import androidx.compose.material3.*
-import androidx.compose.runtime.*
+import androidx.compose.material.icons.filled.Movie
+import androidx.compose.material.icons.filled.Refresh
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
+import androidx.compose.material3.Text
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
-import androidx.compose.ui.draw.scale
-import androidx.compose.ui.draw.shadow
-import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import coil.compose.AsyncImage
-import com.example.iptv.data.model.VodCategory
-import com.example.iptv.data.model.VodStream
+import com.example.iptv.data.model.VodItem
+import com.example.iptv.ui.components.CategoryRow
+import com.example.iptv.ui.components.EmptyState
+import com.example.iptv.ui.components.ErrorState
 import com.example.iptv.ui.components.GlassCard
+import com.example.iptv.ui.components.LoadingState
+import com.example.iptv.ui.components.PosterCard
+import com.example.iptv.ui.components.SearchField
+import com.example.iptv.ui.components.SelectAllChip
 import com.example.iptv.ui.components.TopographicBackground
-import com.example.iptv.ui.theme.*
+import com.example.iptv.ui.theme.TextMuted
+import com.example.iptv.ui.theme.TextPrimary
 import com.example.iptv.viewmodel.MainTvViewModel
 
 /**
- * Tela de Filmes (VOD) em 2 Colunas:
- * - Coluna 1: Categorias + Selecionar Todos + Busca por Título
- * - Coluna 2: Grid de Pôsteres com Metadados (nota ★, ano) e suporte rigoroso ao foco D-pad
+ * Movies catalogue: categories + live search on the left, poster grid on the right.
+ * Clicking a poster opens the fullscreen ExoPlayer with `/movie/user/pass/id.ext`.
  */
 @Composable
-fun VodScreen(
-    viewModel: MainTvViewModel,
-    onPlayMovie: (url: String, title: String) -> Unit
-) {
+fun VodScreen(viewModel: MainTvViewModel) {
     val categories by viewModel.vodCategories.collectAsState()
-    val selectedCatId by viewModel.selectedVodCategoryId.collectAsState()
-    val searchQuery by viewModel.vodSearchQuery.collectAsState()
-    val movies by viewModel.filteredVodStreams.collectAsState()
+    val items by viewModel.vodItems.collectAsState()
+    val allItems by viewModel.vodAll.collectAsState()
+    val loading by viewModel.vodLoading.collectAsState()
+    val error by viewModel.vodError.collectAsState()
+    val categoryFilter by viewModel.vodCategoryFilter.collectAsState()
+    val query by viewModel.vodQuery.collectAsState()
 
     TopographicBackground {
         Row(
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(16.dp),
-            horizontalArrangement = Arrangement.spacedBy(16.dp)
+            modifier = Modifier.fillMaxSize().padding(14.dp),
+            horizontalArrangement = Arrangement.spacedBy(14.dp)
         ) {
-            // ==========================================
-            // COLUNA 1: CATEGORIAS & BUSCA (Largura ~260dp)
-            // ==========================================
             GlassCard(
-                modifier = Modifier
-                    .width(260.dp)
-                    .fillMaxHeight(),
-                shape = RoundedCornerShape(20.dp),
-                isFocusable = false
+                modifier = Modifier.width(250.dp).fillMaxHeight(),
+                shape = RoundedCornerShape(20.dp)
             ) {
-                Column(
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .padding(14.dp)
-                ) {
-                    // Campo de Busca por Título
-                    OutlinedTextField(
-                        value = searchQuery,
-                        onValueChange = { viewModel.vodSearchQuery.value = it },
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .height(48.dp)
-                            .clip(RoundedCornerShape(14.dp))
-                            .background(Color(0x331C1F2B)),
-                        placeholder = {
-                            Text(
-                                "Buscar filme...",
-                                fontSize = 13.sp,
-                                color = Color.White.copy(alpha = 0.45f)
-                            )
-                        },
-                        leadingIcon = {
-                            Icon(
-                                Icons.Default.Search,
-                                contentDescription = null,
-                                tint = Color.White.copy(alpha = 0.5f),
-                                modifier = Modifier.size(18.dp)
-                            )
-                        },
-                        singleLine = true,
-                        colors = OutlinedTextFieldDefaults.colors(
-                            focusedBorderColor = AccentCoral,
-                            unfocusedBorderColor = Color.White.copy(alpha = 0.1f),
-                            focusedTextColor = Color.White,
-                            unfocusedTextColor = Color.White
-                        )
+                Column(modifier = Modifier.fillMaxSize().padding(12.dp)) {
+                    SearchField(
+                        value = query,
+                        onValueChange = { viewModel.vodQuery.value = it },
+                        placeholder = "Buscar filme…"
                     )
 
-                    Spacer(modifier = Modifier.height(12.dp))
+                    Spacer(modifier = Modifier.height(10.dp))
 
-                    // Opção "Selecionar Todos"
-                    SelectAllOptionButton(
-                        isSelected = selectedCatId == "all",
-                        onClick = { viewModel.selectedVodCategoryId.value = "all" }
+                    SelectAllChip(
+                        label = "Todos os filmes (${allItems.size})",
+                        isSelected = categoryFilter == null,
+                        onClick = { viewModel.selectVodCategory(null) }
                     )
 
-                    Spacer(modifier = Modifier.height(12.dp))
+                    Spacer(modifier = Modifier.height(10.dp))
 
                     Text(
-                        text = "GÊNEROS DE FILMES",
-                        fontSize = 11.sp,
+                        text = "CATEGORIAS",
+                        color = TextMuted,
+                        fontSize = 10.sp,
                         fontWeight = FontWeight.Bold,
-                        color = Color.White.copy(alpha = 0.45f),
-                        modifier = Modifier.padding(horizontal = 6.dp, vertical = 4.dp)
+                        letterSpacing = 1.sp,
+                        modifier = Modifier.padding(start = 8.dp, bottom = 6.dp)
                     )
 
-                    LazyColumn(
-                        modifier = Modifier.fillMaxSize(),
-                        verticalArrangement = Arrangement.spacedBy(6.dp)
-                    ) {
-                        items(categories.filter { it.categoryId != "all" }) { cat ->
-                            VodCategoryRow(
-                                category = cat,
-                                isSelected = cat.categoryId == selectedCatId,
-                                onClick = { viewModel.selectedVodCategoryId.value = cat.categoryId }
-                            )
+                    if (loading && categories.isEmpty()) {
+                        LoadingState(message = "Carregando…", modifier = Modifier.weight(1f))
+                    } else {
+                        LazyColumn(
+                            modifier = Modifier.weight(1f),
+                            verticalArrangement = Arrangement.spacedBy(4.dp)
+                        ) {
+                            items(categories, key = { it.id }) { category ->
+                                CategoryRow(
+                                    label = category.name,
+                                    isSelected = category.id == categoryFilter,
+                                    onClick = { viewModel.selectVodCategory(category.id) }
+                                )
+                            }
                         }
                     }
                 }
             }
 
-            // ==========================================
-            // COLUNA 2: GRID DE PÔSTERES (Restante da tela)
-            // ==========================================
-            Column(
-                modifier = Modifier
-                    .weight(1f)
-                    .fillMaxHeight()
+            GlassCard(
+                modifier = Modifier.weight(1f).fillMaxHeight(),
+                shape = RoundedCornerShape(20.dp)
             ) {
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(horizontal = 4.dp, vertical = 6.dp),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Column {
-                        Text(
-                            text = "CATÁLOGO DE FILMES",
-                            fontSize = 22.sp,
-                            fontWeight = FontWeight.Bold,
-                            color = Color.White
-                        )
-                        Text(
-                            text = "Navegue e assista seus filmes favoritos em 4K e Full HD",
-                            fontSize = 12.sp,
-                            color = Color.White.copy(alpha = 0.5f)
-                        )
+                Column(modifier = Modifier.fillMaxSize().padding(14.dp)) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Column {
+                            Text(
+                                text = "FILMES",
+                                color = TextPrimary,
+                                fontSize = 17.sp,
+                                fontWeight = FontWeight.Bold
+                            )
+                            Text(
+                                text = "${items.size} títulos disponíveis",
+                                color = TextMuted,
+                                fontSize = 11.sp
+                            )
+                        }
+                        IconButton(
+                            onClick = { viewModel.loadVod(force = true) },
+                            modifier = Modifier.size(32.dp)
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.Refresh,
+                                contentDescription = "Atualizar filmes",
+                                tint = TextMuted,
+                                modifier = Modifier.size(18.dp)
+                            )
+                        }
                     }
 
-                    Text(
-                        text = "${movies.size} títulos disponíveis",
-                        fontSize = 12.sp,
-                        color = AccentCoral,
-                        fontWeight = FontWeight.SemiBold
-                    )
-                }
+                    Spacer(modifier = Modifier.height(10.dp))
 
-                Spacer(modifier = Modifier.height(12.dp))
-
-                LazyVerticalGrid(
-                    columns = GridCells.Adaptive(minSize = 160.dp),
-                    modifier = Modifier.fillMaxSize(),
-                    verticalArrangement = Arrangement.spacedBy(16.dp),
-                    horizontalArrangement = Arrangement.spacedBy(14.dp),
-                    contentPadding = PaddingValues(bottom = 24.dp)
-                ) {
-                    items(movies) { movie ->
-                        MoviePosterCard(
-                            movie = movie,
-                            onClick = {
-                                val url = viewModel.repository.buildVodStreamUrl(movie.streamId, movie.containerExtension ?: "mp4")
-                                onPlayMovie(url, movie.name)
-                            }
+                    when {
+                        loading && items.isEmpty() -> LoadingState(
+                            message = "Carregando filmes…",
+                            modifier = Modifier.weight(1f)
                         )
+
+                        error != null && items.isEmpty() -> ErrorState(
+                            message = error.orEmpty(),
+                            onRetry = { viewModel.loadVod(force = true) },
+                            modifier = Modifier.weight(1f)
+                        )
+
+                        items.isEmpty() -> EmptyState(
+                            title = "Nenhum filme encontrado",
+                            message = "Ajuste a busca ou escolha outra categoria. Se o catálogo estiver vazio, o painel pode não oferecer VOD.",
+                            icon = Icons.Default.Movie,
+                            modifier = Modifier.weight(1f)
+                        )
+
+                        else -> Box(modifier = Modifier.weight(1f).fillMaxWidth()) {
+                            MovieGrid(
+                                items = items,
+                                onPlay = viewModel::playMovie
+                            )
+                        }
                     }
                 }
             }
@@ -205,203 +188,32 @@ fun VodScreen(
 }
 
 @Composable
-private fun SelectAllOptionButton(
-    isSelected: Boolean,
-    onClick: () -> Unit
+private fun MovieGrid(
+    items: List<VodItem>,
+    onPlay: (VodItem) -> Unit
 ) {
-    Box(
-        modifier = Modifier
-            .fillMaxWidth()
-            .height(42.dp)
-            .clip(RoundedCornerShape(12.dp))
-            .background(
-                if (isSelected) Brush.horizontalGradient(listOf(Color(0x4DFF574D), Color(0x26FF574D)))
-                else Color(0x22FFFFFF)
-            )
-            .border(1.dp, if (isSelected) AccentCoral else Color.White.copy(alpha = 0.12f), RoundedCornerShape(12.dp))
-            .clickable(onClick = onClick)
-            .padding(horizontal = 12.dp),
-        contentAlignment = Alignment.CenterStart
+    LazyVerticalGrid(
+        columns = GridCells.Adaptive(minSize = 148.dp),
+        modifier = Modifier.fillMaxSize(),
+        contentPadding = PaddingValues(
+            start = 2.dp,
+            end = 12.dp,
+            top = 2.dp,
+            bottom = 20.dp
+        ),
+        horizontalArrangement = Arrangement.spacedBy(12.dp),
+        verticalArrangement = Arrangement.spacedBy(14.dp)
     ) {
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.SpaceBetween,
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            Text(
-                text = "★  Selecionar Todos",
-                color = if (isSelected) AccentCoral else Color.White,
-                fontSize = 13.sp,
-                fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium
+        items(items, key = { it.id }) { item ->
+            PosterCard(
+                imageUrl = item.icon,
+                title = item.name,
+                subtitle = item.extension.uppercase(),
+                rating = item.rating ?: item.rating5?.let { String.format("%.1f", it) },
+                onClick = { onPlay(item) },
+                modifier = Modifier.fillMaxWidth(),
+                width = null
             )
-            if (isSelected) {
-                Icon(Icons.Default.Check, contentDescription = null, tint = AccentCoral, modifier = Modifier.size(16.dp))
-            }
         }
-    }
-}
-
-@Composable
-private fun VodCategoryRow(
-    category: VodCategory,
-    isSelected: Boolean,
-    onClick: () -> Unit
-) {
-    val interactionSource = remember { MutableInteractionSource() }
-    val isFocused by interactionSource.collectIsFocusedAsState()
-
-    val bg = when {
-        isSelected -> Color(0x33FF574D)
-        isFocused -> Color(0x26FFFFFF)
-        else -> Color.Transparent
-    }
-
-    val border = when {
-        isSelected -> AccentCoral
-        isFocused -> Color.White.copy(alpha = 0.4f)
-        else -> Color.Transparent
-    }
-
-    Box(
-        modifier = Modifier
-            .fillMaxWidth()
-            .height(40.dp)
-            .clip(RoundedCornerShape(10.dp))
-            .background(bg)
-            .border(1.dp, border, RoundedCornerShape(10.dp))
-            .focusable(interactionSource = interactionSource)
-            .clickable(
-                interactionSource = interactionSource,
-                indication = null,
-                onClick = onClick
-            )
-            .padding(horizontal = 12.dp),
-        contentAlignment = Alignment.CenterStart
-    ) {
-        Text(
-            text = category.categoryName,
-            color = if (isSelected || isFocused) Color.White else Color.White.copy(alpha = 0.65f),
-            fontSize = 13.sp,
-            fontWeight = if (isSelected) FontWeight.SemiBold else FontWeight.Normal,
-            maxLines = 1,
-            overflow = TextOverflow.Ellipsis
-        )
-    }
-}
-
-/**
- * Card do pôster do filme com foco D-pad e exibição de nota ★ e metadados.
- */
-@Composable
-private fun MoviePosterCard(
-    movie: VodStream,
-    onClick: () -> Unit
-) {
-    val interactionSource = remember { MutableInteractionSource() }
-    val isFocused by interactionSource.collectIsFocusedAsState()
-
-    val scale = if (isFocused) 1.05f else 1.0f
-    val borderColor = if (isFocused) AccentCoral else Color.White.copy(alpha = 0.08f)
-
-    Column(
-        modifier = Modifier
-            .scale(scale)
-            .width(160.dp)
-            .focusable(interactionSource = interactionSource)
-            .clickable(
-                interactionSource = interactionSource,
-                indication = null,
-                onClick = onClick
-            )
-    ) {
-        // Imagem do Pôster
-        Box(
-            modifier = Modifier
-                .fillMaxWidth()
-                .height(230.dp)
-                .shadow(if (isFocused) 16.dp else 6.dp, RoundedCornerShape(16.dp), spotColor = AccentCoral)
-                .clip(RoundedCornerShape(16.dp))
-                .background(Color(0xFF141720))
-                .border(if (isFocused) 2.dp else 1.dp, borderColor, RoundedCornerShape(16.dp))
-        ) {
-            if (!movie.streamIcon.isNullOrBlank()) {
-                AsyncImage(
-                    model = movie.streamIcon,
-                    contentDescription = movie.name,
-                    contentScale = ContentScale.Crop,
-                    modifier = Modifier.fillMaxSize()
-                )
-            } else {
-                Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                    Text(movie.name.take(2).uppercase(), color = Color.White.copy(alpha = 0.5f), fontSize = 24.sp)
-                }
-            }
-
-            // Gradiente sombreado inferior
-            Box(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .background(
-                        Brush.verticalGradient(
-                            colors = listOf(Color.Transparent, Color(0xCC000000)),
-                            startY = 140f
-                        )
-                    )
-            )
-
-            // Badge de Nota ★
-            Box(
-                modifier = Modifier
-                    .align(Alignment.TopEnd)
-                    .padding(8.dp)
-                    .clip(RoundedCornerShape(8.dp))
-                    .background(Color(0xCC000000))
-                    .padding(horizontal = 6.dp, vertical = 3.dp)
-            ) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Icon(Icons.Default.Star, contentDescription = null, tint = RatingGold, modifier = Modifier.size(12.dp))
-                    Spacer(modifier = Modifier.width(3.dp))
-                    Text(
-                        text = movie.rating ?: "8.2",
-                        color = Color.White,
-                        fontSize = 11.sp,
-                        fontWeight = FontWeight.Bold
-                    )
-                }
-            }
-
-            // Ícone Play em caso de foco D-pad
-            if (isFocused) {
-                Box(
-                    modifier = Modifier
-                        .align(Alignment.Center)
-                        .size(46.dp)
-                        .clip(RoundedCornerShape(50))
-                        .background(AccentCoral.copy(alpha = 0.9f)),
-                    contentAlignment = Alignment.Center
-                ) {
-                    Icon(Icons.Default.PlayArrow, contentDescription = null, tint = Color.White, modifier = Modifier.size(28.dp))
-                }
-            }
-        }
-
-        Spacer(modifier = Modifier.height(8.dp))
-
-        // Nome do Filme
-        Text(
-            text = movie.name,
-            color = if (isFocused) AccentCoral else Color.White,
-            fontSize = 13.sp,
-            fontWeight = FontWeight.SemiBold,
-            maxLines = 1,
-            overflow = TextOverflow.Ellipsis
-        )
-
-        // Ano / Gênero
-        Text(
-            text = "2026 • 4K HDR",
-            color = Color.White.copy(alpha = 0.5f),
-            fontSize = 11.sp
-        )
     }
 }
