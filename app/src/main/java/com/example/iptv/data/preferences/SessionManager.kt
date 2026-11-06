@@ -137,7 +137,10 @@ class SessionManager(context: Context) {
             epgOffsetHours = prefs.getInt(KEY_EPG_OFFSET, 0).coerceIn(-12, 12),
             time24Hour = prefs.getBoolean(KEY_TIME_24, true),
             showChannelEpg = prefs.getBoolean(KEY_SHOW_EPG, true),
+            onlyChannelsWithEpg = prefs.getBoolean(KEY_ONLY_EPG, false),
+            showFullEpg = prefs.getBoolean(KEY_FULL_EPG, false),
             subtitlesEnabled = prefs.getBoolean(KEY_SUBTITLES, true),
+            subtitleSizePercent = prefs.getInt(KEY_SUBTITLE_SIZE, 100).coerceIn(75, 150),
             autoplayNextEpisode = prefs.getBoolean(KEY_NEXT_EPISODE, false),
             userAgent = prefs.getString(KEY_USER_AGENT, DEFAULT_USER_AGENT).orEmpty().ifBlank { DEFAULT_USER_AGENT },
             multiScreens = prefs.getInt(KEY_MULTI_SCREENS, 4).coerceIn(1, 4),
@@ -164,7 +167,10 @@ class SessionManager(context: Context) {
             .putInt(KEY_EPG_OFFSET, settings.epgOffsetHours.coerceIn(-12, 12))
             .putBoolean(KEY_TIME_24, settings.time24Hour)
             .putBoolean(KEY_SHOW_EPG, settings.showChannelEpg)
+            .putBoolean(KEY_ONLY_EPG, settings.onlyChannelsWithEpg)
+            .putBoolean(KEY_FULL_EPG, settings.showFullEpg)
             .putBoolean(KEY_SUBTITLES, settings.subtitlesEnabled)
+            .putInt(KEY_SUBTITLE_SIZE, settings.subtitleSizePercent.coerceIn(75, 150))
             .putBoolean(KEY_NEXT_EPISODE, settings.autoplayNextEpisode)
             .putString(KEY_USER_AGENT, settings.userAgent)
             .putInt(KEY_MULTI_SCREENS, settings.multiScreens.coerceIn(1, 4))
@@ -371,7 +377,10 @@ class SessionManager(context: Context) {
         private const val KEY_EPG_OFFSET = "setting_epg_offset"
         private const val KEY_TIME_24 = "setting_time_24"
         private const val KEY_SHOW_EPG = "setting_show_epg"
+        private const val KEY_ONLY_EPG = "setting_only_epg"
+        private const val KEY_FULL_EPG = "setting_full_epg"
         private const val KEY_SUBTITLES = "setting_subtitles"
+        private const val KEY_SUBTITLE_SIZE = "setting_subtitle_size"
         private const val KEY_NEXT_EPISODE = "setting_next_episode"
         private const val KEY_USER_AGENT = "setting_user_agent"
         private const val KEY_MULTI_SCREENS = "setting_multi_screens"

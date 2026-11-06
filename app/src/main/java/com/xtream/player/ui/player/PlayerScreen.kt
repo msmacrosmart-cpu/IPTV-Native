@@ -298,7 +298,11 @@ fun PlayerScreen(request: PlayerRequest, onBack: () -> Unit, previewMode: Boolea
         if (previewMode) {
             Box(ratioMod.background(Brush.linearGradient(listOf(Color(0xFF252628), Color(0xFF0D0F12)))))
         } else AndroidView(
-            factory = { c -> PlayerView(c).apply { useController = false; keepScreenOn = true; this.player = player; isFocusable = false; isFocusableInTouchMode = false; descendantFocusability = ViewGroup.FOCUS_BLOCK_DESCENDANTS; setShowBuffering(PlayerView.SHOW_BUFFERING_NEVER) } },
+            factory = { c -> PlayerView(c).apply {
+                useController = false; keepScreenOn = true; this.player = player; isFocusable = false
+                isFocusableInTouchMode = false; descendantFocusability = ViewGroup.FOCUS_BLOCK_DESCENDANTS
+                setShowBuffering(PlayerView.SHOW_BUFFERING_NEVER); applySubtitleSize(c, this)
+            } },
             update = {
                 it.resizeMode = when (aspect) {
                     Aspect.Fit -> AspectRatioFrameLayout.RESIZE_MODE_FIT

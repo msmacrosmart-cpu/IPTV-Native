@@ -41,7 +41,7 @@ fun SettingsScreen(
     session: Session?, content: ContentState, epg: Map<String, List<Programme>>,
     epgUpdatedAt: Long?, epgLoading: Boolean, epgMessage: String?, loading: Boolean, error: String?,
     profiles: List<SavedProfile>, settings: UserSettings, parentalUnlocked: Boolean, parentalBusy: Boolean,
-    actions: SettingsActions,
+    testingConnection: Boolean, connectionTest: String?, actions: SettingsActions,
 ) {
     var server by remember(session?.server) { mutableStateOf(session?.server.orEmpty()) }
     var user by remember(session?.username) { mutableStateOf(session?.username.orEmpty()) }
@@ -104,16 +104,21 @@ fun SettingsScreen(
                 Spacer(Modifier.height(8.dp))
                 AccountLine("Servidor", session?.server.orEmpty().ifBlank { "—" })
                 AccountLine("Status", session?.status ?: "—")
-                AccountLine("Criada em", session?.createdAt?.let(::fmtDateTime) ?: "Não informado")
-                AccountLine("Expira em", session?.expDate?.let(::fmtDateTime) ?: "Não informado")
+                AccountLine("Criada em", session?.createdAt?.let { fmtDateTime(it, settings.time24Hour) } ?: "Não informado")
+                AccountLine("Expira em", session?.expDate?.let { fmtDateTime(it, settings.time24Hour) } ?: "Não informado")
                 AccountLine("Conta de teste", if (session?.isTrial == true) "Sim" else "Não")
                 AccountLine("Conexões ativas / limite", session?.let { "${it.activeConns} / ${it.maxConns}" } ?: "—")
                 AccountLine("Formatos permitidos", session?.allowedFormats?.joinToString(", ")?.ifBlank { "Não informado" } ?: "—")
                 AccountLine("Fuso horário do servidor", session?.timezone?.ifBlank { "Não informado" } ?: "—")
-                AccountLine("Última validação", session?.syncedAt?.let(::fmtDateTime) ?: "Não informada")
+                AccountLine("Última validação", session?.syncedAt?.let { fmtDateTime(it, settings.time24Hour) } ?: "Não informada")
                 Text("${content.channels.size} canais  ·  ${content.movies.size} filmes  ·  ${content.series.size} séries",
                     color = XColors.Body, fontSize = 12.sp, modifier = Modifier.padding(vertical = 8.dp))
-                GlowButton("Atualizar conta", Icons.Filled.Refresh, ringAlways = false, onClick = actions.refreshAccount)
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    GlowButton("Atualizar conta", Icons.Filled.Refresh, ringAlways = false, onClick = actions.refreshAccount)
+                    GlowButton(if (testingConnection) "Testando…" else "Testar conexão", ringAlways = false, onClick = actions.testConnection)
+                }
+                if (connectionTest != null) Text(connectionTest, color = XColors.TextDim, fontSize = 13.sp,
+                    modifier = Modifier.padding(top = 10.dp).testTag("connection-test-result"))
             }
             SettingsPanel("Conta Xtream Codes", "URL, usuário e senha do seu provedor") {
                 FieldLabel("URL do servidor")

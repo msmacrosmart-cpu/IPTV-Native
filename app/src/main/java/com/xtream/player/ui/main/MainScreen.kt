@@ -48,7 +48,7 @@ fun MainScreen(session: Session?, content: ContentState, epg: Map<String, List<P
                heroDetails: Map<String, VodDetails>, loadingHeroKey: String?,
                loading: Boolean, loginError: String?, detail: VodItem?, episodes: AppViewModel.EpisodeSelection?,
                episodeLoading: Boolean, episodeError: String?, profiles: List<SavedProfile>, settings: UserSettings,
-               parentalUnlocked: Boolean, parentalBusy: Boolean, actions: MainActions,
+               parentalUnlocked: Boolean, parentalBusy: Boolean, testingConnection: Boolean, connectionTest: String?, actions: MainActions,
                previewEnabled: Boolean = true, restoreChannelId: String? = null, onChannelRestored: () -> Unit = {}) {
     var tab by rememberSaveable { mutableStateOf(Tab.Home) }
     var query by rememberSaveable { mutableStateOf("") }
@@ -87,7 +87,8 @@ fun MainScreen(session: Session?, content: ContentState, epg: Map<String, List<P
                     actions.onOpenDetails, actions.onPlayHero, actions.onPrepareHeroes,
                     { ch -> actions.onPlay(PlayerRequest(ch.name, ch.url, true, visibleContent.channels, visibleContent.channels.indexOf(ch), ch.fallbackUrl)) }, actions.onToggleFav)
                 Tab.Live -> LiveScreen(visibleContent, epg, favorites, query, actions.onToggleFav, actions.onPlay,
-                    previewEnabled, settings.showChannelEpg, settings.time24Hour, actions.onChannelFocused, restoreChannelId, onChannelRestored)
+                    previewEnabled, settings.showChannelEpg, settings.time24Hour, settings.onlyChannelsWithEpg, settings.showFullEpg,
+                    actions.onChannelFocused, restoreChannelId, onChannelRestored)
                 Tab.Movies -> BrowseScreen("filmes", visibleContent.movieCategories, visibleContent.movies, query, favorites, actions.onToggleFav, actions.onOpenDetails)
                 Tab.Series -> BrowseScreen("séries", visibleContent.seriesCategories, visibleContent.series, query, favorites, actions.onToggleFav, actions.onOpenDetails)
                 Tab.Multi -> MultiScreen(visibleContent.channels, slots, audible, previewEnabled, settings.multiScreens,
@@ -95,7 +96,7 @@ fun MainScreen(session: Session?, content: ContentState, epg: Map<String, List<P
                     onSetSlot = { index, id -> slots = slots.toMutableList().also { it[index] = id.orEmpty() } },
                     onAudible = { audible = it }, onPlay = actions.onPlay)
                 Tab.Settings -> SettingsScreen(session, content, epg, epgUpdatedAt, epgLoading, epgMessage,
-                    loading, loginError, profiles, settings, parentalUnlocked, parentalBusy, actions.settings)
+                    loading, loginError, profiles, settings, parentalUnlocked, parentalBusy, testingConnection, connectionTest, actions.settings)
             }
         }
     }

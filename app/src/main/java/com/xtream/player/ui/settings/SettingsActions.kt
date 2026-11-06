@@ -8,6 +8,7 @@ class SettingsActions(
     val switchProfile: (String) -> Unit,
     val removeProfile: (String) -> Unit,
     val refreshAccount: () -> Unit,
+    val testConnection: () -> Unit,
     val refreshEpg: () -> Unit,
     val refreshContent: () -> Unit,
     val updateSettings: (UserSettings) -> Unit,

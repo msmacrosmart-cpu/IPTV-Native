@@ -49,6 +49,7 @@ import com.xtream.player.ui.browse.CatalogCategoryRow
 import com.xtream.player.ui.components.IconAction
 import com.xtream.player.ui.components.focusGlow
 import com.xtream.player.ui.player.buildPlayer
+import com.xtream.player.ui.player.applySubtitleSize
 import com.xtream.player.ui.theme.XColors
 import com.xtream.player.util.fmtClock
 import com.xtream.player.util.initials
@@ -58,16 +59,20 @@ import kotlinx.coroutines.delay
 fun LiveScreen(content: ContentState, epg: Map<String, List<Programme>>, favorites: List<String>, query: String,
                onToggleFav: (String) -> Unit, onPlay: (PlayerRequest) -> Unit, previewEnabled: Boolean = true,
                showChannelEpg: Boolean = true, time24Hour: Boolean = true,
+               onlyChannelsWithEpg: Boolean = false, showFullEpg: Boolean = false,
                onChannelFocused: (Channel) -> Unit = {}, restoreChannelId: String? = null, onChannelRestored: () -> Unit = {}) {
     var catId by rememberSaveable { mutableStateOf("all") }
     var now by remember { mutableLongStateOf(System.currentTimeMillis()) }
     if (previewEnabled) LaunchedEffect(Unit) { while (true) { delay(30_000); now = System.currentTimeMillis() } }
-    val channels = remember(content.channels, favorites.toList(), catId, query) {
-        content.channels.filter {
+    val eligible = remember(content.channels, epg, now, onlyChannelsWithEpg) {
+        content.channels.filter { !onlyChannelsWithEpg || epg[it.epgId].orEmpty().any { programme -> programme.stop > now } }
+    }
+    val channels = remember(eligible, favorites.toList(), catId, query) {
+        eligible.filter {
             (catId == "all" || (catId == "fav" && "ch:${it.id}" in favorites) || it.categoryId == catId) && it.name.contains(query, true)
         }
     }
-    val counts = remember(content.channels) { content.channels.groupingBy { it.categoryId }.eachCount() }
+    val counts = remember(eligible) { eligible.groupingBy { it.categoryId }.eachCount() }
     var focusedId by rememberSaveable { mutableStateOf<String?>(null) }
     // Do not restore playback as saved UI state after recreation or navigation.
     var previewId by remember { mutableStateOf<String?>(null) }
@@ -129,7 +134,7 @@ fun LiveScreen(content: ContentState, epg: Map<String, List<Programme>>, favorit
     }
     @Composable fun Preview(modifier: Modifier) {
         // Preserve the existing live preview, sound, fullscreen and EPG controls.
-        PreviewPanel(preview, preview?.let { epg[it.epgId] }, now, muted, previewEnabled, false, time24Hour,
+        PreviewPanel(preview, preview?.let { epg[it.epgId] }, now, muted, previewEnabled, false, time24Hour, showFullEpg,
             modifier.testTag("tv-preview-pane"), onMute = { muted = !muted }, onPlay = {
                 preview?.let { channel -> previewId = null; play(channel) }
             })
@@ -141,8 +146,8 @@ fun LiveScreen(content: ContentState, epg: Map<String, List<Programme>>, favorit
             Text("Categorias de TV", color = XColors.Text, fontSize = 15.sp, fontWeight = FontWeight.SemiBold,
                 modifier = Modifier.padding(horizontal = 6.dp, vertical = 6.dp), maxLines = 1, overflow = TextOverflow.Ellipsis)
             LazyColumn(Modifier.weight(1f).testTag("category-list"), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                item { CatalogCategoryRow("Todos", content.channels.size, catId == "all") { catId = "all" } }
-                item { CatalogCategoryRow("Favoritos", favorites.count { it.startsWith("ch:") }, catId == "fav") { catId = "fav" } }
+                item { CatalogCategoryRow("Todos", eligible.size, catId == "all") { catId = "all" } }
+                item { CatalogCategoryRow("Favoritos", eligible.count { "ch:${it.id}" in favorites }, catId == "fav") { catId = "fav" } }
                 items(content.liveCategories, key = { it.id }) { cat ->
                     CatalogCategoryRow(cat.name, counts[cat.id] ?: 0, catId == cat.id) { catId = cat.id }
                 }
@@ -188,9 +193,10 @@ private fun ChannelRow(ch: Channel, prog: List<Programme>?, now: Long, fav: Bool
 
 @Composable
 private fun PreviewPanel(channel: Channel?, programs: List<Programme>?, now: Long, muted: Boolean,
-                         enabled: Boolean, compact: Boolean, time24Hour: Boolean, modifier: Modifier = Modifier,
+                         enabled: Boolean, compact: Boolean, time24Hour: Boolean, showFullEpg: Boolean, modifier: Modifier = Modifier,
                          onMute: () -> Unit, onPlay: () -> Unit) {
-    val upcoming = programs.orEmpty().filter { it.stop > now }.sortedBy { it.start }.take(if (compact) 2 else 8)
+    val upcoming = programs.orEmpty().filter { it.stop > now }.sortedBy { it.start }
+        .let { if (showFullEpg && !compact) it else it.take(if (compact) 2 else 8) }
     val shape = RoundedCornerShape(14.dp)
     Column(modifier.clip(shape).background(Color(0xD00D0F12)).border(1.dp, XColors.Line, shape)
         .then(if (compact) Modifier else Modifier.verticalScroll(rememberScrollState()))) {
@@ -275,6 +281,7 @@ private fun PreviewPlayer(url: String, fallbackUrl: String?, muted: Boolean) {
                 isFocusable = false; isFocusableInTouchMode = false
                 descendantFocusability = ViewGroup.FOCUS_BLOCK_DESCENDANTS
                 setShowBuffering(PlayerView.SHOW_BUFFERING_WHEN_PLAYING)
+                applySubtitleSize(c, this)
             } },
             modifier = Modifier.fillMaxSize(),
         )

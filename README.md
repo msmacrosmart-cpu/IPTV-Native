@@ -1,47 +1,43 @@
 # IPTV Native
 
-Aplicativo Android/Android TV nativo em Kotlin, Jetpack Compose e Media3 para contas Xtream Codes. A interface segue o design system escuro do [IPTVnator](https://github.com/4gray/iptvnator); não usa WebView. O identificador `com.example.iptv` e a sessão existente foram mantidos.
+Aplicativo Android em Kotlin/Jetpack Compose para Android TV, celulares e tablets, em orientação horizontal. Use somente playlists e transmissões para as quais você tem autorização: o aplicativo não inclui canais nem credenciais.
 
-## Interface e funcionamento
+## O que há na edição 2.5.0
 
-O mapeamento dos componentes e estilos da referência está em [docs/IPTVNATOR_DESIGN_MAP.md](docs/IPTVNATOR_DESIGN_MAP.md). A navegação principal possui apenas:
+- Login Xtream Codes, sessão salva e perfis locais por servidor/usuário, com troca também sem conexão quando há dados previamente salvos. Favoritos, histórico, categorias bloqueadas e preferências ficam separados por perfil. É possível remover um perfil inativo ou sair do ativo.
+- Tela de carregamento com a marca e indicadores das etapas de leitura do cache e download de categorias, canais, filmes e séries. Em uma primeira sessão, a navegação aguarda a primeira atualização; com cache, ele é mostrado enquanto a atualização ocorre em segundo plano. Download de EPG pode continuar depois do catálogo.
+- Home com hero horizontal de até seis filmes das categorias de lançamentos, navegável com D-pad e ações distintas para assistir/detalhes. Os Top 10 usam a nota do provedor; linhas sem conteúdo ficam ocultas.
+- TV ao vivo com categorias, favoritos, pesquisa e EPG. **Mover o foco não inicia reprodução**: pressione OK/toque em um canal para iniciar sua prévia e novamente para abrir o player. A prévia não é retomada automaticamente depois de trocar de perfil ou recriar a tela.
+- Catálogos de filmes e séries, temporadas, episódios, favoritos e retomada. A opção de próximo episódio toca a sequência automaticamente quando o episódio termina no player interno.
+- Multitela com um a quatro players internos independentes e seleção do áudio de um deles. A disponibilidade depende do número de conexões do plano, codecs e capacidade do dispositivo.
+- Proteção por PIN local para ocultar categorias de canais, filmes e séries da Home, buscas, TV e Multitela. É uma barreira de interface para uso doméstico, não substitui controles do sistema ou do provedor.
 
-- **Home:** hero rotativo com **Assistir** e **Detalhes**, exclusivamente com os seis filmes mais recentes das categorias de filmes cujo nome contém “Lançamento(s)” (ignorando acentos e maiúsculas). Quando o painel não informa a data de inclusão, sua ordem original é preservada. Se não existir essa categoria ou ela estiver vazia, o aplicativo informa isso em vez de mostrar títulos aleatórios. Há trilhos Top 10 separados para filmes e séries, classificados pelas **notas fornecidas pelo painel**, não por audiência, além de continuar assistindo e favoritos. O aplicativo procura backdrops do provedor; quando não existem, mantém o cartaz nítido, sem ampliá-lo e desfocá-lo.
-- **TV:** três colunas para categorias, canais e prévia/programação EPG. No toque, selecione um canal para a prévia e toque novamente ou use tela cheia; na TV, o foco atualiza a prévia e OK abre o player. Toque longo ou OK prolongado adiciona/remova um favorito; o ícone de estrela também funciona.
-- **Filmes:** coluna de categorias pesquisáveis e grade paginada de cartazes compactos. Abra o cartaz para ver detalhes, favoritar ou reproduzir.
-- **Séries:** coluna de categorias pesquisáveis, cartazes compactos, detalhes, temporadas e episódios do painel.
-- **Multitela:** até quatro canais simultâneos, com áudio apenas na tela selecionada. Os players são liberados ao sair da tela. A quantidade efetiva depende do limite de conexões do provedor e dos decodificadores do aparelho.
-- **Configurações:** editar URL, usuário e senha Xtream; atualizar catálogo e EPG; sair da conta.
+### Configurações disponíveis
 
-A interface é nativa e funciona em **paisagem** no celular, TV, projetor e TV stick com Android/Android TV, com controles por toque e D-pad. Em dispositivos reconhecidos como Android TV, os controles ganham uma margem de segurança para telas com overscan; o vídeo continua em tela cheia. A imagem de fundo enviada pelo usuário é usada no login e nas telas do aplicativo; os cards mantêm o mesmo tamanho compacto na Home e nos catálogos. Campos usam o teclado nativo do dispositivo, não um teclado próprio. O player Media3 mantém troca de canal, legendas, faixas de áudio, velocidade e retomada. Favoritos e posições são armazenados por conta no dispositivo.
+- Conta e perfis; teste de tempo de resposta do painel, que inclui a consulta de categorias (não é medição de velocidade de internet).
+- Reprodução: TS ou HLS para TV, decoder automático/software/hardware, buffer, user agent, legendas e tamanho, próximo episódio e escolha de player interno/externo separadamente para TV, filmes e séries. Alterações de reprodução valem ao criar o próximo player. Um player externo recebe a URL da mídia, que pode conter usuário e senha do provedor.
+- EPG: XMLTV do painel ou URL própria, atualização manual/automática, intervalo, ajuste de fuso de −12 a +12 horas, relógio 12/24 h, exibição nas linhas, filtro de canais com guia disponível e lista de programação resumida ou completa. O Android pode adiar atualizações em segundo plano; o filtro utiliza apenas dados de EPG já carregados.
+- Controle parental: criar/alterar PIN, desbloquear/bloquear e selecionar categorias. O PIN é derivado com PBKDF2 e salt; sem o PIN atual não há recuperação pela interface.
+- Multitela: número de quadros. Armazenamento: limpar manualmente o cache de catálogo e EPG do perfil atual e o cache de imagens compartilhado, sem apagar favoritos ou histórico. É necessário acesso ao provedor para baixar o conteúdo novamente.
 
-## Cache e atualização
+O APK de referência foi inspecionado estaticamente para identificar opções e layouts, mas não há alegação de paridade completa: gravação, VPN embutida, picture-in-picture, inicialização com o dispositivo, seleção de idioma e teste de velocidade em Mbps não estão implementados. A inicialização automática de canais foi intencionalmente omitida para preservar a exigência de reprodução somente por ação explícita. Alguns rótulos do APK de referência não demonstram, por si só, o comportamento de execução.
 
-O catálogo de canais, categorias, filmes e séries e os metadados dos destaques ficam em arquivos privados separados por conta e são carregados antes da consulta à rede. A lista é considerada antiga após **três dias**: o aplicativo verifica ao abrir e agenda uma atualização periódica em segundo plano com o WorkManager, quando houver conexão. O Android pode adiar o trabalho por economia de bateria, Doze ou falta de rede; o intervalo não é uma garantia de horário exato. Cada seção preserva o último catálogo válido se sua atualização falhar ou vier incompleta. Os URLs de reprodução são reconstruídos com a sessão atual, em vez de salvar a senha em cada item do catálogo.
+## Conexão e privacidade
 
-O EPG usa `xmltv.php` do painel, suporta XML e gzip com cache limitado e consulta `get_short_epg` para canais ausentes do XMLTV; esses resultados consultados também são guardados por conta. Para evitar que a programação fique desatualizada antes dos três dias do catálogo, o EPG é verificado ao abrir e agendado separadamente a cada 12 horas, quando a atualização automática estiver habilitada. Catálogo e EPG também podem ser atualizados manualmente. URLs XMLTV personalizadas previamente salvas continuam sendo usadas.
+Informe URL do servidor, usuário e senha Xtream Codes. O app aceita HTTP para compatibilidade, mas HTTP pode expor credenciais e conteúdo na rede; prefira HTTPS. A senha e a URL XMLTV própria são criptografadas com Android Keystore quando disponível. Se o Keystore falhar, usa-se somente uma ofuscação reversível, que **não é criptografia**. Servidor, usuário e dados locais dos perfis não são secretos. Backups do Android estão desativados.
 
-A arte exibida é guardada num cache de imagens limitado a 256 MB, com pré-carregamento de até seis imagens do hero, sem baixar milhares de cartazes de uma vez. Android pode remover caches de imagem e XMLTV sob pressão de armazenamento; episódios/detalhes ainda não consultados, vídeos e transmissões dependem da rede. Ao sair, o catálogo, os metadados de hero e o EPG consultado da conta ativa são removidos; imagens podem permanecer no cache limitado do aplicativo até a limpeza pelo sistema. URLs de imagens fornecidas pelo painel podem conter tokens e ficam no armazenamento privado do app.
+O cache mantém o catálogo por três dias antes de tentar atualizá-lo; EPG segue o intervalo configurado e as restrições do Android. Em modo offline, só é possível navegar pelo conteúdo já salvo e reproduzir mídias cujo endereço ainda esteja acessível. Use o botão de demonstração para explorar uma interface sem conta: ele não fornece streams reais.
 
-Credenciais usam Android Keystore quando disponível; aparelhos incompatíveis usam o fallback de ofuscação existente. Prefira HTTPS, pois HTTP transmite dados sem criptografia.
+## Desenvolvimento e testes
 
-Para visualizar a interface com conteúdo **fictício**, digite `demo` como servidor e preencha usuário e senha. Os cartazes de demonstração são locais; os vídeos de demonstração dependem de servidores externos. Uma conta válida é necessária para conteúdo real, cuja disponibilidade depende do provedor.
-
-## Build e testes
-
-Requisitos: JDK 17, Android SDK 35 e acesso aos repositórios configurados no Gradle.
+Requisitos: JDK 17 e Android SDK 35. A versão mínima é Android 7.0 (API 24).
 
 ```sh
-./gradlew testDebugUnitTest
-./gradlew connectedDebugAndroidTest # com emulador ou dispositivo
-./gradlew assembleDebug
-./gradlew assembleRelease
+./gradlew --no-daemon :app:testDebugUnitTest
+./gradlew --no-daemon :app:assembleDebug :app:assembleRelease
+./gradlew --no-daemon :app:connectedDebugAndroidTest
 ```
 
-O CI testa login centralizado, catálogos paginados, seleção dos lançamentos e Top 10, restauração do cache sem rede, isolamento de contas, falhas parciais, EPG, favoritos, player, navegação D-pad, celular em paisagem, ação Assistir no hero e dois players simultâneos com um painel/streams simulados. Também executa navegação por controle e verificação de área segura em um emulador Android TV. A reprodução com um provedor real depende da conta, formatos, rede e aparelho do usuário.
+O workflow `.github/workflows/build.yml` compila, roda testes unitários e testes de interface em emuladores Android TV e Pixel e publica capturas/APKs. Os testes de integração usam um provedor Xtream simulado e vídeo sintético; eles não substituem testes em hardware físico, com provedores reais, DRM ou codecs específicos.
 
-O `release` atual é assinado com uma **chave de debug**, somente para testes. Para distribuir ou atualizar uma instalação assinada com outra chave, configure a chave de produção correspondente.
-
-## Créditos
-
-IPTVnator: copyright 2019–2026 4gray, licença MIT. Os dados e imagens locais são parte do mock de demonstração ficcional do projeto de origem. DM Sans está sob SIL Open Font License. Os avisos completos estão em [`LICENSES/`](LICENSES/) e em Configurações > Licenças de terceiros. O nome e o logotipo IPTVnator são marcas do respectivo proprietário; este aplicativo mantém sua identidade própria.
+A configuração `release` deste repositório usa a **chave de debug** para gerar um APK instalável no CI. Não é uma assinatura de produção: configure sua própria chave antes de distribuir. Android não instala uma atualização sobre o mesmo pacote assinado por outra chave; nesse caso, desinstalar a versão anterior pode apagar seus dados locais.

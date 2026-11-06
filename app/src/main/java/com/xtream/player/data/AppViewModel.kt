@@ -46,6 +46,7 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
     private var heroPlayJob: Job? = null
     private var heroPrepJob: Job? = null
     private var cacheClearJob: Job? = null
+    private var connectionJob: Job? = null
     private var generation = 0
     private var detailGeneration = 0
     private var heroPlayGeneration = 0
@@ -57,6 +58,8 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
     var settings by mutableStateOf(repository.settings.value); private set
     var parentalUnlocked by mutableStateOf(false); private set
     var parentalBusy by mutableStateOf(false); private set
+    var connectionTest by mutableStateOf<String?>(null); private set
+    var testingConnection by mutableStateOf(false); private set
     var content by mutableStateOf(emptyContent()); private set
     var heroDetails by mutableStateOf<Map<String, VodDetails>>(emptyMap()); private set
     var loadingHeroKey by mutableStateOf<String?>(null); private set
@@ -240,6 +243,25 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
                 }
                 is ApiResult.Failure -> if (generation == token && repository.currentCredentials() == creds) notice = result.message
             }
+        }
+    }
+
+    fun testConnection() {
+        if (testingConnection) return
+        if (session?.isDemo != false) { connectionTest = "O teste exige uma conta Xtream."; return }
+        val creds = repository.currentCredentials() ?: return
+        val token = generation
+        testingConnection = true
+        connectionTest = null
+        connectionJob = viewModelScope.launch {
+            try {
+                val result = repository.ping()
+                if (generation != token || repository.currentCredentials() != creds) return@launch
+                connectionTest = when (result) {
+                    is ApiResult.Success -> "Resposta do painel: ${result.data} ms (inclui a consulta de categorias)."
+                    is ApiResult.Failure -> result.message
+                }
+            } finally { testingConnection = false }
         }
     }
 
@@ -724,6 +746,7 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
     private fun cancelActiveWork() {
         generation++; detailGeneration++
         catalogueJob?.cancel(); guideJob?.cancel(); shortEpgJob?.cancel(); episodeJob?.cancel(); cacheClearJob?.cancel()
+        connectionJob?.cancel(); connectionTest = null; testingConnection = false
         detailJob?.cancel()
         cancelHeroPlayback()
         heroPrepJob?.cancel(); heroPrepJob = null; heroDetails = emptyMap()

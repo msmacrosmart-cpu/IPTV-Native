@@ -62,6 +62,7 @@ import com.xtream.player.ui.components.PillField
 import com.xtream.player.ui.components.focusGlow
 import com.xtream.player.ui.components.rememberHideKeyboard
 import com.xtream.player.ui.player.buildPlayer
+import com.xtream.player.ui.player.applySubtitleSize
 import com.xtream.player.ui.theme.XColors
 import kotlinx.coroutines.delay
 
@@ -269,6 +270,7 @@ private fun MultiPlayer(index: Int, channel: Channel, active: Boolean, modifier:
         AndroidView(factory = { c -> PlayerView(c).apply {
             useController = false; this.player = player
             isFocusable = false; isFocusableInTouchMode = false; descendantFocusability = ViewGroup.FOCUS_BLOCK_DESCENDANTS
+            applySubtitleSize(c, this)
         } }, modifier = Modifier.fillMaxSize())
         if (state == "error") Text("Não foi possível reproduzir este canal.", color = XColors.Text, fontSize = 12.sp,
             modifier = Modifier.align(Alignment.Center).background(Color(0xCC0D0F12)).padding(8.dp))

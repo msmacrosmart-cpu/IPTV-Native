@@ -13,5 +13,6 @@ fun fmtTime(ms: Long): String {
 fun fmtClock(ms: Long, use24Hour: Boolean = true): String =
     SimpleDateFormat(if (use24Hour) "HH:mm" else "h:mm a", Locale.getDefault()).format(Date(ms))
 fun fmtDate(ms: Long): String = SimpleDateFormat("dd/MM/yyyy", Locale.getDefault()).format(Date(ms))
-fun fmtDateTime(ms: Long): String = SimpleDateFormat("dd/MM/yyyy HH:mm", Locale.getDefault()).format(Date(ms))
+fun fmtDateTime(ms: Long, use24Hour: Boolean = true): String =
+    SimpleDateFormat(if (use24Hour) "dd/MM/yyyy HH:mm" else "dd/MM/yyyy h:mm a", Locale.getDefault()).format(Date(ms))
 fun initials(name: String): String = name.split(" ").filter { it.isNotBlank() }.take(2).joinToString("") { it.first().uppercase() }

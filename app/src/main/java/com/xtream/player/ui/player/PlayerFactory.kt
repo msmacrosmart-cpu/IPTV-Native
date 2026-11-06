@@ -15,6 +15,14 @@ import com.example.iptv.data.model.UserSettings
 import com.example.iptv.data.model.VideoDecoder
 import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
 import androidx.media3.exoplayer.trackselection.DefaultTrackSelector
+import androidx.media3.ui.PlayerView
+import androidx.media3.ui.SubtitleView
+
+@OptIn(UnstableApi::class)
+fun applySubtitleSize(context: Context, view: PlayerView) {
+    val percent = (context.applicationContext as? IPTVApplication)?.repository?.settings?.value?.subtitleSizePercent ?: 100
+    view.subtitleView?.setFractionalTextSize(SubtitleView.DEFAULT_TEXT_SIZE_FRACTION * percent.coerceIn(75, 150) / 100f)
+}
 
 @OptIn(UnstableApi::class)
 fun buildPlayer(context: Context, trackSelector: DefaultTrackSelector? = null, handleAudioFocus: Boolean = true): ExoPlayer {

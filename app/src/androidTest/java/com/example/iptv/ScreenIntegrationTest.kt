@@ -434,6 +434,8 @@ class ScreenIntegrationTest {
         capture("screen-multi.png")
 
         compose.onNodeWithContentDescription("Configurações").performClick()
+        compose.onNodeWithText("Testar conexão").performScrollTo().performClick()
+        compose.waitUntil(20_000) { vm.connectionTest?.contains("ms") == true }
         compose.onNodeWithText("Guia de programação (EPG)").performScrollTo().assertExists()
         val count = guideRequests.get()
         compose.onNodeWithText("Atualizar EPG").performScrollTo().performClick()
@@ -658,6 +660,25 @@ class ScreenIntegrationTest {
         compose.waitUntil(10_000) { vm.profiles.size == 1 }
         assertEquals("alice", vm.profiles.single().username)
         offline.set(false)
+    }
+
+    @Test fun epgFilterAndSubtitlePreferencesArePersistedAndApplied() {
+        connectToPanel()
+        val app = compose.activity.application as IPTVApplication
+        val vm = ViewModelProvider(compose.activity)[AppViewModel::class.java]
+        compose.waitUntil(30_000) { vm.epg["news"].orEmpty().isNotEmpty() }
+        compose.runOnIdle {
+            vm.updateUserSettings(vm.settings.copy(onlyChannelsWithEpg = true, showFullEpg = true, subtitleSizePercent = 125))
+        }
+        assertTrue(app.sessionManager.settings().onlyChannelsWithEpg)
+        assertTrue(app.sessionManager.settings().showFullEpg)
+        assertEquals(125, app.sessionManager.settings().subtitleSizePercent)
+        compose.onNodeWithContentDescription("TV").performClick()
+        compose.waitUntil(10_000) { exists("channel-1") }
+        assertFalse("Channels without a loaded guide must be hidden", exists("channel-2"))
+        assertTrue("Filtering must not start playback", streamPaths.none { it.startsWith("/live/") })
+        compose.runOnIdle { vm.updateUserSettings(vm.settings.copy(onlyChannelsWithEpg = false)) }
+        compose.waitUntil(10_000) { exists("channel-2") }
     }
 
     @Test fun seriesCanAdvanceToNextEpisodeWhenEnabled() {

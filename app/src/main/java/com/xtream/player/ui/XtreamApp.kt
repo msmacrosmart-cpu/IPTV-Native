@@ -108,6 +108,7 @@ fun XtreamApp(vm: AppViewModel = viewModel()) {
                     switchProfile = { id -> dismissKeyboard(); vm.switchProfile(id) },
                     removeProfile = vm::removeProfile,
                     refreshAccount = vm::refreshAccount,
+                    testConnection = vm::testConnection,
                     refreshEpg = vm::refreshEpg,
                     refreshContent = vm::refreshContent,
                     updateSettings = vm::updateUserSettings,
@@ -126,7 +127,7 @@ fun XtreamApp(vm: AppViewModel = viewModel()) {
             DeviceSafeArea {
                 MainScreen(vm.session, vm.content, vm.epg, vm.favorites, vm.epgUpdatedAt, vm.epgLoading, vm.epgMessage,
                     vm.heroDetails, vm.loadingHeroKey, vm.loading, vm.loginError, vm.detailItem, vm.episodeSelection, vm.episodeLoading, vm.episodeError,
-                    vm.profiles, vm.settings, vm.parentalUnlocked, vm.parentalBusy, actions, previewEnabled = entry?.destination?.route == "main", restoreChannelId = vm.lastPlayedChannelId,
+                    vm.profiles, vm.settings, vm.parentalUnlocked, vm.parentalBusy, vm.testingConnection, vm.connectionTest, actions, previewEnabled = entry?.destination?.route == "main", restoreChannelId = vm.lastPlayedChannelId,
                     onChannelRestored = vm::consumeChannelRestore)
             }
         }

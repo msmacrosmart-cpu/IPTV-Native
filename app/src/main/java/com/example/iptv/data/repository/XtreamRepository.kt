@@ -268,13 +268,13 @@ class XtreamRepository(private val session: SessionManager) {
     /** Round-trip latency to the panel, used by the settings screen. */
     suspend fun ping(): ApiResult<Long> = withContext(Dispatchers.IO) {
         val creds = credentials ?: return@withContext ApiResult.Failure("Sessão expirada.")
-        val started = System.currentTimeMillis()
+        val started = android.os.SystemClock.elapsedRealtime()
         when (
             val result = withApi({ it }) { service, _ ->
                 service.categories(creds.username, creds.password, XtreamActions.LIVE_CATEGORIES)
             }
         ) {
-            is ApiResult.Success -> ApiResult.Success(System.currentTimeMillis() - started)
+            is ApiResult.Success -> ApiResult.Success(android.os.SystemClock.elapsedRealtime() - started)
             is ApiResult.Failure -> result
         }
     }
@@ -317,6 +317,7 @@ class XtreamRepository(private val session: SessionManager) {
             epgIntervalHours = newSettings.epgIntervalHours.coerceIn(6, 48),
             epgOffsetHours = newSettings.epgOffsetHours.coerceIn(-12, 12),
             multiScreens = newSettings.multiScreens.coerceIn(1, 4),
+            subtitleSizePercent = newSettings.subtitleSizePercent.coerceIn(75, 150),
         )
         _settings.update { safe }
         session.saveSettings(safe)

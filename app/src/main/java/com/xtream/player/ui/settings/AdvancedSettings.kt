@@ -63,6 +63,12 @@ fun AdvancedSettings(settings: UserSettings, epgChannels: Int, epgUpdatedAt: Lon
         SettingToggle("Legendas ativadas por padrão", settings.subtitlesEnabled, "setting-subtitles") {
             actions.updateSettings(settings.copy(subtitlesEnabled = it))
         }
+        SettingLabel("Tamanho das legendas")
+        FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            listOf(75, 100, 125, 150).forEach { percent ->
+                CategoryChip("$percent%", settings.subtitleSizePercent == percent) { actions.updateSettings(settings.copy(subtitleSizePercent = percent)) }
+            }
+        }
         SettingToggle("Reproduzir próximo episódio automaticamente", settings.autoplayNextEpisode, "setting-next-episode") {
             actions.updateSettings(settings.copy(autoplayNextEpisode = it))
         }
@@ -83,7 +89,7 @@ fun AdvancedSettings(settings: UserSettings, epgChannels: Int, epgUpdatedAt: Lon
             color = XColors.TextDim, fontSize = 12.sp, modifier = Modifier.padding(top = 12.dp))
     }
     Spacer(Modifier.height(18.dp))
-    SettingsPanel("Guia de programação (EPG)", "Última atualização: ${epgUpdatedAt?.let(::fmtDateTime) ?: "Nunca"}  ·  $epgChannels canais") {
+    SettingsPanel("Guia de programação (EPG)", "Última atualização: ${epgUpdatedAt?.let { fmtDateTime(it, settings.time24Hour) } ?: "Nunca"}  ·  $epgChannels canais") {
         SettingToggle("Atualizar EPG automaticamente", settings.autoUpdateEpg, "setting-epg-auto") {
             actions.updateSettings(settings.copy(autoUpdateEpg = it))
         }
@@ -106,6 +112,12 @@ fun AdvancedSettings(settings: UserSettings, epgChannels: Int, epgUpdatedAt: Lon
         }
         SettingToggle("Mostrar EPG na lista de canais", settings.showChannelEpg, "setting-show-epg") {
             actions.updateSettings(settings.copy(showChannelEpg = it))
+        }
+        SettingToggle("Mostrar apenas canais com EPG disponível", settings.onlyChannelsWithEpg, "setting-only-epg") {
+            actions.updateSettings(settings.copy(onlyChannelsWithEpg = it))
+        }
+        SettingToggle("Mostrar programação completa", settings.showFullEpg, "setting-full-epg") {
+            actions.updateSettings(settings.copy(showFullEpg = it))
         }
         SettingLabel("Formato do relógio")
         FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
