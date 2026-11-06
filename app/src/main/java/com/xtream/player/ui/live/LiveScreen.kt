@@ -62,6 +62,8 @@ fun LiveScreen(
     onPlay: (PlayerRequest) -> Unit,
     previewEnabled: Boolean = true,
     onChannelFocused: (Channel) -> Unit = {},
+    restoreChannelId: String? = null,
+    onChannelRestored: () -> Unit = {},
 ) {
     var catId by rememberSaveable { mutableStateOf("all") }
     var now by remember { mutableLongStateOf(System.currentTimeMillis()) }
@@ -78,14 +80,18 @@ fun LiveScreen(
     var previewId by rememberSaveable { mutableStateOf<String?>(null) }
     val listState = rememberLazyListState()
     val restoreFocus = remember { FocusRequester() }
-    var restored by remember { mutableStateOf(false) }
-    LaunchedEffect(channels, focusedId) {
-        val index = channels.indexOfFirst { it.id == focusedId }
-        if (!restored && index >= 0) {
-            listState.scrollToItem(index)
-            withFrameNanos { }
-            runCatching { restoreFocus.requestFocus() }
-            restored = true
+    LaunchedEffect(previewEnabled, restoreChannelId, channels) {
+        if (previewEnabled && restoreChannelId != null) {
+            val index = channels.indexOfFirst { it.id == restoreChannelId }
+            if (index >= 0) {
+                focusedId = restoreChannelId
+                previewId = restoreChannelId
+                listState.scrollToItem(index)
+                // NavHost may still have the outgoing player's focus during its transition.
+                delay(800)
+                if (focusedId == restoreChannelId) runCatching { restoreFocus.requestFocus() }
+                onChannelRestored()
+            }
         }
     }
     // A refreshed catalog or a filter may remove the selected channel.
@@ -130,7 +136,7 @@ fun LiveScreen(
                         modifier = if (ch.id == focusedId) Modifier.focusRequester(restoreFocus) else Modifier,
                         onFocus = { focusedId = ch.id },
                         onLongClick = { onToggleFav("ch:${ch.id}") },
-                    ) { onPlay(PlayerRequest(ch.name, ch.url, true, channels, channels.indexOf(ch))) }
+                    ) { focusedId = ch.id; previewId = ch.id; onPlay(PlayerRequest(ch.name, ch.url, true, channels, channels.indexOf(ch))) }
                 }
             }
         }

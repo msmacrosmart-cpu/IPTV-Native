@@ -95,9 +95,9 @@ private fun EpgReader(channels: List<Channel>, epg: Map<String, List<Programme>>
     val list = ch?.let { epg[it.epgId] }.orEmpty().filter { it.stop > now }.sortedBy { it.start }.take(6)
     Panel("Leitor de EPG", Icons.Filled.Event, Modifier.fillMaxWidth()) {
         Row(verticalAlignment = Alignment.CenterVertically) {
-            SmallBtn(Icons.Filled.ChevronLeft) { if (channels.isNotEmpty()) idx = (idx - 1 + channels.size) % channels.size }
+            SmallBtn(Icons.Filled.ChevronLeft, "Canal anterior") { if (channels.isNotEmpty()) idx = (idx - 1 + channels.size) % channels.size }
             Text(ch?.let { "${it.number} · ${it.name}" } ?: "Nenhum canal", color = XColors.Text, fontSize = 20.sp, fontWeight = FontWeight.SemiBold, modifier = Modifier.padding(horizontal = 18.dp).widthIn(min = 200.dp))
-            SmallBtn(Icons.Filled.ChevronRight) { if (channels.isNotEmpty()) idx = (idx + 1) % channels.size }
+            SmallBtn(Icons.Filled.ChevronRight, "Próximo canal") { if (channels.isNotEmpty()) idx = (idx + 1) % channels.size }
         }
         Spacer(Modifier.height(12.dp))
         if (list.isEmpty()) Text("Sem programação carregada. Toque em “Atualizar EPG”.", color = XColors.TextDim, fontSize = 15.sp)
@@ -114,10 +114,10 @@ private fun EpgReader(channels: List<Channel>, epg: Map<String, List<Programme>>
 
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
-private fun SmallBtn(icon: ImageVector, onClick: () -> Unit) {
+private fun SmallBtn(icon: ImageVector, label: String, onClick: () -> Unit) {
     val shape = RoundedCornerShape(50)
     Box(Modifier.size(44.dp).focusGlow(shape).clip(shape).background(Color(0x1FFFFFFF)).combinedClickable(onClick = onClick), contentAlignment = Alignment.Center) {
-        Icon(icon, null, tint = XColors.Text, modifier = Modifier.size(26.dp))
+        Icon(icon, label, tint = XColors.Text, modifier = Modifier.size(26.dp))
     }
 }
 

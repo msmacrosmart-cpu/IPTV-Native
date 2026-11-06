@@ -48,7 +48,8 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
     var restoring by mutableStateOf(true); private set
     var loginError by mutableStateOf<String?>(null); private set
     var notice by mutableStateOf<String?>(null); private set
-    var playerRequest by mutableStateOf<PlayerRequest?>(null)
+    var playerRequest by mutableStateOf<PlayerRequest?>(null); private set
+    var lastPlayedChannelId by mutableStateOf<String?>(null); private set
     var episodeSelection by mutableStateOf<EpisodeSelection?>(null); private set
     val favorites = mutableStateListOf<String>()
 
@@ -331,13 +332,20 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
 
     fun consumeNotice() { notice = null }
 
+    fun startPlayback(request: PlayerRequest) {
+        playerRequest = request
+        lastPlayedChannelId = if (request.isLive) request.playlist.getOrNull(request.index)?.id else null
+    }
+    fun channelPlaying(channel: Channel) { lastPlayedChannelId = channel.id }
+    fun consumeChannelRestore() { lastPlayedChannelId = null }
+
     fun logout() {
         restoreJob?.cancel()
         cancelActiveWork()
         xmltv.clear()
         repository.logout()
         session = null; content = emptyContent(); epg = emptyMap(); epgUpdatedAt = null
-        epgLoading = false; epgMessage = null; loginError = null; notice = null; playerRequest = null
+        epgLoading = false; epgMessage = null; loginError = null; notice = null; playerRequest = null; lastPlayedChannelId = null
         favorites.clear(); history = emptyMap(); shortGuide.clear(); shortGuideFetchedAt.clear()
     }
 

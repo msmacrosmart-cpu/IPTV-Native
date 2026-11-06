@@ -45,6 +45,8 @@ fun MainScreen(
     actions: MainActions,
     initialTab: Tab = Tab.Home,
     previewEnabled: Boolean = true,
+    restoreChannelId: String? = null,
+    onChannelRestored: () -> Unit = {},
 ) {
     var tab by rememberSaveable { mutableStateOf(initialTab) }
     var query by rememberSaveable { mutableStateOf("") }
@@ -93,7 +95,8 @@ fun MainScreen(
                             actions.onToggleFav)
                         Tab.Movies -> BrowseScreen("Movies", "All Movies", content.movieCategories, content.movies, query, scopeAll, actions.onToggleFav, actions.onPlayItem)
                         Tab.Series -> BrowseScreen("Series", "All Series", content.seriesCategories, content.series, query, scopeAll, actions.onToggleFav, actions.onPlayItem)
-                        Tab.Live -> LiveScreen(content, epg, favorites, query, actions.onToggleFav, actions.onPlay, previewEnabled, actions.onChannelFocused)
+                        Tab.Live -> LiveScreen(content, epg, favorites, query, actions.onToggleFav, actions.onPlay,
+                            previewEnabled, actions.onChannelFocused, restoreChannelId, onChannelRestored)
                         Tab.Favorites -> FavoritesScreen(content, favorites, query, actions)
                         Tab.Settings -> SettingsScreen(session, content, epg, epgUpdatedAt, epgLoading, epgMessage, actions.onRefreshEpg, actions.onLogout, actions.onChannelFocused)
                     }

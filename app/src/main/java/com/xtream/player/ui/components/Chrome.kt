@@ -21,6 +21,7 @@ import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.TextStyle
@@ -127,7 +128,7 @@ fun TopBar(
                     query, onQuery, singleLine = true,
                     textStyle = TextStyle(color = XColors.Text, fontSize = 16.sp),
                     cursorBrush = SolidColor(XColors.Accent),
-                    modifier = Modifier.fillMaxWidth().focusRequester(searchFocus)
+                    modifier = Modifier.fillMaxWidth().testTag("search-field").focusRequester(searchFocus)
                         .androidxOnFocus { focused = it },
                 )
             }
@@ -153,8 +154,9 @@ fun TopBar(
 
 @Composable
 private fun ScopePill(text: String, active: Boolean, onClick: () -> Unit) {
+    val shape = RoundedCornerShape(50)
     Box(
-        Modifier.clip(RoundedCornerShape(50))
+        Modifier.focusGlow(shape, width = 1.5.dp, zoom = 1f).clip(shape)
             .background(if (active) Color(0xFF8A3A22) else Color.Transparent)
             .combinedClickableCompat(onClick)
             .padding(horizontal = 12.dp, vertical = 5.dp),

@@ -24,6 +24,7 @@ import androidx.compose.ui.test.performScrollTo
 import androidx.compose.ui.test.performScrollToNode
 import androidx.compose.ui.test.performSemanticsAction
 import androidx.compose.ui.test.performTextInput
+import androidx.compose.ui.test.performTextClearance
 import androidx.compose.ui.test.pressKey
 import androidx.lifecycle.ViewModelProvider
 import androidx.test.ext.junit.runners.AndroidJUnit4
@@ -151,6 +152,10 @@ class ScreenIntegrationTest {
         compose.onNodeWithContentDescription("Filmes").performClick()
         compose.waitUntil(10_000) { exists("poster-vod:101") }
         capture("screen-movies.png")
+        compose.onNodeWithTag("search-field").performTextInput("inexistente")
+        compose.waitUntil(10_000) { !exists("poster-vod:101") }
+        compose.onNodeWithTag("search-field").performTextClearance()
+        compose.waitUntil(10_000) { exists("poster-vod:101") }
         compose.onNodeWithTag("poster-vod:101").performSemanticsAction(SemanticsActions.OnLongClick)
         compose.onNodeWithContentDescription("Séries").performClick()
         compose.waitUntil(10_000) { exists("poster-series:101") }
@@ -163,6 +168,12 @@ class ScreenIntegrationTest {
         compose.waitUntil(30_000) { streamPaths.any { it.endsWith("/202.ts") } && playerState() == "playing" }
         showControls()
         capture("screen-player.png")
+        compose.onNodeWithText("Subtitles").performClick()
+        compose.onNodeWithText("Legendas").assertExists()
+        compose.onNodeWithText("Desativado").performClick()
+        compose.onNodeWithText("Audio Settings").performClick()
+        compose.onNodeWithText("Áudio").assertExists()
+        compose.onNodeWithText("Nenhuma faixa alternativa").performClick()
         compose.onNodeWithContentDescription("Voltar").performClick()
 
         compose.onNodeWithContentDescription("TV ao vivo").performClick()
@@ -188,7 +199,8 @@ class ScreenIntegrationTest {
         compose.waitUntil(30_000) { streamPaths.count { it.endsWith("/1.ts") } > firstChannelRequests && playerState() == "playing" }
         compose.onNodeWithContentDescription("Voltar").performClick()
         compose.waitUntil(10_000) { exists("channel-2") }
-        compose.waitUntil(10_000) { runCatching { compose.onNodeWithTag("channel-2").assertIsFocused() }.isSuccess }
+        compose.waitUntil(10_000) { runCatching { compose.onNodeWithTag("channel-1").assertIsFocused() }.isSuccess }
+        compose.onNodeWithTag("preview-channel").assertTextContains("Canal Notícias", substring = true)
 
         compose.onNodeWithContentDescription("Favoritos").performClick()
         compose.onNodeWithText("FAVORITOS").assertExists()

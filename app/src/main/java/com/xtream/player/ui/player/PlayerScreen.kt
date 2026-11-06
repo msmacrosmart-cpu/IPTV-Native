@@ -57,6 +57,7 @@ import androidx.media3.exoplayer.trackselection.DefaultTrackSelector
 import androidx.media3.ui.AspectRatioFrameLayout
 import androidx.media3.ui.PlayerView
 import com.xtream.player.data.PlayerRequest
+import com.xtream.player.data.Channel
 import com.xtream.player.data.AppViewModel
 import com.xtream.player.ui.components.FocusBrush
 import com.xtream.player.ui.components.GlassPanel
@@ -77,7 +78,9 @@ private data class Opt(val label: String, val selected: Boolean, val onClick: ()
  */
 @AndroidXOptIn(UnstableApi::class)
 @Composable
-fun PlayerScreen(request: PlayerRequest, onBack: () -> Unit, previewMode: Boolean = false, onProgress: (PlayerRequest, Long, Long) -> Unit = { _, _, _ -> }) {
+fun PlayerScreen(request: PlayerRequest, onBack: () -> Unit, previewMode: Boolean = false,
+    onProgress: (PlayerRequest, Long, Long) -> Unit = { _, _, _ -> },
+    onChannelChanged: (Channel) -> Unit = {}) {
     val context = LocalContext.current
     val activity = context as? Activity
     var index by remember { mutableIntStateOf(request.index) }
@@ -85,6 +88,7 @@ fun PlayerScreen(request: PlayerRequest, onBack: () -> Unit, previewMode: Boolea
     val title = current?.name ?: request.title
     val url = current?.url ?: request.url
     val fallbackUrl = current?.fallbackUrl ?: request.fallbackUrl
+    LaunchedEffect(current?.id) { current?.let(onChannelChanged) }
     val lifecycleOwner = LocalLifecycleOwner.current
 
     val trackSelector = remember { DefaultTrackSelector(context) }

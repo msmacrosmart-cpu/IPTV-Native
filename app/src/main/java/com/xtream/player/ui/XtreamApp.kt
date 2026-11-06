@@ -32,7 +32,7 @@ fun XtreamApp(vm: AppViewModel = viewModel()) {
         vm.notice?.let { Toast.makeText(context, it, Toast.LENGTH_LONG).show(); vm.consumeNotice() }
     }
     fun openPlayer(request: PlayerRequest) {
-        vm.playerRequest = request
+        vm.startPlayback(request)
         nav.navigate("player") { launchSingleTop = true }
     }
     NavHost(nav, startDestination = "login") {
@@ -61,14 +61,16 @@ fun XtreamApp(vm: AppViewModel = viewModel()) {
                 onAddAccount = { nav.navigate("login") { launchSingleTop = true } },
             )
             MainScreen(vm.session, vm.content, vm.epg, vm.favorites, vm.epgUpdatedAt,
-                vm.epgLoading, vm.epgMessage, actions, previewEnabled = entry?.destination?.route == "main")
+                vm.epgLoading, vm.epgMessage, actions, previewEnabled = entry?.destination?.route == "main",
+                restoreChannelId = vm.lastPlayedChannelId, onChannelRestored = vm::consumeChannelRestore)
             vm.episodeSelection?.let { selection ->
                 EpisodeDialog(selection, onDismiss = vm::dismissEpisodes) { vm.playEpisode(it, ::openPlayer) }
             }
         }
         composable("player") {
             vm.playerRequest?.let { request ->
-                PlayerScreen(request, onBack = { nav.popBackStack() }, onProgress = vm::saveProgress)
+                PlayerScreen(request, onBack = { nav.popBackStack() }, onProgress = vm::saveProgress,
+                    onChannelChanged = vm::channelPlaying)
             }
         }
     }
