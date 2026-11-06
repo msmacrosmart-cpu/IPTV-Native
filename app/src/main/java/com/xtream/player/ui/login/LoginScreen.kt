@@ -73,7 +73,8 @@ fun LoginScreen(loading: Boolean, error: String?, onLogin: (server: String, user
                 Column(Modifier.fillMaxWidth().padding(if (compact) 14.dp else 26.dp)) {
                     Text("Adicionar conexão", color = XColors.Text, fontSize = if (compact) 22.sp else 27.sp,
                         fontWeight = FontWeight.SemiBold, modifier = Modifier.focusRequester(initialHeading)
-                            .testTag("login-heading").focusGlow(RoundedCornerShape(6.dp), zoom = 1f).focusable())
+                            .testTag("login-heading").focusGlow(RoundedCornerShape(6.dp), zoom = 1f).focusable()
+                            .padding(horizontal = 6.dp, vertical = 3.dp))
                     Text("Entre com sua conta Xtream Codes", color = XColors.TextDim, fontSize = if (compact) 12.sp else 14.sp,
                         modifier = Modifier.padding(top = if (compact) 2.dp else 6.dp))
                     Spacer(Modifier.height(if (compact) 8.dp else 22.dp))
