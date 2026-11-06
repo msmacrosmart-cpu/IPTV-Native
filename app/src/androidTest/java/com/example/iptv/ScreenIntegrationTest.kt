@@ -35,13 +35,25 @@ import androidx.compose.ui.test.performTextClearance
 import androidx.compose.ui.test.performTouchInput
 import androidx.compose.ui.test.pressKey
 import androidx.lifecycle.ViewModelProvider
+import androidx.lifecycle.ViewModelStore
+import androidx.work.WorkManager
 import androidx.core.view.ViewCompat
 import androidx.core.view.WindowInsetsCompat
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
+import com.example.iptv.data.cache.BackgroundSync
+import com.example.iptv.data.cache.CatalogCache
+import com.example.iptv.data.epg.XmltvRepository
+import com.example.iptv.data.model.ApiResult
 import com.example.iptv.data.model.PanelCredentials
+import com.example.iptv.data.network.ApiClient
 import com.xtream.player.data.AppViewModel
 import com.xtream.player.data.UserLibrary
+import coil.imageLoader
+import coil.decode.DataSource
+import coil.request.CachePolicy
+import coil.request.ImageRequest
+import coil.request.SuccessResult
 import okhttp3.mockwebserver.Dispatcher
 import okhttp3.mockwebserver.MockResponse
 import okhttp3.mockwebserver.MockWebServer
@@ -65,7 +77,14 @@ import java.util.Date
 import java.util.Locale
 import java.util.TimeZone
 import java.util.concurrent.CopyOnWriteArrayList
+import java.util.concurrent.CountDownLatch
+import java.util.concurrent.TimeUnit
+import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicInteger
+import java.util.zip.GZIPInputStream
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.async
+import kotlinx.coroutines.runBlocking
 
 /** Real HTTP panel, XMLTV, H.264 transport stream and Compose/D-pad interactions. */
 @RunWith(AndroidJUnit4::class)
@@ -106,6 +125,12 @@ class ScreenIntegrationTest {
     private val vodInfoIds = CopyOnWriteArrayList<String>()
     private val guideRequests = AtomicInteger()
     private val shortRequests = AtomicInteger()
+    private val catalogueRequests = AtomicInteger()
+    private val offline = AtomicBoolean(false)
+    private val failVodStreams = AtomicBoolean(false)
+    private val blockNextVod = AtomicBoolean(false)
+    private val vodBlocked = CountDownLatch(1)
+    private val releaseVod = CountDownLatch(1)
     private val video by lazy {
         InstrumentationRegistry.getInstrumentation().context.assets.open("test-pattern.ts").use { it.readBytes() }
     }
@@ -116,6 +141,16 @@ class ScreenIntegrationTest {
             override fun dispatch(request: RecordedRequest): MockResponse {
                 val url = request.requestUrl ?: return MockResponse().setResponseCode(400)
                 val path = url.encodedPath
+                val action = url.queryParameter("action")
+                if (action in setOf("get_live_categories", "get_live_streams", "get_vod_categories", "get_vod_streams", "get_series_categories", "get_series"))
+                    catalogueRequests.incrementAndGet()
+                if (offline.get()) return MockResponse().setResponseCode(503)
+                if (action == "get_vod_streams" && failVodStreams.get())
+                    return MockResponse().setHeader("Content-Type", "application/json").setBody("""{"error":"temporarily unavailable"}""")
+                if (action == "get_vod_streams" && blockNextVod.compareAndSet(true, false)) {
+                    vodBlocked.countDown()
+                    if (!releaseVod.await(15, TimeUnit.SECONDS)) return MockResponse().setResponseCode(503)
+                }
                 if (path.endsWith("/xmltv.php")) {
                     guideRequests.incrementAndGet()
                     return MockResponse().setHeader("Content-Type", "application/xml").setBody(guide())
@@ -123,7 +158,7 @@ class ScreenIntegrationTest {
                 if (path.startsWith("/art/")) {
                     val name = path.substringAfterLast('/')
                     val bytes = InstrumentationRegistry.getInstrumentation().targetContext.assets.open("demo/$name").use { it.readBytes() }
-                    return MockResponse().setHeader("Content-Type", "image/webp").setBody(Buffer().write(bytes))
+                    return MockResponse().setHeader("Content-Type", "image/webp").setHeader("Cache-Control", "no-store").setBody(Buffer().write(bytes))
                 }
                 if (path.startsWith("/live/") || path.startsWith("/movie/") || path.startsWith("/series/")) {
                     streamPaths.add(path)
@@ -140,13 +175,13 @@ class ScreenIntegrationTest {
                         val now = System.currentTimeMillis() / 1000
                         """{"epg_listings":[{"id":"1","title":"$title","start_timestamp":"${now - 60}","stop_timestamp":"${now + 3600}"}]}"""
                     }
-                    "get_vod_categories" -> """[{"category_id":"10","category_name":"Ação"}]"""
+                    "get_vod_categories" -> """[{"category_id":"10","category_name":"Lançamentos"},{"category_id":"11","category_name":"Ação"}]"""
                     "get_vod_streams" -> {
                         val art = listOf("black-harbor", "summer-static", "house-of-tides", "field-notes", "white-room-six", "open-late", "crimson-skylark", "the-voltage-guard")
                         (101..130).joinToString(prefix = "[", postfix = "]") { id ->
                             val name = if (id == 101) "Filme Teste" else "Filme $id"
                             val poster = server.url("/art/poster-${art[(id - 101) % art.size]}.webp")
-                            """{"stream_id":$id,"name":"$name","category_id":"10","container_extension":"ts","rating":"8.0","stream_icon":"$poster"}"""
+                            """{"stream_id":$id,"name":"$name","category_id":"10","container_extension":"ts","rating":"8.0","added":"${2_000_000_000L - id}","stream_icon":"$poster"}"""
                         }
                     }
                     "get_vod_info" -> {
@@ -173,6 +208,7 @@ class ScreenIntegrationTest {
     @Test fun nativeScreensUseRealSessionCatalogFavoritesEpgAndPlayback() {
         compose.onNodeWithTag("app-background", useUnmergedTree = true).assertExists()
         compose.waitUntil(30_000) { existsUnmerged("app-background-loaded") }
+        assertLoginFitsAndIsCentered()
         capture("screen-login.png")
         val loginFieldWidth = compose.onNodeWithText("Servidor Xtream").fetchSemanticsNode().boundsInRoot.width
         assertTrue("The login form should stay compact on TV", loginFieldWidth <= 500f * compose.activity.resources.displayMetrics.density)
@@ -196,10 +232,20 @@ class ScreenIntegrationTest {
         compose.waitUntil(30_000) { existsUnmerged("hero-backdrop-loaded-vod:101") }
         compose.onNodeWithTag("hero-details-vod:101").assertIsDisplayed()
         capture("screen-home.png")
+        // Two separate top-ten rails are ranked by panel score; the playlist block is gone.
+        assertFalse(textExists("Xtream · 2 canais"))
+        compose.onNodeWithTag("home-list").performScrollToNode(hasText("Top 10 filmes · por nota do provedor"))
+        compose.onNodeWithTag("top-movies").assertIsDisplayed()
+        capture("screen-top-10.png")
+        compose.onNodeWithTag("home-list").performScrollToNode(hasText("Top 10 séries · por nota do provedor"))
+        compose.onNodeWithTag("top-series").assertIsDisplayed()
+        compose.onNodeWithTag("home-list").performScrollToIndex(0)
         listOf("Home", "TV", "Filmes", "Séries", "Multitela", "Configurações").forEach {
             compose.onNodeWithContentDescription(it).assertExists()
         }
         // Assistir on the hero plays a movie directly without going through details.
+        compose.onNodeWithContentDescription("Destaque 1: Filme Teste").performClick()
+        compose.waitUntil(10_000) { exists("hero-watch-vod:101") }
         compose.onNodeWithTag("hero-watch-vod:101").performClick()
         compose.waitUntil(30_000) { streamPaths.any { it.contains("/movie/") && it.endsWith("/101.ts") } && playerState() == "playing" }
         showControls()
@@ -253,28 +299,23 @@ class ScreenIntegrationTest {
         compose.onNodeWithText("Nenhuma faixa alternativa").performClick()
         compose.onNodeWithContentDescription("Voltar").performClick()
 
-        // On the series hero, Assistir resolves episodes and resumes the saved episode.
+        // A series still resumes its saved episode from Details, but never enters the movie hero.
         compose.runOnIdle {
             vm.saveProgress(com.xtream.player.data.PlayerRequest("Série Teste", "unused", false,
                 libraryKey = "series:101", episodeId = "202"), 6_000, 100_000)
         }
-        compose.onNodeWithContentDescription("Home").performClick()
-        compose.onNodeWithTag("home-list").performScrollToIndex(0)
-        compose.waitUntil(10_000) { compose.onAllNodesWithContentDescription("Destaque 2: Série Teste").fetchSemanticsNodes().isNotEmpty() }
-        compose.onNodeWithContentDescription("Destaque 2: Série Teste").performClick()
-        compose.waitUntil(10_000) { exists("hero-watch-series:101") }
-        compose.onNodeWithTag("hero-watch-series:101").performSemanticsAction(SemanticsActions.RequestFocus)
-        compose.waitUntil(30_000) { existsUnmerged("hero-backdrop-loaded-series:101") }
+        compose.onNodeWithTag("detail-list").performScrollToIndex(0)
         val previousEpisodeRequests = streamPaths.count { it.contains("/series/") && it.endsWith("/202.ts") }
-        compose.onNodeWithTag("hero-watch-series:101").performKeyInput { pressKey(Key.DirectionCenter) }
+        compose.onNodeWithText("Continuar").performClick()
         compose.waitUntil(30_000) { vm.playerRequest?.episodeId == "202" && streamPaths.count { it.contains("/series/") && it.endsWith("/202.ts") } > previousEpisodeRequests }
         assertEquals(6_000L, vm.playerRequest?.resumePositionMs ?: -1L)
         showControls()
         compose.onNodeWithContentDescription("Voltar").performClick()
 
-        // If the panel has no wide image, the hero uses the original poster rather than a blur.
-        compose.onNodeWithTag("search-field").performTextInput("Filme 102")
-        compose.onNodeWithTag("search-field").performImeAction()
+        // If the panel has no wide image, the second release uses its original sharp poster.
+        compose.onNodeWithContentDescription("Home").performClick()
+        compose.onNodeWithTag("home-list").performScrollToIndex(0)
+        compose.onNodeWithContentDescription("Destaque 2: Filme 102").performClick()
         compose.waitUntil(30_000) { existsUnmerged("hero-poster-loaded-vod:102") && !keyboardIsVisible() }
         capture("screen-hero-poster.png")
 
@@ -373,6 +414,8 @@ class ScreenIntegrationTest {
                 view.width > view.height && view.width in 700..900 && view.height in 250..450
             }
             compose.onNodeWithTag("app-background", useUnmergedTree = true).assertExists()
+            assertLoginFitsAndIsCentered()
+            capture("screen-phone-login.png")
             compose.onNodeWithText("Servidor Xtream").performScrollTo().performTextInput(server.url("/").toString())
             compose.onNodeWithText("Usuário").performScrollTo().performTextInput("alice")
             compose.onNodeWithText("Senha").performScrollTo().performTextInput("senha")
@@ -386,7 +429,7 @@ class ScreenIntegrationTest {
             compose.waitUntil(30_000) { vm.content.movies.size == 30 }
             compose.onNodeWithTag("home-list").performScrollToNode(hasText("Explore sua biblioteca"))
             compose.waitUntil(30_000) { exists("poster-vod:101") && existsUnmerged("loaded-poster-vod:101") }
-            val homeCardWidth = compose.onNodeWithTag("poster-vod:101").fetchSemanticsNode().boundsInRoot.width
+            val homeCardWidth = compose.onAllNodesWithTag("poster-vod:101").fetchSemanticsNodes().first().boundsInRoot.width
             capture("screen-phone-home.png")
 
             compose.onNodeWithContentDescription("Filmes").performTouchInput { click() }
@@ -424,6 +467,7 @@ class ScreenIntegrationTest {
     @OptIn(ExperimentalTestApi::class)
     @Test fun largeScreenRemoteNavigationAndOverscanAreUsable() {
         val isTv = (compose.activity.resources.configuration.uiMode and Configuration.UI_MODE_TYPE_MASK) == Configuration.UI_MODE_TYPE_TELEVISION
+        assertLoginFitsAndIsCentered()
         compose.onNodeWithText("Servidor Xtream").performScrollTo().performTextInput(server.url("/").toString())
         compose.onNodeWithText("Usuário").performScrollTo().performTextInput("alice")
         compose.onNodeWithText("Senha").performScrollTo().performTextInput("senha")
@@ -469,6 +513,94 @@ class ScreenIntegrationTest {
             compose.waitUntil(15_000) { !keyboardIsVisible() && !systemImeShown() }
             capture("screen-android-tv.png")
         }
+    }
+
+    @Test fun cacheRestoresCatalogHeroAndGuidesOfflineAndSurvivesPartialFailures() {
+        compose.onNodeWithText("Servidor Xtream").performScrollTo().performTextInput(server.url("/").toString())
+        compose.onNodeWithText("Usuário").performScrollTo().performTextInput("alice")
+        compose.onNodeWithText("Senha").performScrollTo().performTextInput("senha")
+        compose.onNodeWithContentDescription("Entrar").performScrollTo().performClick()
+        val app = compose.activity.application as IPTVApplication
+        val vm = ViewModelProvider(compose.activity)[AppViewModel::class.java]
+        compose.waitUntil(30_000) { vm.content.channels.size == 2 && vm.content.movies.size == 30 &&
+            app.catalogCache.catalog.value?.isFresh() == true && app.catalogCache.heroes.value?.entries?.size == 6 &&
+            app.epgRepository.guide.value.programCount == 1 }
+        val credentials = app.repository.currentCredentials()!!
+        compose.runOnIdle { vm.channelFocused(vm.content.channels.first { it.id == "2" }) }
+        compose.waitUntil(20_000) { runBlocking { app.catalogCache.loadShortGuide(credentials).entries.containsKey("sports") } }
+        compose.onNodeWithContentDescription("Destaque 1: Filme Teste").performClick()
+        compose.waitUntil(30_000) { existsUnmerged("hero-backdrop-loaded-vod:101") }
+
+        val disk = CatalogCache(app.filesDir.resolve("catalog-cache"), app.repository)
+        val snapshot = runBlocking { disk.load(credentials) }!!
+        assertEquals(30, snapshot.movies.size)
+        assertEquals(2, snapshot.channels.size)
+        assertEquals(6, runBlocking { disk.loadHeroes(credentials) }.entries.size)
+        assertTrue(runBlocking { disk.loadShortGuide(credentials) }.entries.containsKey("sports"))
+        assertTrue(runBlocking { disk.load(credentials.copy(username = "other")) } == null)
+        val xml = XmltvRepository(app.cacheDir, ApiClient.httpClient())
+        assertTrue(runBlocking { xml.loadFromDisk(credentials, "") })
+        assertEquals(1, xml.guide.value.programCount)
+        val cacheFile = app.filesDir.resolve("catalog-cache/${CatalogCache.accountKey(credentials)}-catalog.json.gz")
+        val json = GZIPInputStream(cacheFile.inputStream()).bufferedReader().use { it.readText() }
+        assertFalse("Playback credentials must not be written into catalog entries", json.contains("senha"))
+        assertFalse(json.contains("/movie/alice/"))
+        val work = WorkManager.getInstance(app).getWorkInfosForUniqueWork(BackgroundSync.CATALOG_WORK).get(10, TimeUnit.SECONDS)
+        assertTrue("A periodic three-day catalog task must be scheduled", work.any { !it.state.isFinished })
+        val guideWork = WorkManager.getInstance(app).getWorkInfosForUniqueWork(BackgroundSync.GUIDE_WORK).get(10, TimeUnit.SECONDS)
+        assertTrue(guideWork.any { !it.state.isFinished })
+
+        // A fresh, newly created ViewModel must restore from disk without fetching six lists.
+        val countBeforeOffline = catalogueRequests.get()
+        offline.set(true)
+        val store = ViewModelStore()
+        lateinit var restored: AppViewModel
+        compose.runOnIdle {
+            app.catalogCache.forgetMemory()
+            restored = ViewModelProvider(store, ViewModelProvider.AndroidViewModelFactory.getInstance(app))[AppViewModel::class.java]
+        }
+        compose.waitUntil(30_000) { restored.content.movies.size == 30 && restored.content.channels.size == 2 &&
+            restored.content.series.size == 1 && restored.heroDetails.containsKey("vod:101") &&
+            restored.epg.containsKey("news") && restored.epg.containsKey("sports") }
+        assertEquals(countBeforeOffline, catalogueRequests.get())
+        val backdrop = restored.heroDetails.getValue("vod:101").backdrop!!
+        val image = runBlocking { app.imageLoader.execute(ImageRequest.Builder(app).data(backdrop).size(1280, 720)
+            .memoryCachePolicy(CachePolicy.DISABLED).networkCachePolicy(CachePolicy.DISABLED).build()) }
+        assertTrue("Hero artwork should be available from disk even without a network", image is SuccessResult && image.dataSource == DataSource.DISK)
+        compose.runOnIdle { store.clear() }
+        offline.set(false)
+
+        // Even a 200 response with an error object is not a valid list and must not erase movies.
+        failVodStreams.set(true)
+        val partial = runBlocking { app.catalogCache.refresh(credentials, force = true) }
+        assertEquals(1, partial.failures)
+        assertEquals(snapshot.movies, partial.snapshot?.movies)
+        assertFalse(partial.snapshot!!.complete)
+        val afterRestart = runBlocking { CatalogCache(app.filesDir.resolve("catalog-cache"), app.repository).load(credentials) }
+        assertEquals(snapshot.movies, afterRestart?.movies)
+        assertEquals(snapshot.movieCategories, afterRestart?.movieCategories)
+    }
+
+    @Test fun oldRefreshCannotOverwriteCacheAfterLogoutAndRelogin() = runBlocking {
+        val app = compose.activity.application as IPTVApplication
+        app.catalogCache.forgetMemory()
+        assertTrue(app.repository.login(server.url("/").toString(), "alice", "senha") is ApiResult.Success)
+        val credentials = app.repository.currentCredentials()!!
+        val oldToken = app.repository.sessionToken(credentials)!!
+        assertEquals(0, app.catalogCache.refresh(credentials, force = true).failures)
+        blockNextVod.set(true)
+        val pending = async(Dispatchers.Default) { app.catalogCache.refresh(credentials, force = true) }
+        try {
+            assertTrue("A catalog request should be in flight", vodBlocked.await(10, TimeUnit.SECONDS))
+            app.repository.logout()
+            assertTrue(app.repository.login(server.url("/").toString(), "alice", "senha") is ApiResult.Success)
+            assertFalse(app.repository.isSessionCurrent(credentials, oldToken))
+        } finally {
+            releaseVod.countDown()
+        }
+        assertTrue("A response belonging to a previous session must be discarded", pending.await().snapshot == null)
+        assertEquals(30, app.catalogCache.load(credentials)?.movies?.size)
+        app.repository.logout()
     }
 
     @Test fun oldCachedAccountDatesAreCorrectedWithoutNetwork() {
@@ -524,6 +656,16 @@ class ScreenIntegrationTest {
     private fun exists(tag: String) = compose.onAllNodesWithTag(tag).fetchSemanticsNodes().isNotEmpty()
     private fun existsUnmerged(tag: String) = compose.onAllNodesWithTag(tag, useUnmergedTree = true).fetchSemanticsNodes().isNotEmpty()
     private fun textExists(text: String) = runCatching { compose.onNodeWithText(text).assertExists() }.isSuccess
+
+    private fun assertLoginFitsAndIsCentered() {
+        val safe = compose.onNodeWithTag("device-safe-content", useUnmergedTree = true).fetchSemanticsNode().boundsInRoot
+        val panel = compose.onNodeWithTag("login-panel", useUnmergedTree = true).fetchSemanticsNode().boundsInRoot
+        assertTrue("The entire login panel must fit the safe viewport", panel.left >= safe.left && panel.top >= safe.top &&
+            panel.right <= safe.right && panel.bottom <= safe.bottom)
+        assertTrue("Login must be horizontally centered", kotlin.math.abs(panel.center.x - safe.center.x) <= 3f)
+        assertTrue("Login must be vertically centered", kotlin.math.abs(panel.center.y - safe.center.y) <= 3f)
+        compose.onNodeWithTag("login-submit").assertIsDisplayed()
+    }
 
     private fun assertSideBySide(vararg tags: String) {
         val bounds = tags.map { compose.onNodeWithTag(it).fetchSemanticsNode().boundsInRoot }

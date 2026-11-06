@@ -8,6 +8,7 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.pager.HorizontalPager
 import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -58,10 +59,13 @@ fun HomeScreen(content: ContentState, epg: Map<String, List<Programme>>, query: 
     val favoriteChannels = remember(content.channels, favoriteSet, query) {
         content.channels.filter { "ch:${it.id}" in favoriteSet && it.name.contains(query, true) }
     }
-    val candidates = remember(content.hero, favoriteVod, continuing, matching, query) {
-        (sequenceOf(content.hero).filterNotNull() + favoriteVod.asSequence() + continuing.asSequence() + matching.asSequence())
-            .filter { it.title.contains(query, true) }.distinctBy { it.favoriteKey }.take(6).toList()
+    // The hero is always the newest movies from the panel's Lançamentos category,
+    // never favorites, series or unrelated highly-rated titles.
+    val candidates = remember(content.movieCategories, content.movies) {
+        latestReleaseMovies(content.movieCategories, content.movies)
     }
+    val topMovies = remember(content.movies, query) { topRated(content.movies).filter { it.title.contains(query, true) } }
+    val topSeries = remember(content.series, query) { topRated(content.series).filter { it.title.contains(query, true) } }
     LaunchedEffect(candidates.map { it.favoriteKey }) { onPrepareHeroes(candidates) }
     val slides = remember(candidates, heroDetails) { candidates.map { it.withHeroDetails(heroDetails[it.favoriteKey]) } }
 
@@ -76,8 +80,16 @@ fun HomeScreen(content: ContentState, epg: Map<String, List<Programme>>, query: 
             if (slides.isNotEmpty()) item(key = "hero") {
                 HeroCarousel(slides, heroHeight, compact, loadingHeroKey, onSelectItem, onWatchItem)
             }
-            else item { Text(if (query.isBlank()) "Sua biblioteca está vazia." else "Nenhum resultado encontrado.",
-                color = XColors.TextDim, modifier = Modifier.padding(gutter)) }
+            else item(key = "hero-empty") { Text("Nenhum filme na categoria Lançamentos do provedor.",
+                color = XColors.TextDim, modifier = Modifier.padding(gutter).testTag("hero-empty")) }
+            item(key = "top-movies") {
+                PosterRail("Top 10 filmes · por nota do provedor", topMovies, gutter, cardWidth, favorites, onSelectItem, onToggleFav,
+                    "Nenhum filme disponível.", ranked = true, tag = "top-movies")
+            }
+            item(key = "top-series") {
+                PosterRail("Top 10 séries · por nota do provedor", topSeries, gutter, cardWidth, favorites, onSelectItem, onToggleFav,
+                    "Nenhuma série disponível.", ranked = true, tag = "top-series")
+            }
             item(key = "continue") {
                 PosterRail("Continuar assistindo", continuing, gutter, cardWidth, favorites, onSelectItem, onToggleFav,
                     "Os filmes e episódios que você começar aparecerão aqui.")
@@ -107,15 +119,17 @@ fun HomeScreen(content: ContentState, epg: Map<String, List<Programme>>, query: 
 
 @Composable
 private fun PosterRail(title: String, items: List<VodItem>, gutter: androidx.compose.ui.unit.Dp,
-                       cardWidth: androidx.compose.ui.unit.Dp, favorites: List<String>, onSelect: (VodItem) -> Unit, onToggleFav: (String) -> Unit, empty: String) {
-    Column {
+                       cardWidth: androidx.compose.ui.unit.Dp, favorites: List<String>, onSelect: (VodItem) -> Unit,
+                       onToggleFav: (String) -> Unit, empty: String, ranked: Boolean = false, tag: String = "") {
+    Column(if (tag.isNotEmpty()) Modifier.testTag(tag) else Modifier) {
         RailHeader(title, items.size, gutter)
         if (items.isEmpty()) EmptyRail(empty, gutter)
         else LazyRow(contentPadding = PaddingValues(start = gutter, end = gutter, top = 10.dp, bottom = 6.dp),
             horizontalArrangement = Arrangement.spacedBy(CatalogGridGap)) {
-            items(items, key = { it.favoriteKey }) { item ->
+            itemsIndexed(items, key = { _, item -> item.favoriteKey }) { index, item ->
                 PosterCard(item, width = cardWidth, onLongClick = { onToggleFav(item.favoriteKey) },
-                    onClick = { onSelect(item) }, isFavorite = item.favoriteKey in favorites)
+                    onClick = { onSelect(item) }, isFavorite = item.favoriteKey in favorites,
+                    rank = if (ranked) index + 1 else null)
             }
         }
     }
@@ -192,7 +206,7 @@ private fun HeroSlide(item: VodItem, compact: Boolean, loading: Boolean, onSelec
             0f to XColors.Bg.copy(alpha = .10f), .65f to Color.Transparent, 1f to XColors.Bg.copy(alpha = .8f))))
         Column(Modifier.align(Alignment.BottomStart).fillMaxWidth(if (compact) .88f else .52f)
             .padding(start = if (compact) 16.dp else 28.dp, bottom = if (compact) 42.dp else 38.dp)) {
-            Text(if (item.isSeries) "SÉRIE  ·  DESTAQUE" else "FILME  ·  DESTAQUE", color = XColors.TextDim,
+            Text("FILME  ·  LANÇAMENTOS", color = XColors.TextDim,
                 fontSize = 11.sp, letterSpacing = 1.1.sp, fontWeight = FontWeight.SemiBold)
             Spacer(Modifier.height(5.dp))
             Text(item.title, color = XColors.Text, fontSize = if (compact) 30.sp else 40.sp,
@@ -249,7 +263,7 @@ private fun LiveCard(ch: Channel, prog: List<Programme>?, now: Long, onLongClick
         Row(verticalAlignment = Alignment.CenterVertically) {
             Text("● AO VIVO", color = XColors.Live, fontSize = 10.sp, fontWeight = FontWeight.Bold)
             Spacer(Modifier.width(8.dp))
-            Box(Modifier.weight(1f).height(3.dp).background(Color(0x334F5666))) {
+            Box(Modifier.weight(1f).height(3.dp).background(Color(0x33888888))) {
                 Box(Modifier.fillMaxHeight().fillMaxWidth(pct).background(XColors.Live))
             }
             if (cur != null) Text("  ${fmtClock(cur.start)} – ${fmtClock(cur.stop)}", color = XColors.Body, fontSize = 10.sp)

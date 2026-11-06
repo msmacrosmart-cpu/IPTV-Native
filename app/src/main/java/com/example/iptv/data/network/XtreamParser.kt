@@ -128,7 +128,7 @@ object XtreamParser {
                 extension = obj.string("container_extension")?.trim().orEmpty().ifBlank { "mp4" },
                 categoryId = obj.string("category_id")?.takeIf { it.isNotBlank() },
                 plot = obj.string("plot")?.takeIf { it.isNotBlank() },
-                addedAtMillis = obj.long("added")?.takeIf { it > 0L }?.times(1000L)
+                addedAtMillis = epochMillis(obj.long("added"))
             )
         }?.distinctBy { it.id }.orEmpty()
 

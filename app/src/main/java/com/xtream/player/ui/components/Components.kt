@@ -76,7 +76,7 @@ fun PillField(
     value: String, onValueChange: (String) -> Unit, placeholder: String,
     modifier: Modifier = Modifier, password: Boolean = false,
     keyboardType: KeyboardType = KeyboardType.Text, imeAction: ImeAction = ImeAction.Next,
-    onDone: () -> Unit = {},
+    onDone: () -> Unit = {}, minHeight: Dp = 52.dp,
 ) {
     var focused by remember { mutableStateOf(false) }
     val shape = RoundedCornerShape(8.dp)
@@ -87,9 +87,9 @@ fun PillField(
         visualTransformation = if (password) PasswordVisualTransformation() else VisualTransformation.None,
         keyboardOptions = KeyboardOptions(keyboardType = if (password) KeyboardType.Password else keyboardType, imeAction = imeAction),
         keyboardActions = KeyboardActions(onDone = { onDone() }),
-        modifier = modifier.heightIn(min = 52.dp).onFocusChanged { focused = it.isFocused },
+        modifier = modifier.heightIn(min = minHeight).onFocusChanged { focused = it.isFocused },
         decorationBox = { inner ->
-            Box(Modifier.fillMaxWidth().heightIn(min = 52.dp).clip(shape).background(XColors.Field)
+            Box(Modifier.fillMaxWidth().heightIn(min = minHeight).clip(shape).background(XColors.Field)
                 .border(if (focused) 2.dp else 1.dp, if (focused) XColors.Focus else XColors.Line, shape)
                 .padding(horizontal = 16.dp), contentAlignment = Alignment.CenterStart) {
                 if (value.isEmpty()) Text(placeholder, color = XColors.TextDim, fontSize = 16.sp)
@@ -141,7 +141,7 @@ fun PosterArt(item: VodItem, modifier: Modifier = Modifier) {
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
 fun PosterCard(item: VodItem, width: Dp = 148.dp, onLongClick: () -> Unit = {},
-               onClick: () -> Unit, isFavorite: Boolean = false, modifier: Modifier = Modifier) {
+               onClick: () -> Unit, isFavorite: Boolean = false, modifier: Modifier = Modifier, rank: Int? = null) {
     val shape = RoundedCornerShape(12.dp)
     Column(modifier.width(width).testTag("poster-${item.favoriteKey}").focusGlow(shape).clip(shape)
         .background(Color(0xC90D0F12)).border(1.dp, XColors.Line, shape)
@@ -157,9 +157,12 @@ fun PosterCard(item: VodItem, width: Dp = 148.dp, onLongClick: () -> Unit = {},
                         fontSize = 11.sp, fontWeight = FontWeight.Bold)
                 }
             }
+            if (rank != null) Text("#$rank", color = XColors.Text, fontSize = 11.sp, fontWeight = FontWeight.Bold,
+                modifier = Modifier.align(Alignment.TopEnd).padding(6.dp).clip(RoundedCornerShape(6.dp))
+                    .background(Color(0xD9080A0D)).padding(horizontal = 6.dp, vertical = 4.dp))
             if (isFavorite) Icon(Icons.Filled.Favorite, "Favorito", tint = XColors.Live,
-                modifier = Modifier.align(Alignment.TopEnd).padding(8.dp).size(18.dp))
-            if (item.progress > 0f) Box(Modifier.align(Alignment.BottomCenter).fillMaxWidth().height(4.dp).background(Color(0x664F5666))) {
+                modifier = Modifier.align(Alignment.TopEnd).padding(top = if (rank == null) 8.dp else 34.dp, end = 8.dp).size(18.dp))
+            if (item.progress > 0f) Box(Modifier.align(Alignment.BottomCenter).fillMaxWidth().height(4.dp).background(Color(0x66888888))) {
                 Box(Modifier.fillMaxHeight().fillMaxWidth(item.progress.coerceIn(0f, 1f)).background(XColors.Accent))
             }
         }

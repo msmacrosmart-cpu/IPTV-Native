@@ -34,6 +34,7 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.withContext
+import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonElement
 import okhttp3.ResponseBody
 import retrofit2.Response
@@ -73,6 +74,15 @@ class XtreamRepository(private val session: SessionManager) {
     fun cachedAccount(): AccountInfo? = _account.value
 
     fun currentCredentials(): PanelCredentials? = credentials
+
+    /** Distinguishes logout/re-login even when the same credentials are used again. */
+    fun sessionToken(expected: PanelCredentials): Long? = synchronized(serviceLock) {
+        sessionGeneration.get().takeIf { credentials == expected }
+    }
+
+    fun isSessionCurrent(expected: PanelCredentials, token: Long): Boolean = synchronized(serviceLock) {
+        credentials == expected && sessionGeneration.get() == token
+    }
 
     /**
      * Validates the stored credentials against the panel. Used on cold start so a session
@@ -138,6 +148,7 @@ class XtreamRepository(private val session: SessionManager) {
             synchronized(serviceLock) {
                 // A late account refresh must not restore a session after the user has logged out.
                 if (generation != sessionGeneration.get()) return@withContext ApiResult.Failure("Sessão encerrada.")
+                if (credentials != newCredentials) sessionGeneration.incrementAndGet()
                 credentials = newCredentials
                 api = service
                 if (persist) session.saveCredentials(newCredentials)
@@ -177,12 +188,12 @@ class XtreamRepository(private val session: SessionManager) {
     // ------------------------------------------------------------------- catalog
 
     suspend fun liveCategories(): ApiResult<List<LiveCategory>> =
-        withApi({ XtreamParser.parseLiveCategories(it) }) { service, creds ->
+        withApi({ XtreamParser.parseLiveCategories(it) }, expectArray = true) { service, creds ->
             service.categories(creds.username, creds.password, XtreamActions.LIVE_CATEGORIES)
         }
 
     suspend fun liveChannels(categoryId: String? = null): ApiResult<List<LiveChannel>> =
-        withApi({ XtreamParser.parseLiveChannels(it) }) { service, creds ->
+        withApi({ XtreamParser.parseLiveChannels(it) }, expectArray = true) { service, creds ->
             service.streams(creds.username, creds.password, XtreamActions.LIVE_STREAMS, categoryId)
         }
 
@@ -192,12 +203,12 @@ class XtreamRepository(private val session: SessionManager) {
         }
 
     suspend fun vodCategories(): ApiResult<List<VodCategory>> =
-        withApi({ XtreamParser.parseVodCategories(it) }) { service, creds ->
+        withApi({ XtreamParser.parseVodCategories(it) }, expectArray = true) { service, creds ->
             service.categories(creds.username, creds.password, XtreamActions.VOD_CATEGORIES)
         }
 
     suspend fun vodItems(categoryId: String? = null): ApiResult<List<VodItem>> =
-        withApi({ XtreamParser.parseVodStreams(it) }) { service, creds ->
+        withApi({ XtreamParser.parseVodStreams(it) }, expectArray = true) { service, creds ->
             service.streams(creds.username, creds.password, XtreamActions.VOD_STREAMS, categoryId)
         }
 
@@ -207,12 +218,12 @@ class XtreamRepository(private val session: SessionManager) {
         }
 
     suspend fun seriesCategories(): ApiResult<List<SeriesCategory>> =
-        withApi({ XtreamParser.parseSeriesCategories(it) }) { service, creds ->
+        withApi({ XtreamParser.parseSeriesCategories(it) }, expectArray = true) { service, creds ->
             service.categories(creds.username, creds.password, XtreamActions.SERIES_CATEGORIES)
         }
 
     suspend fun series(categoryId: String? = null): ApiResult<List<SeriesItem>> =
-        withApi({ XtreamParser.parseSeries(it) }) { service, creds ->
+        withApi({ XtreamParser.parseSeries(it) }, expectArray = true) { service, creds ->
             service.streams(creds.username, creds.password, XtreamActions.SERIES, categoryId)
         }
 
@@ -267,8 +278,10 @@ class XtreamRepository(private val session: SessionManager) {
         updateSettings(_settings.value.copy(lastEpgSyncMillis = 0L))
     }
 
-    fun markEpgSynced() {
+    fun markEpgSyncedIfActive(expected: PanelCredentials, token: Long? = null): Boolean = synchronized(serviceLock) {
+        if (credentials != expected || (token != null && sessionGeneration.get() != token)) return@synchronized false
         updateSettings(_settings.value.copy(lastEpgSyncMillis = System.currentTimeMillis()))
+        true
     }
 
     private fun updateSettings(newSettings: UserSettings) {
@@ -278,8 +291,8 @@ class XtreamRepository(private val session: SessionManager) {
 
     // ---------------------------------------------------------------------- URLs
 
-    fun liveStreamUrl(channelId: Int, format: StreamFormat): String {
-        val creds = credentials ?: return ""
+    fun liveStreamUrl(channelId: Int, format: StreamFormat, forCredentials: PanelCredentials? = credentials): String {
+        val creds = forCredentials ?: return ""
         val base = PanelUrl.normalize(creds.serverUrl)
         return buildString {
             append(base)
@@ -294,8 +307,8 @@ class XtreamRepository(private val session: SessionManager) {
         }
     }
 
-    fun movieStreamUrl(item: VodItem): String {
-        val creds = credentials ?: return ""
+    fun movieStreamUrl(item: VodItem, forCredentials: PanelCredentials? = credentials): String {
+        val creds = forCredentials ?: return ""
         val base = PanelUrl.normalize(creds.serverUrl)
         val extension = item.extension.trim().ifBlank { "mp4" }
         return buildString {
@@ -347,10 +360,12 @@ class XtreamRepository(private val session: SessionManager) {
      */
     private suspend fun <T> withApi(
         parse: (JsonElement) -> T,
+        expectArray: Boolean = false,
         request: suspend (XtreamApiService, PanelCredentials) -> Response<ResponseBody>
     ): ApiResult<T> = withContext(Dispatchers.IO) {
         val creds = credentials
             ?: return@withContext ApiResult.Failure("Sessão não encontrada. Faça login novamente.")
+        val token = sessionToken(creds) ?: return@withContext ApiResult.Failure("Sessão alterada.")
 
         val service = try {
             serviceFor(creds)
@@ -360,6 +375,10 @@ class XtreamRepository(private val session: SessionManager) {
 
         try {
             val response = request(service, creds)
+            if (!response.isSuccessful) {
+                response.errorBody()?.close()
+                return@withContext ApiResult.Failure(httpErrorMessage(response.code()))
+            }
             val body = response.body()?.use { it.string() }.orEmpty()
 
             if (body.isBlank()) {
@@ -369,7 +388,12 @@ class XtreamRepository(private val session: SessionManager) {
             val root = runCatching { ApiClient.json.parseToJsonElement(body) }.getOrNull()
                 ?: return@withContext ApiResult.Failure("Resposta inválida do painel (JSON malformado).")
 
-            ApiResult.Success(parse(root))
+            if (expectArray && root !is JsonArray) {
+                return@withContext ApiResult.Failure("O painel não retornou uma lista válida; o cache existente foi preservado.")
+            }
+            val parsed = parse(root)
+            if (!isSessionCurrent(creds, token)) return@withContext ApiResult.Failure("Sessão alterada.")
+            ApiResult.Success(parsed)
         } catch (e: CancellationException) {
             throw e
         } catch (e: SocketTimeoutException) {
@@ -386,12 +410,10 @@ class XtreamRepository(private val session: SessionManager) {
         }
     }
 
-    private fun serviceFor(creds: PanelCredentials): XtreamApiService {
-        api?.let { return it }
-        synchronized(serviceLock) {
-            api?.let { return it }
-            return ApiClient.create(creds.serverUrl).also { api = it }
-        }
+    private fun serviceFor(creds: PanelCredentials): XtreamApiService = synchronized(serviceLock) {
+        // Never send one account's credentials to a service created for another account.
+        check(credentials == creds) { "A sessão foi alterada." }
+        api ?: ApiClient.create(creds.serverUrl).also { api = it }
     }
 
     private fun httpErrorMessage(code: Int): String = when (code) {

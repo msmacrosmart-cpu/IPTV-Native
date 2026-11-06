@@ -8,6 +8,11 @@ import androidx.compose.runtime.setValue
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.example.iptv.IPTVApplication
+import com.example.iptv.data.cache.BackgroundSync
+import com.example.iptv.data.cache.CachedCatalog
+import com.example.iptv.data.cache.CachedShortGuideEntry
+import com.example.iptv.data.cache.CatalogCache
+import com.example.iptv.data.cache.HeroTarget
 import com.example.iptv.data.epg.EpgUpdateState
 import com.example.iptv.data.model.AccountInfo
 import com.example.iptv.data.model.ApiResult
@@ -16,8 +21,6 @@ import com.example.iptv.data.model.PanelCredentials
 import com.example.iptv.data.model.StreamFormat
 import com.example.iptv.data.model.VodDetails
 import kotlinx.coroutines.Job
-import kotlinx.coroutines.async
-import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import java.util.Locale
@@ -37,7 +40,7 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
     private var detailJob: Job? = null
     private var restoreJob: Job? = null
     private var heroPlayJob: Job? = null
-    private val heroInfoJobs = mutableMapOf<String, Job>()
+    private var heroPrepJob: Job? = null
     private var generation = 0
     private var detailGeneration = 0
     private var heroPlayGeneration = 0
@@ -71,6 +74,25 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
 
     init {
         viewModelScope.launch {
+            app.catalogCache.catalog.collect { cached ->
+                val creds = repository.currentCredentials()
+                if (cached != null && creds != null && session?.isDemo == false &&
+                    cached.accountKey == CatalogCache.accountKey(creds) && session?.username == creds.username && session?.server == creds.serverUrl) {
+                    val mapped = applyProgress(mapCatalog(cached, creds))
+                    if (repository.currentCredentials() == creds) content = mapped
+                }
+            }
+        }
+        viewModelScope.launch {
+            app.catalogCache.heroes.collect { cached ->
+                val creds = repository.currentCredentials()
+                if (cached != null && creds != null && session?.isDemo == false &&
+                    cached.accountKey == CatalogCache.accountKey(creds) && session?.username == creds.username && session?.server == creds.serverUrl) {
+                    heroDetails = cached.entries.mapValues { it.value.details }
+                }
+            }
+        }
+        viewModelScope.launch {
             xmltv.guide.collect { if (session?.isDemo == false) mergeGuide() }
         }
         viewModelScope.launch {
@@ -83,13 +105,17 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
         }
         val cached = repository.cachedAccount()
         if (repository.hasStoredSession() && cached != null && repository.currentCredentials() != null) {
+            val creds = repository.currentCredentials()!!
             activate(cached)
+            val token = generation
             restoreJob = viewModelScope.launch {
                 when (val result = repository.restoreSession()) {
                     is ApiResult.Success -> {
-                        if (session?.isDemo == false) session = mapSession(result.data, repository.currentCredentials()!!)
+                        if (generation == token && repository.currentCredentials() == creds && session?.isDemo == false)
+                            session = mapSession(result.data, creds)
                     }
-                    is ApiResult.Failure -> notice = "Não foi possível validar a conta agora: ${result.message}"
+                    is ApiResult.Failure -> if (generation == token && repository.currentCredentials() == creds)
+                        notice = "Não foi possível validar a conta agora: ${result.message}"
                 }
             }
         }
@@ -108,8 +134,12 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
             loginError = null
             try {
                 if (server.trim().equals("demo", true)) {
-                    repository.logout()
+                    val previous = repository.currentCredentials()
                     cancelActiveWork()
+                    BackgroundSync.cancel(app)
+                    app.catalogCache.forgetMemory()
+                    repository.logout()
+                    if (previous != null) viewModelScope.launch { app.catalogCache.deleteAccount(previous) }
                     xmltv.invalidate()
                     library.select(null)
                     history = library.progress()
@@ -136,6 +166,8 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
         val creds = repository.currentCredentials() ?: return
         cancelActiveWork()
         xmltv.invalidate()
+        app.catalogCache.forgetMemory()
+        BackgroundSync.schedule(app)
         library.select(creds)
         history = library.progress()
         favorites.clear(); favorites.addAll(library.favorites())
@@ -143,19 +175,39 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
         epg = emptyMap(); epgUpdatedAt = null; epgMessage = null
         content = emptyContent()
         session = mapSession(account, creds)
-        refreshContent()
         val token = generation
+        catalogueJob = viewModelScope.launch {
+            // Show saved backdrops and catalog before considering the network. Playback URLs
+            // are rebuilt with the current session rather than being stored in the snapshot.
+            app.catalogCache.loadHeroes(creds)
+            if (generation != token || repository.currentCredentials() != creds) return@launch
+            val cached = app.catalogCache.load(creds)
+            if (generation != token || repository.currentCredentials() != creds) return@launch
+            if (cached?.isFresh() != true) {
+                val result = app.catalogCache.refresh(creds)
+                if (generation == token && repository.currentCredentials() == creds && result.failures > 0)
+                    notice = "Não foi possível atualizar todo o catálogo. Os dados anteriores foram preservados."
+            }
+        }
         guideJob = viewModelScope.launch {
+            val short = app.catalogCache.loadShortGuide(creds)
+            if (generation != token || repository.currentCredentials() != creds) return@launch
+            short.entries.forEach { (key, entry) ->
+                shortGuide[key] = entry.programmes
+                shortGuideFetchedAt[key] = entry.fetchedAtMillis
+            }
+            mergeGuide()
             val settings = repository.settings.value
             val loaded = xmltv.loadFromDisk(creds, settings.customXmltvUrl)
-            if (generation != token) return@launch
+            if (generation != token || repository.currentCredentials() != creds) return@launch
             if (loaded) {
                 epgUpdatedAt = settings.lastEpgSyncMillis.takeIf { it > 0 }
                 mergeGuide()
             }
-            if (settings.autoUpdateEpg && (!loaded || System.currentTimeMillis() - settings.lastEpgSyncMillis > 12 * 3_600_000L)) {
-                updateGuide(creds, token)
-            }
+            val last = settings.lastEpgSyncMillis
+            val guideFresh = last > 0 && System.currentTimeMillis() >= last &&
+                System.currentTimeMillis() - last < BackgroundSync.GUIDE_TTL_MILLIS
+            if (settings.autoUpdateEpg && (!loaded || !guideFresh)) updateGuide(creds, token)
         }
     }
 
@@ -169,86 +221,63 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
             account.maxConnections, epgSource = source)
     }
 
+    private fun mapCatalog(cached: CachedCatalog, creds: PanelCredentials): ContentState {
+        val settings = repository.settings.value
+        val account = repository.account.value
+        val formats = account?.allowedFormats.orEmpty()
+        val format = if (formats.isNotEmpty() && formats.none { it.contains("ts", true) } && account?.supportsHls == true)
+            StreamFormat.HLS else settings.streamFormat
+        val live = cached.channels.mapIndexed { i, channel ->
+            Channel(channel.id.toString(), channel.streamNumber.takeIf { it > 0 } ?: (i + 1), channel.name, channel.icon,
+                channel.categoryId.orEmpty(), channel.epgChannelId?.trim()?.lowercase(Locale.ROOT) ?: "stream:${channel.id}",
+                repository.liveStreamUrl(channel.id, format, creds), repository.liveStreamUrl(channel.id, format.other(), creds))
+        }
+        val movies = cached.movies.map { movie ->
+            VodItem(movie.id.toString(), movie.name, YEAR.find(movie.name)?.value.orEmpty(),
+                movie.rating?.toDoubleOrNull() ?: (movie.rating5?.times(2)) ?: 0.0, "", movie.plot.orEmpty(),
+                movie.icon, null, movie.categoryId.orEmpty(), repository.movieStreamUrl(movie, creds), addedAtMillis = movie.addedAtMillis)
+        }
+        val series = cached.series.map { show ->
+            VodItem(show.id.toString(), show.name, show.releaseDate?.take(4).orEmpty(),
+                show.rating?.toDoubleOrNull() ?: (show.rating5?.times(2)) ?: 0.0, show.genre.orEmpty(),
+                show.plot.orEmpty(), show.cover, show.backdrop, show.categoryId.orEmpty(), null, show.id.toString())
+        }
+        return ContentState(cached.liveCategories.map { Category(it.id, it.name) }, live,
+            cached.movieCategories.map { Category(it.id, it.name) }, movies,
+            cached.seriesCategories.map { Category(it.id, it.name) }, series)
+    }
+
     fun refreshContent() {
         if (session?.isDemo == true) {
             content = applyProgress(DemoData.content())
             notice = "Catálogo atualizado"
             return
         }
+        val creds = repository.currentCredentials() ?: return
         if (session == null || catalogueJob?.isActive == true) return
         val token = generation
-        val previous = content
         catalogueJob = viewModelScope.launch {
-            val next = coroutineScope {
-                val lc = async { repository.liveCategories() }
-                val ch = async { repository.liveChannels() }
-                val mc = async { repository.vodCategories() }
-                val mv = async { repository.vodItems() }
-                val sc = async { repository.seriesCategories() }
-                val se = async { repository.series() }
-                val liveCats = lc.await(); val channels = ch.await(); val movieCats = mc.await()
-                val movies = mv.await(); val seriesCats = sc.await(); val series = se.await()
-                val errors = listOf(liveCats, channels, movieCats, movies, seriesCats, series).count { it is ApiResult.Failure }
-                if (errors > 0 && generation == token) notice = "Não foi possível carregar parte do catálogo. Tente atualizar."
-                val settings = repository.settings.value
-                val account = repository.account.value
-                val formats = account?.allowedFormats.orEmpty()
-                val format = if (formats.isNotEmpty() && formats.none { it.contains("ts", true) } && account?.supportsHls == true)
-                    StreamFormat.HLS else settings.streamFormat
-                val live = channels.getOrNull()?.mapIndexed { i, c ->
-                    Channel(c.id.toString(), c.streamNumber.takeIf { it > 0 } ?: (i + 1), c.name, c.icon,
-                        c.categoryId.orEmpty(), c.epgChannelId?.trim()?.lowercase(Locale.ROOT) ?: "stream:${c.id}",
-                        repository.liveStreamUrl(c.id, format), repository.liveStreamUrl(c.id, format.other()))
-                } ?: previous.channels
-                val vod = movies.getOrNull()?.map { m ->
-                    VodItem(m.id.toString(), m.name, YEAR.find(m.name)?.value.orEmpty(),
-                        m.rating?.toDoubleOrNull() ?: (m.rating5?.times(2)) ?: 0.0, "", m.plot.orEmpty(),
-                        m.icon, null, m.categoryId.orEmpty(), repository.movieStreamUrl(m))
-                } ?: previous.movies
-                val shows = series.getOrNull()?.map { s ->
-                    VodItem(s.id.toString(), s.name, s.releaseDate?.take(4).orEmpty(),
-                        s.rating?.toDoubleOrNull() ?: (s.rating5?.times(2)) ?: 0.0, s.genre.orEmpty(),
-                        s.plot.orEmpty(), s.cover, s.backdrop, s.categoryId.orEmpty(), null, s.id.toString())
-                } ?: previous.series
-                ContentState(liveCats.getOrNull()?.map { Category(it.id, it.name) } ?: previous.liveCategories, live,
-                    movieCats.getOrNull()?.map { Category(it.id, it.name) } ?: previous.movieCategories, vod,
-                    seriesCats.getOrNull()?.map { Category(it.id, it.name) } ?: previous.seriesCategories, shows,
-                    if (movies is ApiResult.Failure) previous.hero else
-                        vod.filter { it.poster != null }.maxByOrNull { it.rating } ?: vod.firstOrNull())
+            val result = app.catalogCache.refresh(creds, force = true)
+            if (generation == token && repository.currentCredentials() == creds) {
+                notice = if (result.failures == 0) "Catálogo atualizado" else
+                    "Não foi possível atualizar todo o catálogo. Os dados anteriores foram preservados."
             }
-            if (generation != token) return@launch
-            content = applyProgress(next)
         }
     }
 
-    /** Fetch wide artwork for only the six visible hero candidates, not the whole catalog. */
+    /** Fetch/cache artwork only for the latest six release movies, never the whole library. */
     fun prepareHeroItems(items: List<VodItem>) {
+        val creds = repository.currentCredentials() ?: return
         if (session?.isDemo != false) return
-        val candidates = items.take(6)
-        val visibleKeys = candidates.map { it.favoriteKey }.toSet()
-        // Fast search changes should not leave dozens of obsolete network requests running.
-        heroInfoJobs.entries.filter { it.key !in visibleKeys && it.value.isActive }.forEach {
-            it.value.cancel(); heroInfoJobs.remove(it.key)
-        }
-        val token = generation
-        candidates.forEach { item ->
-            val key = item.favoriteKey
-            val id = (item.seriesId ?: item.id).toIntOrNull() ?: return@forEach
-            if (!item.backdrop.isNullOrBlank() || heroInfoJobs.containsKey(key)) return@forEach
-            // Keep a small bounded cache for low-memory TV sticks.
-            if (heroInfoJobs.size >= 60) heroInfoJobs.entries.firstOrNull { !it.value.isActive && it.key !in visibleKeys }?.let {
-                heroInfoJobs.remove(it.key); heroDetails = heroDetails - it.key
-            }
-            heroInfoJobs[key] = viewModelScope.launch {
-                val result = if (item.isSeries) repository.seriesDetails(id) else repository.vodDetails(id)
-                if (generation == token && result is ApiResult.Success) heroDetails = heroDetails + (key to result.data)
-            }
-        }
+        val targets = items.asSequence().filter { !it.isSeries }.take(6)
+            .mapNotNull { item -> item.id.toIntOrNull()?.let { HeroTarget(it, item.poster) } }.toList()
+        heroPrepJob?.cancel()
+        heroPrepJob = viewModelScope.launch { app.heroLoader.prepare(creds, targets) }
     }
 
     private fun applyProgress(value: ContentState): ContentState {
         fun update(item: VodItem): VodItem = item.copy(progress = history[item.favoriteKey]?.fraction ?: item.progress)
-        return value.copy(movies = value.movies.map(::update), series = value.series.map(::update), hero = value.hero?.let(::update))
+        return value.copy(movies = value.movies.map(::update), series = value.series.map(::update))
     }
 
     fun refreshEpg() {
@@ -266,8 +295,8 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
 
     private suspend fun updateGuide(creds: PanelCredentials, token: Int) {
         epgMessage = null
-        if (xmltv.refresh(creds, repository.settings.value.customXmltvUrl) && generation == token) {
-            repository.markEpgSynced()
+        if (xmltv.refresh(creds, repository.settings.value.customXmltvUrl) && generation == token &&
+            repository.markEpgSyncedIfActive(creds)) {
             epgUpdatedAt = repository.settings.value.lastEpgSyncMillis
             mergeGuide()
             epgMessage = "Guia atualizado: ${epg.values.sumOf { it.size }} programas"
@@ -289,15 +318,22 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
         if (epg[key].orEmpty().any { it.stop > System.currentTimeMillis() }) return
         if (System.currentTimeMillis() - (shortGuideFetchedAt[key] ?: 0L) < 10 * 60_000L) return
         val id = channel.id.toIntOrNull() ?: return
+        val creds = repository.currentCredentials() ?: return
         shortEpgJob?.cancel()
         val token = generation
         shortEpgJob = viewModelScope.launch {
             delay(250)
             when (val result = repository.shortEpg(id)) {
-                is ApiResult.Success -> if (generation == token) {
-                    shortGuideFetchedAt[key] = System.currentTimeMillis()
-                    shortGuide[key] = result.data.map { Programme(key, it.title, it.startMillis, it.endMillis) }
-                    mergeGuide()
+                is ApiResult.Success -> if (generation == token && repository.currentCredentials() == creds) {
+                    val now = System.currentTimeMillis()
+                    val programs = result.data.map { Programme(key, it.title, it.startMillis, it.endMillis) }
+                    // An empty/broken short response must not erase still-usable cached data.
+                    if (programs.any { it.stop > now }) {
+                        shortGuideFetchedAt[key] = now
+                        shortGuide[key] = programs
+                        mergeGuide()
+                        app.catalogCache.saveShortGuide(creds, key, CachedShortGuideEntry(now, programs))
+                    }
                 }
                 is ApiResult.Failure -> Unit
             }
@@ -426,8 +462,7 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
         val progress = library.saveProgress(key, position, duration, request.episodeId)
         history = if (progress == null) history - key else history + (key to progress)
         fun update(item: VodItem) = if (item.favoriteKey == key) item.copy(progress = progress?.fraction ?: 0f) else item
-        content = content.copy(movies = content.movies.map(::update), series = content.series.map(::update),
-            hero = content.hero?.let(::update))
+        content = content.copy(movies = content.movies.map(::update), series = content.series.map(::update))
         detailItem = detailItem?.let(::update)
     }
 
@@ -446,10 +481,14 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
     fun consumeChannelRestore() { lastPlayedChannelId = null }
 
     fun logout() {
+        val previous = repository.currentCredentials()
         restoreJob?.cancel()
         cancelActiveWork()
+        BackgroundSync.cancel(app)
+        app.catalogCache.forgetMemory()
         xmltv.clear()
         repository.logout()
+        if (previous != null) viewModelScope.launch { app.catalogCache.deleteAccount(previous) }
         session = null; content = emptyContent(); epg = emptyMap(); epgUpdatedAt = null
         epgLoading = false; epgMessage = null; loginError = null; notice = null; playerRequest = null; lastPlayedChannelId = null
         favorites.clear(); history = emptyMap(); shortGuide.clear(); shortGuideFetchedAt.clear()
@@ -460,7 +499,7 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
         catalogueJob?.cancel(); guideJob?.cancel(); shortEpgJob?.cancel(); episodeJob?.cancel()
         detailJob?.cancel()
         cancelHeroPlayback()
-        heroInfoJobs.values.forEach { it.cancel() }; heroInfoJobs.clear(); heroDetails = emptyMap()
+        heroPrepJob?.cancel(); heroPrepJob = null; heroDetails = emptyMap()
         detailItem = null; episodeSelection = null; episodeLoading = false; episodeError = null
     }
 

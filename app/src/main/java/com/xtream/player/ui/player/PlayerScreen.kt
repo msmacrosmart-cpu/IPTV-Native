@@ -287,7 +287,7 @@ fun PlayerScreen(request: PlayerRequest, onBack: () -> Unit, previewMode: Boolea
             else -> Modifier.fillMaxSize()
         }
         if (previewMode) {
-            Box(ratioMod.background(Brush.linearGradient(listOf(Color(0xFF16304F), Color(0xFF0A1220)))))
+            Box(ratioMod.background(Brush.linearGradient(listOf(Color(0xFF252628), Color(0xFF0D0F12)))))
         } else AndroidView(
             factory = { c -> PlayerView(c).apply { useController = false; keepScreenOn = true; this.player = player; isFocusable = false; isFocusableInTouchMode = false; descendantFocusability = ViewGroup.FOCUS_BLOCK_DESCENDANTS; setShowBuffering(PlayerView.SHOW_BUFFERING_NEVER) } },
             update = {

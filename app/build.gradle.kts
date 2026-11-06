@@ -13,8 +13,8 @@ android {
         applicationId = "com.example.iptv"
         minSdk = 24
         targetSdk = 35
-        versionCode = 5
-        versionName = "2.3.0"
+        versionCode = 6
+        versionName = "2.4.0"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
 
         vectorDrawables {
@@ -82,6 +82,7 @@ dependencies {
     implementation("androidx.lifecycle:lifecycle-runtime-compose:2.8.7")
     implementation("androidx.activity:activity-compose:1.10.0")
     implementation("androidx.navigation:navigation-compose:2.8.5")
+    implementation("androidx.work:work-runtime-ktx:2.10.0")
 
     // ---- Jetpack Compose & Material 3 ----
     implementation(platform("androidx.compose:compose-bom:2024.12.01"))

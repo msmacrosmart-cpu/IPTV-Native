@@ -14,25 +14,27 @@ import com.example.iptv.R
 /** Dark graphite tokens from IPTVnator's web dark palette. */
 object XColors {
     val Shell = Color(0xFF0D0F12)
-    val Sidebar = Color(0xFF111318)
-    val Bg = Color(0xFF161A22)
-    val Panel = Color(0xFF1E2330)
-    val PanelHeader = Color(0xFF232840)
-    val CardHover = Color(0xFF252B3A)
-    val Accent = Color(0xFF78ADFF)
+    // Neutral translucent surfaces let the supplied background show through, including
+    // selected rows and the login panel. Focus still has a high-contrast white outline.
+    val Sidebar = Color(0xE60D0F12)
+    val Bg = Color(0xFF111214)
+    val Panel = Color(0xC90D0F12)
+    val PanelHeader = Color(0xE018191B)
+    val CardHover = Color(0xD02A2B2D)
+    val Accent = Color(0xFFE2E4E8)
     val Blue = Accent
-    val BlueSoft = Color(0xFFA9CAFF)
-    val Focus = Color(0xFF8CBAFF)
-    val Text = Color(0xFFD8DCE8)
-    val TextDim = Color(0xFFA1AABD)
-    val Body = Color(0xFF8B93A8)
+    val BlueSoft = Color(0xFFF0F1F3)
+    val Focus = Color(0xFFFFFFFF)
+    val Text = Color(0xFFE3E4E7)
+    val TextDim = Color(0xFFB4B6BB)
+    val Body = Color(0xFF999CA3)
     val Line = Color(0x24FFFFFF)
     val Field = Color(0x0DFFFFFF)
     val Gold = Color(0xFFFBBF24)
     val Live = Color(0xFFFF8F8F)
     val Ok = Color(0xFF4ADE80)
     val Contour = Accent
-    val Selection = Color(0x2E78ADFF)
+    val Selection = Color(0xC9262729)
 }
 
 val DmSans = FontFamily(Font(R.font.dm_sans))

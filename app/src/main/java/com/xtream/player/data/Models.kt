@@ -1,6 +1,7 @@
 package com.xtream.player.data
 
 import com.example.iptv.data.model.VodDetails
+import kotlinx.serialization.Serializable
 
 data class Session(
     val server: String,
@@ -17,6 +18,7 @@ data class Session(
 
 data class Category(val id: String, val name: String)
 
+@Serializable
 data class Programme(val channelId: String, val title: String, val start: Long, val stop: Long)
 
 data class Channel(
@@ -46,6 +48,7 @@ data class VodItem(
     val c1: Long = 0xFF3A3A40,
     val c2: Long = 0xFF111113,
     val isSeries: Boolean = seriesId != null,
+    val addedAtMillis: Long? = null,
 ) {
     val favoriteKey: String get() = "${if (isSeries) "series" else "vod"}:$id"
 }
@@ -66,7 +69,6 @@ data class ContentState(
     val movies: List<VodItem>,
     val seriesCategories: List<Category>,
     val series: List<VodItem>,
-    val hero: VodItem?,
 )
 
 data class PlayerRequest(
@@ -88,4 +90,4 @@ fun List<Programme>?.nowNext(now: Long): Pair<Programme?, Programme?> {
     return cur to next
 }
 
-fun emptyContent() = ContentState(emptyList(), emptyList(), emptyList(), emptyList(), emptyList(), emptyList(), null)
+fun emptyContent() = ContentState(emptyList(), emptyList(), emptyList(), emptyList(), emptyList(), emptyList())

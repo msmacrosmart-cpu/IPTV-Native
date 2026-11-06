@@ -102,6 +102,8 @@ class XmltvRepository(cacheDir: File, private val http: OkHttpClient) {
                 if (!setState(token, EpgUpdateState.Parsing)) return@withLock false
                 val result = parse(downloaded)
                 currentCoroutineContext().ensureActive()
+                if (result.programCount == 0 && _guide.value.sourceKey == key && _guide.value.programCount > 0)
+                    throw IOException("O EPG recebido não contém programação válida; o guia anterior foi preservado.")
                 synchronized(stateLock) {
                     if (token != generation.get()) return@withLock false
                     val target = File(directory, "$key.xml")

@@ -100,20 +100,12 @@ fun IconAction(icon: ImageVector, label: String, modifier: Modifier = Modifier, 
 
 @Composable
 fun TopBar(
-    tab: Tab, query: String, onQuery: (String) -> Unit, playlistName: String,
-    playlistInfo: String, searchFocus: FocusRequester, compact: Boolean, onRefresh: () -> Unit,
+    tab: Tab, query: String, onQuery: (String) -> Unit,
+    searchFocus: FocusRequester, compact: Boolean, onRefresh: () -> Unit,
 ) {
     val hideKeyboard = rememberHideKeyboard()
     Row(Modifier.fillMaxWidth().height(56.dp).background(XColors.Sidebar).padding(horizontal = if (compact) 10.dp else 20.dp),
         verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-        Row(Modifier.width(if (compact) 100.dp else 250.dp).clip(RoundedCornerShape(9.dp))
-            .background(Color(0x0DFFFFFF)).padding(horizontal = 10.dp, vertical = 5.dp), verticalAlignment = Alignment.CenterVertically) {
-            Icon(Icons.Outlined.PlaylistPlay, null, tint = XColors.TextDim, modifier = Modifier.size(19.dp))
-            Column(Modifier.padding(start = 8.dp).weight(1f)) {
-                Text(playlistName, color = XColors.Text, fontSize = 13.sp, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                if (!compact) Text(playlistInfo, color = XColors.Body, fontSize = 10.sp, maxLines = 1)
-            }
-        }
         if (tab != Tab.Settings && tab != Tab.Multi) {
             val shape = RoundedCornerShape(10.dp)
             var focused by remember { mutableStateOf(false) }

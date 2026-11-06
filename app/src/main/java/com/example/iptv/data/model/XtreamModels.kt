@@ -1,5 +1,7 @@
 package com.example.iptv.data.model
 
+import kotlinx.serialization.Serializable
+
 /** Session credentials for a Xtream Codes panel. */
 data class PanelCredentials(
     val serverUrl: String = "",
@@ -62,11 +64,13 @@ data class UserSettings(
     val customXmltvUrl: String = ""
 )
 
+@Serializable
 data class LiveCategory(
     val id: String,
     val name: String
 )
 
+@Serializable
 data class LiveChannel(
     val id: Int,
     val name: String,
@@ -97,11 +101,13 @@ data class EpgEntry(
     fun isCurrent(nowMillis: Long): Boolean = nowMillis in startMillis until endMillis
 }
 
+@Serializable
 data class VodCategory(
     val id: String,
     val name: String
 )
 
+@Serializable
 data class VodItem(
     val id: Int,
     val name: String,
@@ -114,11 +120,13 @@ data class VodItem(
     val addedAtMillis: Long? = null
 )
 
+@Serializable
 data class SeriesCategory(
     val id: String,
     val name: String
 )
 
+@Serializable
 data class SeriesItem(
     val id: Int,
     val name: String,
@@ -150,6 +158,7 @@ data class SeasonEpisodes(
     val episodes: List<Episode>
 )
 
+@Serializable
 data class VodDetails(
     val plot: String? = null,
     val cast: String? = null,

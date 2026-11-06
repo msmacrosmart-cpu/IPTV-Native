@@ -8,14 +8,14 @@ object DemoData {
     private const val HLS2 = "https://devstreaming-cdn.apple.com/videos/streaming/examples/img_bipbop_adv_example_fmp4/master.m3u8"
     private fun art(kind: String, slug: String) = "file:///android_asset/demo/$kind-$slug.webp"
     private const val PLOT = "Conteúdo fictício de demonstração. Conecte seu servidor Xtream para acessar sua própria biblioteca."
-    val genres = listOf(Category("drama", "Drama"), Category("action", "Ação e mistério"), Category("scifi", "Ficção científica"), Category("docs", "Documentários"))
+    val genres = listOf(Category("release", "Lançamentos"), Category("drama", "Drama"), Category("action", "Ação e mistério"), Category("scifi", "Ficção científica"), Category("docs", "Documentários"))
     private fun movie(slug: String, title: String, category: String, rating: Double, progress: Float = 0f, backdrop: Boolean = false) =
         VodItem(slug, title, "2026", rating, genres.first { it.id == category }.name, PLOT,
             art("poster", slug), if (backdrop) art("backdrop", slug) else null, category, HLS, progress = progress)
     val movies = listOf(
-        movie("black-harbor", "Black Harbor", "drama", 8.2, .28f, true),
-        movie("summer-static", "Summer Static", "drama", 8.1, .22f, true),
-        movie("house-of-tides", "House of Tides", "drama", 7.9, .15f, true),
+        movie("black-harbor", "Black Harbor", "release", 8.2, .28f, true),
+        movie("summer-static", "Summer Static", "release", 8.1, .22f, true),
+        movie("house-of-tides", "House of Tides", "release", 7.9, .15f, true),
         movie("field-notes", "Field Notes", "docs", 8.0, .38f),
         movie("white-room-six", "White Room Six", "scifi", 7.8, .32f),
         movie("open-late", "Open Late", "drama", 8.0, .44f),
@@ -30,7 +30,6 @@ object DemoData {
             art("poster", "skyline-sentinels"), art("backdrop", "skyline-sentinels"), "drama", null,
             seriesId = "demo:skyline-sentinels", progress = .3f),
     )
-    val hero = movies.first().copy(plot = "Toda maré traz um segredo. Uma inspetora investiga um cargueiro em um porto envolto em neblina.")
     val liveCategories = listOf(Category("news", "Notícias"), Category("sports", "Esportes"), Category("kids", "Infantil"),
         Category("docs", "Documentários"), Category("music", "Música"), Category("movies", "Filmes"))
     val channels = listOf(
@@ -62,7 +61,7 @@ object DemoData {
             AppViewModel.EpisodeChoice(Episode("demo-$season-$number", "Episódio $number", season, number, plot = PLOT), HLS)
         }
     }
-    fun content() = ContentState(liveCategories, channels, genres, movies, listOf(Category("drama", "Drama")), series, hero)
+    fun content() = ContentState(liveCategories, channels, genres, movies, listOf(Category("drama", "Drama")), series)
     fun session(): Session {
         val now = System.currentTimeMillis(); val day = 86_400_000L
         return Session("demo", "demo", "demo", "Active", now + 87 * day, now - 200 * day, 1, 2, true)
