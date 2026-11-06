@@ -79,7 +79,7 @@ jobs:
           profile: pixel_2
           disable-animations: true
           emulator-options: -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -camera-back none
-          script: bash -o pipefail -c './gradlew connectedDebugAndroidTest --no-daemon 2>&1 | tee build-instrumented.log; result=${PIPESTATUS[0]}; mkdir -p artifacts; if [ "$result" -ne 0 ]; then adb exec-out run-as com.example.iptv cat files/ui-failure.png > artifacts/screen-failure.png 2>/dev/null || true; adb exec-out run-as com.example.iptv cat files/ui-failure.txt > artifacts/diagnostics.txt 2>/dev/null || true; if [ ! -s artifacts/screen-failure.png ]; then adb exec-out screencap -p > artifacts/screen-failure.png || true; fi; else adb exec-out run-as com.example.iptv cat files/screen-live.png > artifacts/screen-live.png && adb exec-out run-as com.example.iptv cat files/screen-settings.png > artifacts/screen-settings.png || result=1; fi; exit "$result"'
+          script: bash -o pipefail -c 'adb shell wm size 1376x768; adb shell wm density 160; ./gradlew connectedDebugAndroidTest --no-daemon 2>&1 | tee build-instrumented.log; result=${PIPESTATUS[0]}; mkdir -p artifacts; if [ "$result" -ne 0 ]; then adb exec-out cat /data/local/tmp/iptv-ui-failure.png > artifacts/screen-failure.png 2>/dev/null || true; adb exec-out cat /data/local/tmp/iptv-ui-failure.txt > artifacts/diagnostics.txt 2>/dev/null || true; if [ ! -s artifacts/screen-failure.png ]; then adb exec-out screencap -p > artifacts/screen-failure.png || true; fi; else for name in login home movies series live favorites settings player; do adb exec-out cat /data/local/tmp/iptv-screen-$name.png > artifacts/screen-$name.png || result=1; done; fi; exit "$result"'
 
       # Same signing config as debug (see app/build.gradle.kts), so the artifact is installable
       # straight from the Actions run.
@@ -136,7 +136,7 @@ jobs:
                                       capture_output=True, check=True)
               shas.append(result.stdout.strip())
           screenshots = []
-          for name in ('screen-live.png', 'screen-settings.png'):
+          for name in ('screen-login.png', 'screen-home.png', 'screen-movies.png', 'screen-series.png', 'screen-live.png', 'screen-favorites.png', 'screen-settings.png', 'screen-player.png'):
               path = pathlib.Path('artifacts') / name
               if path.exists() and path.stat().st_size:
                   payload = json.dumps({'content': base64.b64encode(path.read_bytes()).decode(), 'encoding': 'base64'})
