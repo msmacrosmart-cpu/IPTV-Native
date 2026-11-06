@@ -33,16 +33,15 @@ jobs:
 
       - name: Build Debug APK with Gradle
         run: |
-          if [ -f "./gradlew" ]; then
-            chmod +x ./gradlew
-            ./gradlew assembleDebug --no-daemon --stacktrace
-          elif [ -f "./iptv-native-android/gradlew" ]; then
-            cd iptv-native-android
-            chmod +x ./gradlew
-            ./gradlew assembleDebug --no-daemon --stacktrace
-          else
-            gradle assembleDebug --no-daemon --stacktrace
+          chmod +x ./gradlew
+          set +e
+          ./gradlew assembleDebug --no-daemon --console=plain > build-log.txt 2>&1
+          status=$?
+          cat build-log.txt
+          if [ "$status" -ne 0 ]; then
+            python3 -c 'import pathlib; s=pathlib.Path("build-log.txt").read_text(); s=s[-50000:]; print("::error::" + s.replace("%", "%25").replace("\r", "%0D").replace("\n", "%0A"))'
           fi
+          exit "$status"
 
       - name: Upload Debug APK Artifact
         uses: actions/upload-artifact@v4
