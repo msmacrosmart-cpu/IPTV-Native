@@ -69,6 +69,7 @@ fun providerExtras(details: VodDetails?): DetailExtras = DetailExtras(
 class TmdbRepository(
     client: OkHttpClient,
     private val baseUrl: HttpUrl = "https://api.themoviedb.org/3/".toHttpUrl(),
+    private val imageBaseUrl: HttpUrl = "https://image.tmdb.org/t/p/".toHttpUrl(),
 ) {
     // The v3 API key is a query parameter: never follow a redirect to another host or HTTP.
     private val client = client.newBuilder().followRedirects(false).followSslRedirects(false).build()
@@ -150,7 +151,7 @@ class TmdbRepository(
 
     private fun imageUrl(path: String?, size: String): String? = path
         ?.takeIf { it.startsWith('/') && !it.startsWith("//") && ".." !in it && '?' !in it && '#' !in it }
-        ?.let { "https://image.tmdb.org/t/p/$size$it" }
+        ?.let { imageBaseUrl.newBuilder().addPathSegment(size).addPathSegments(it.removePrefix("/")).build().toString() }
 
     private fun parse(body: String): JsonObject? = runCatching { ApiClient.json.parseToJsonElement(body) as? JsonObject }.getOrNull()
     private fun JsonObject.text(key: String): String? = (this[key] as? JsonPrimitive)?.content?.takeIf { it != "null" }

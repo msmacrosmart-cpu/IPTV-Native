@@ -38,6 +38,14 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import coil.compose.AsyncImage
+import coil.imageLoader
+import coil.request.ImageRequest
+import coil.request.SuccessResult
+import androidx.compose.ui.platform.LocalContext
+import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
+import kotlinx.coroutines.sync.Semaphore
+import kotlinx.coroutines.sync.withPermit
 import com.example.iptv.data.tmdb.CastMember
 import com.example.iptv.data.tmdb.DetailExtras
 import com.xtream.player.data.AppViewModel
@@ -60,6 +68,19 @@ fun DetailScreen(item: VodItem, favorite: Boolean, selection: AppViewModel.Episo
                  onBack: () -> Unit, onFavorite: () -> Unit, onPlay: () -> Unit,
                  onTrailer: (String) -> Unit, onEpisode: (AppViewModel.EpisodeChoice) -> Unit) {
     BackHandler(onBack = onBack)
+    val context = LocalContext.current
+    var photographedCast by remember(item.favoriteKey, extras.cast) { mutableStateOf<List<CastMember>>(emptyList()) }
+    LaunchedEffect(item.favoriteKey, extras.cast) {
+        val slots = Semaphore(4)
+        photographedCast = extras.cast.filter { !it.photo.isNullOrBlank() }
+            .distinctBy { it.name to it.photo }.take(40).map { person -> async {
+                slots.withPermit {
+                    val result = context.imageLoader.execute(ImageRequest.Builder(context)
+                        .data(person.photo).size(224, 336).build()) as? SuccessResult
+                    person.takeIf { result?.drawable?.let { it.intrinsicWidth > 0 && it.intrinsicHeight > 0 } == true }
+                }
+            } }.awaitAll().filterNotNull()
+    }
     val choices = selection?.takeIf { it.item.favoriteKey == item.favoriteKey }?.choices.orEmpty()
     val seasons = remember(choices) { choices.map { it.episode.season }.distinct().sorted() }
     var season by rememberSaveable(item.favoriteKey) { mutableIntStateOf(0) }
@@ -75,7 +96,7 @@ fun DetailScreen(item: VodItem, favorite: Boolean, selection: AppViewModel.Episo
             DetailHero(item, favorite, !item.isSeries || choices.isNotEmpty(), loading, compact, short, heroHeight,
                 extras.youtubeId, onBack, onFavorite, onPlay, onTrailer)
         }
-        if (extras.cast.isNotEmpty()) {
+        if (photographedCast.isNotEmpty()) {
             item(key = "cast") {
                 Column {
                     Text("Elenco", color = XColors.Text, fontSize = 20.sp, fontWeight = FontWeight.SemiBold,
@@ -84,7 +105,7 @@ fun DetailScreen(item: VodItem, favorite: Boolean, selection: AppViewModel.Episo
                     LazyRow(Modifier.testTag("cast-rail").focusGroup(),
                         contentPadding = PaddingValues(start = 26.dp, end = 26.dp, bottom = 10.dp),
                         horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                        itemsIndexed(extras.cast, key = { index, _ -> index }) { index, person ->
+                        itemsIndexed(photographedCast, key = { index, _ -> index }) { index, person ->
                             CastCard(person, Modifier.testTag("cast-member-$index"))
                         }
                     }
@@ -183,7 +204,6 @@ private fun CastCard(person: CastMember, modifier: Modifier = Modifier) {
         .focusable().padding(6.dp)) {
         Box(Modifier.fillMaxWidth().aspectRatio(2f / 3f).clip(RoundedCornerShape(7.dp)).background(XColors.PanelHeader),
             contentAlignment = Alignment.Center) {
-            Icon(Icons.Filled.Person, null, tint = XColors.TextDim, modifier = Modifier.size(34.dp))
             if (person.photo != null) AsyncImage(person.photo, null, contentScale = ContentScale.Crop, modifier = Modifier.fillMaxSize())
         }
         Text(person.name, color = XColors.Text, fontSize = 12.sp, fontWeight = FontWeight.SemiBold,

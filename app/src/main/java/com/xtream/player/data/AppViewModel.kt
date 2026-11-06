@@ -501,7 +501,7 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
         val movies = cached.movies.map { movie ->
             VodItem(movie.id.toString(), movie.name, YEAR.find(movie.name)?.value.orEmpty(),
                 movie.rating?.toDoubleOrNull() ?: (movie.rating5?.times(2)) ?: 0.0, "", movie.plot.orEmpty(),
-                movie.icon, null, movie.categoryId.orEmpty(), repository.movieStreamUrl(movie, creds), addedAtMillis = movie.addedAtMillis)
+                movie.icon, movie.backdrop, movie.categoryId.orEmpty(), repository.movieStreamUrl(movie, creds), addedAtMillis = movie.addedAtMillis)
         }
         val series = cached.series.map { show ->
             VodItem(show.id.toString(), show.name, show.releaseDate?.take(4).orEmpty(),
@@ -537,7 +537,7 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
         val creds = repository.currentCredentials() ?: return
         if (session?.isDemo != false) return
         val targets = items.asSequence().filter { !it.isSeries }.take(24)
-            .mapNotNull { item -> item.id.toIntOrNull()?.let { HeroTarget(it, item.title, item.year) } }.toList()
+            .mapNotNull { item -> item.id.toIntOrNull()?.let { HeroTarget(it, item.title, item.year, item.backdrop) } }.toList()
         heroPrepJob?.cancel()
         heroPrepJob = viewModelScope.launch { app.heroLoader.prepare(creds, targets) }
     }

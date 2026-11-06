@@ -76,6 +76,7 @@ import okio.Buffer
 import org.hamcrest.Matchers.allOf
 import org.junit.After
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertNotEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Before
@@ -199,10 +200,15 @@ class ScreenIntegrationTest {
                     if (url.queryParameter("api_key") != "mock-key") return MockResponse().setResponseCode(401)
                     val details = """{"overview":"Sinopse do TMDB","release_date":"2024-01-01","vote_average":8.2,
                         "genres":[{"name":"Aventura"}],"credits":{"cast":[
-                        {"name":"Ator do TMDB","character":"Protagonista","profile_path":"/ator.jpg"},
-                        {"name":"Atriz do TMDB","character":"Amiga"},
-                        {"name":"Ator 3"},{"name":"Ator 4"},{"name":"Ator 5"},
-                        {"name":"Ator 6"},{"name":"Ator 7"},{"name":"Ator 8"}]},
+                        {"name":"Ator do TMDB","character":"Protagonista","profile_path":"/poster-black-harbor.webp"},
+                        {"name":"Atriz do TMDB","character":"Amiga","profile_path":"/poster-black-harbor.webp"},
+                        {"name":"Ator 3","profile_path":"/poster-black-harbor.webp"},
+                        {"name":"Ator 4","profile_path":"/poster-black-harbor.webp"},
+                        {"name":"Ator 5","profile_path":"/poster-black-harbor.webp"},
+                        {"name":"Ator 6","profile_path":"/poster-black-harbor.webp"},
+                        {"name":"Ator 7","profile_path":"/poster-black-harbor.webp"},
+                        {"name":"Ator 8","profile_path":"/poster-black-harbor.webp"},
+                        {"name":"Sem foto"},{"name":"Foto indisponível","profile_path":"/missing.webp"}]},
                         "videos":{"results":[{"site":"YouTube","type":"Trailer","official":true,"key":"abcdefghijk"}]}}"""
                     return if (path == "/tmdb/3/movie/42" || path == "/tmdb/3/tv/77")
                         MockResponse().setHeader("Content-Type", "application/json").setBody(details)
@@ -214,6 +220,7 @@ class ScreenIntegrationTest {
                 }
                 if (path.startsWith("/art/")) {
                     val name = path.substringAfterLast('/')
+                    if (name == "missing.webp") return MockResponse().setResponseCode(404)
                     val bytes = InstrumentationRegistry.getInstrumentation().targetContext.assets.open("demo/$name").use { it.readBytes() }
                     return MockResponse().setHeader("Content-Type", "image/webp").setHeader("Cache-Control", "no-store").setBody(Buffer().write(bytes))
                 }
@@ -249,7 +256,12 @@ class ScreenIntegrationTest {
                         // Missing and mislabeled portrait artwork must never become a wide banner.
                         if (id == "102") """{"info":{"plot":"Sem arte larga"}}"""
                         else if (id == "103") """{"info":{"plot":"Arte vertical","backdrop_path":["${panelBase.resolve("/art/poster-black-harbor.webp")}"]}}"""
-                        else """{"info":{"plot":"Sinopse real","genre":"Ação","cast":"Ator do painel, Atriz do painel","tmdb_id":"42","youtube_trailer":"abcdefghijk","backdrop_path":["${panelBase.resolve("/art/backdrop-black-harbor.webp")}"]}}"""
+                        else if (id == "108") """{"info":{"backdrop_path":["${panelBase.resolve("/art/missing.webp")}"]}}"""
+                        else {
+                            val banners = listOf("black-harbor", "summer-static", "house-of-tides", "skyline-sentinels")
+                            val banner = banners[((id.toIntOrNull() ?: 101) - 101).mod(banners.size)]
+                            """{"info":{"plot":"Sinopse real","genre":"Ação","cast":"Ator do painel, Atriz do painel","tmdb_id":"42","youtube_trailer":"abcdefghijk","backdrop_path":["${panelBase.resolve("/art/backdrop-$banner.webp")}"]}}"""
+                        }
                     }
                     "get_series_categories" -> """[{"category_id":"20","category_name":"Drama"}]"""
                     "get_series" -> (101 until 101 + seriesCount.get()).joinToString(prefix = "[", postfix = "]") { id ->
@@ -319,6 +331,7 @@ class ScreenIntegrationTest {
         assertTrue("The hero must extend across the content pane", heroBounds.width > watchBounds.width * 3)
         assertTrue("Both hero buttons must fit inside the banner", watchBounds.top >= heroBounds.top &&
             watchBounds.bottom <= heroBounds.bottom && detailsBounds.top >= heroBounds.top && detailsBounds.bottom <= heroBounds.bottom)
+        assertNotEquals(vm.heroDetails["vod:101"]?.backdrop, vm.heroDetails["vod:104"]?.backdrop)
         capture("screen-home.png")
         compose.onNodeWithTag("hero-watch-vod:101").performKeyInput { pressKey(Key.DirectionRight) }
         compose.waitUntil(10_000) { runCatching { compose.onNodeWithTag("hero-details-vod:101").assertIsFocused() }.isSuccess }
@@ -644,7 +657,7 @@ class ScreenIntegrationTest {
             }
             connectToPanel()
             val app = compose.activity.application as IPTVApplication
-            app.tmdbRepository = TmdbRepository(ApiClient.httpClient(), server.url("/tmdb/3/"))
+            app.tmdbRepository = TmdbRepository(ApiClient.httpClient(), server.url("/tmdb/3/"), server.url("/art/"))
             val vm = ViewModelProvider(compose.activity)[AppViewModel::class.java]
             compose.waitUntil(30_000) { vm.content.movies.size == 30 && vm.content.series.size == 1 }
 
@@ -656,6 +669,8 @@ class ScreenIntegrationTest {
             compose.waitUntil(20_000) { vm.detailItem?.plot == "Sinopse real" && vm.detailExtras.cast.size == 2 && exists("detail-trailer") }
             assertFalse("Search must disappear when a movie is selected", exists("search-field"))
             assertEquals("Ator do painel", vm.detailExtras.cast.first().name)
+            compose.onNodeWithTag("detail-cast").assertDoesNotExist()
+            compose.onNodeWithTag("cast-rail").assertDoesNotExist()
             assertTrue("No request should be sent to TMDB without a key", tmdbRequests.isEmpty())
             // The search IME can report hidden briefly before a queued show completes.
             Thread.sleep(700)
@@ -672,12 +687,12 @@ class ScreenIntegrationTest {
             compose.onNodeWithContentDescription("Filmes").performClick()
             compose.waitUntil(15_000) { exists("poster-vod:101") && exists("search-field") }
             compose.onNodeWithTag("poster-vod:101").performClick()
-            compose.waitUntil(25_000) { vm.detailExtras.fromTmdb && vm.detailExtras.cast.size == 8 && exists("cast-member-0") && exists("detail-trailer") }
+            compose.waitUntil(25_000) { vm.detailExtras.fromTmdb && vm.detailExtras.cast.size == 10 && exists("cast-member-0") && exists("detail-trailer") }
             // The search and settings keyboards must not obscure the newly opened details.
             Thread.sleep(700)
             compose.waitUntil(15_000) { !keyboardIsVisible() && !systemImeShown() && compose.activity.window.decorView.hasWindowFocus() }
             assertEquals("Sinopse do TMDB", vm.detailItem?.plot)
-            assertEquals("https://image.tmdb.org/t/p/w185/ator.jpg", vm.detailExtras.cast.first().photo)
+            assertEquals(server.url("/art/w185/poster-black-harbor.webp").toString(), vm.detailExtras.cast.first().photo)
             assertFalse(exists("search-field"))
             val banner = compose.onNodeWithTag("detail-hero").fetchSemanticsNode().boundsInRoot
             val detailWidth = compose.onNodeWithTag("detail-list").fetchSemanticsNode().boundsInRoot.width
@@ -709,6 +724,9 @@ class ScreenIntegrationTest {
                 compose.waitUntil(10_000) { focused("cast-member-${index + 1}") }
             }
             compose.onNodeWithTag("cast-member-7").assertIsDisplayed()
+            compose.onNodeWithText("Sem foto").assertDoesNotExist()
+            compose.onNodeWithText("Foto indisponível").assertDoesNotExist()
+            compose.onNodeWithTag("cast-member-8").assertDoesNotExist()
             val lastTop = compose.onNodeWithTag("cast-member-7").fetchSemanticsNode().boundsInRoot.top
             assertTrue("The cast must stay in one horizontal row", kotlin.math.abs(firstTop - lastTop) < 2f)
             compose.onNodeWithTag("detail-list").performScrollToKey("synopsis")
@@ -883,7 +901,7 @@ class ScreenIntegrationTest {
         compose.waitUntil(10_000) { focused("hero-details-vod:104") }
         compose.onNodeWithTag("hero-slide-vod:101").assertDoesNotExist()
         val hero = compose.onNodeWithTag("hero-carousel").fetchSemanticsNode().boundsInRoot
-        val slide = compose.onNodeWithTag("hero-slide-vod:102").fetchSemanticsNode().boundsInRoot
+        val slide = compose.onNodeWithTag("hero-slide-vod:104").fetchSemanticsNode().boundsInRoot
         assertTrue("A remote page change must snap to the full banner", kotlin.math.abs(hero.left - slide.left) < 2f &&
             kotlin.math.abs(hero.right - slide.right) < 2f)
         compose.onNodeWithTag("hero-details-vod:104").performKeyInput { pressKey(Key.DirectionLeft) }
@@ -913,12 +931,13 @@ class ScreenIntegrationTest {
         compose.onNodeWithTag("catalog-grid").performScrollToKey("vod:125")
         compose.onNodeWithTag("poster-vod:125").performSemanticsAction(SemanticsActions.RequestFocus)
             .performKeyInput { pressKey(Key.DirectionCenter) }
-        compose.waitUntil(20_000) { exists("detail-trailer") && exists("cast-member-0") }
+        compose.waitUntil(20_000) { exists("detail-trailer") }
+        compose.onNodeWithTag("detail-cast").assertDoesNotExist()
+        compose.onNodeWithTag("cast-rail").assertDoesNotExist()
         assertFalse("Movie details must hide the search bar", exists("search-field"))
         if (isTv) capture("screen-android-tv-detail.png")
         compose.onNodeWithTag("detail-trailer").performSemanticsAction(SemanticsActions.RequestFocus)
-            .performKeyInput { pressKey(Key.DirectionDown) }
-        compose.waitUntil(10_000) { focused("cast-member-0") || focused("cast-member-1") }
+            .assertIsFocused()
         shell("input keyevent KEYCODE_BACK")
         compose.waitUntil(20_000) { exists("search-field") && focused("poster-vod:125") }
         compose.onNodeWithTag("catalog-category-title").assertTextContains("Lançamentos")

@@ -46,6 +46,7 @@ class HomeSelectionsTest {
         assertEquals(result.size, result.distinctBy { it.favoriteKey }.size)
         assertFalse(result.any { it.id in setOf("2", "3", "4") })
         assertTrue(validHeroSlides(items, emptySet()).isEmpty())
+        assertEquals(1, validHeroSlides(items.map { it.copy(backdrop = "https://example.com/reused.jpg") }, approved).size)
     }
 
     @Test fun topTenUsesProviderScoresAndStableTiesRatherThanClaimingPopularity() {

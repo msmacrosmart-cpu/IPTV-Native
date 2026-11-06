@@ -15,11 +15,13 @@ import com.xtream.player.data.isReleaseCategory
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.sync.Semaphore
+import kotlinx.coroutines.sync.withPermit
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 
 /** Artwork lookups are bounded to the 24 recent release candidates. */
-data class HeroTarget(val id: Int, val title: String, val year: String = "")
+data class HeroTarget(val id: Int, val title: String, val year: String = "", val backdrop: String? = null)
 
 private val YEAR = Regex("\\b(?:19|20)\\d{2}\\b")
 
@@ -27,7 +29,7 @@ fun releaseHeroTargets(catalog: CachedCatalog): List<HeroTarget> {
     val ids = catalog.movieCategories.asSequence().filter { isReleaseCategory(it.name) }.map { it.id }.toSet()
     return catalog.movies.asSequence().filter { it.categoryId != null && ids.contains(it.categoryId) }.distinctBy(VodItem::id)
         .sortedByDescending { it.addedAtMillis ?: Long.MIN_VALUE }.take(24)
-        .map { HeroTarget(it.id, it.name, YEAR.find(it.name)?.value.orEmpty()) }.toList()
+        .map { HeroTarget(it.id, it.name, YEAR.find(it.name)?.value.orEmpty(), it.backdrop) }.toList()
 }
 
 /** Shared by foreground and WorkManager so they don't race or fetch an entire library. */
@@ -47,20 +49,25 @@ class HeroLoader(
         val now = System.currentTimeMillis()
         val apiKey = tmdbKey()
         data class Fetched(val target: HeroTarget, val hero: CachedHero?, val updated: Boolean, val failed: Boolean)
+        val slots = Semaphore(4)
         val fetched = coroutineScope {
-            targets.map { target -> async {
+            targets.map { target -> async { slots.withPermit {
                 val old = cached["vod:${target.id}"]
                 val fresh = old != null && cacheIsFresh(old.fetchedAtMillis, now)
                 if (fresh && (apiKey.isBlank() || old!!.tmdbChecked)) {
                     Fetched(target, old, false, false)
                 } else {
                     var failed = false
-                    val panel = if (fresh) old!!.details else when (val result = repository.vodDetails(target.id)) {
+                    val provider = if (fresh) old!!.details else when (val result = repository.vodDetails(target.id)) {
                         is ApiResult.Success -> result.data
                         is ApiResult.Failure -> { failed = true; old?.details }
                     }
-                    if (panel == null) Fetched(target, old, false, failed)
-                    else {
+                    // A failed details endpoint must not erase catalog artwork or prevent a
+                    // title-specific TMDB fallback. Never reuse another target's metadata.
+                    val panel = (provider ?: VodDetails()).let {
+                        it.copy(backdrop = it.backdrop?.takeIf(String::isNotBlank) ?: target.backdrop)
+                    }
+                    run {
                         var checked = apiKey.isBlank()
                         var details = panel
                         if (apiKey.isNotBlank()) {
@@ -85,7 +92,7 @@ class HeroLoader(
                         Fetched(target, CachedHero(updatedAt, details, checked && apiKey.isNotBlank()), true, failed)
                     }
                 }
-            } }.awaitAll()
+            } } }.awaitAll()
         }
         if (!repository.isSessionCurrent(credentials, token)) return@withLock false
         cache.mergeHeroes(credentials, fetched.filter { it.updated && it.hero != null }

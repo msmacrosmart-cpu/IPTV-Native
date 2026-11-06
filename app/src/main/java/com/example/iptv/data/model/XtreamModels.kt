@@ -138,7 +138,8 @@ data class VodItem(
     val extension: String = "mp4",
     val categoryId: String? = null,
     val plot: String? = null,
-    val addedAtMillis: Long? = null
+    val addedAtMillis: Long? = null,
+    val backdrop: String? = null
 )
 
 @Serializable

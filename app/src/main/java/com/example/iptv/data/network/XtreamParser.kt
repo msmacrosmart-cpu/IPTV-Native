@@ -128,7 +128,8 @@ object XtreamParser {
                 extension = obj.string("container_extension")?.trim().orEmpty().ifBlank { "mp4" },
                 categoryId = obj.string("category_id")?.takeIf { it.isNotBlank() },
                 plot = obj.string("plot")?.takeIf { it.isNotBlank() },
-                addedAtMillis = epochMillis(obj.long("added"))
+                addedAtMillis = epochMillis(obj.long("added")),
+                backdrop = obj.backdropUrl()
             )
         }?.distinctBy { it.id }.orEmpty()
 
@@ -139,7 +140,7 @@ object XtreamParser {
             val obj = element.asObject() ?: return@mapNotNull null
             val id = obj.int("series_id") ?: return@mapNotNull null
             val name = obj.string("name")?.takeIf { it.isNotBlank() } ?: return@mapNotNull null
-            val backdropPath = obj.string("backdrop_path") ?: obj.stringList("backdrop_path")?.firstOrNull()
+            val backdropPath = obj.backdropUrl()
             SeriesItem(
                 id = id,
                 name = name,
@@ -257,7 +258,7 @@ object XtreamParser {
 
     fun parseVodInfo(root: JsonElement): VodDetails {
         val info = root.asObject()?.get("info").asObject()
-        val backdrop = info?.string("backdrop_path") ?: info?.stringList("backdrop_path")?.firstOrNull()
+        val backdrop = info?.backdropUrl()
         return VodDetails(
             plot = info?.string("plot")?.takeIf { it.isNotBlank() },
             cast = info?.string("cast")?.takeIf { it.isNotBlank() },
@@ -287,6 +288,10 @@ object XtreamParser {
             else -> null
         }
     }
+
+    private fun JsonObject.backdropUrl(): String? = sequenceOf("backdrop_path", "backdrop", "backdrop_url")
+        .flatMap { key -> stringList(key).orEmpty().asSequence() }
+        .map(String::trim).firstOrNull { it.isNotEmpty() && it != "null" }
 
     private fun JsonObject.int(key: String): Int? {
         val raw = string(key) ?: return null
