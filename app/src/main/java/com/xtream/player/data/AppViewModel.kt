@@ -251,7 +251,8 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
             entries.map { Programme(key, it.title, it.startMillis, it.endMillis) }
         }
         // XMLTV wins when it has usable data for the channel; short EPG fills gaps.
-        epg = shortGuide.toMap() + xml.filterValues { it.isNotEmpty() }
+        val now = System.currentTimeMillis()
+        epg = shortGuide.toMap() + xml.filterValues { programmes -> programmes.any { it.stop > now } }
     }
 
     fun channelFocused(channel: Channel) {

@@ -60,9 +60,10 @@ fun MainScreen(
             pendingSearch = false
         }
     }
-    val focusSearch = {
+    val focusSearch: () -> Unit = {
         if (tab == Tab.Settings) { tab = Tab.Home; pendingSearch = true }
         else { runCatching { searchFocus.requestFocus() }; keyboard?.show() }
+        Unit
     }
 
     Box(Modifier.fillMaxSize()) {

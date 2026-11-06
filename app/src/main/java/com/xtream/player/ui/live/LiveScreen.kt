@@ -36,7 +36,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
-import androidx.annotation.OptIn
+import androidx.annotation.OptIn as AndroidXOptIn
 import androidx.media3.common.MediaItem
 import androidx.media3.common.PlaybackException
 import androidx.media3.common.Player
@@ -51,7 +51,7 @@ import com.xtream.player.util.initials
 import kotlinx.coroutines.delay
 
 /** TV ao vivo em 3 colunas: Categorias | Canais + EPG | Preview em tempo real (Media3). */
-@OptIn(UnstableApi::class)
+@AndroidXOptIn(UnstableApi::class)
 @Composable
 fun LiveScreen(
     content: ContentState,
@@ -218,12 +218,12 @@ private fun ChannelRow(
     }
 }
 
-@OptIn(UnstableApi::class)
+@AndroidXOptIn(UnstableApi::class)
 @Composable
 private fun PreviewPlayer(url: String, fallbackUrl: String?, muted: Boolean) {
     val ctx = LocalContext.current
     val lifecycleOwner = LocalLifecycleOwner.current
-    val player = remember { buildPlayer(ctx).apply { playWhenReady = true } }
+    val player = remember { buildPlayer(ctx).apply { volume = 0f; playWhenReady = true } }
     var triedFallback by remember(url) { mutableStateOf(false) }
     var failed by remember(url) { mutableStateOf(false) }
     DisposableEffect(player, url, fallbackUrl) {

@@ -5,7 +5,7 @@ import android.content.Context
 import android.media.AudioManager
 import android.view.ViewGroup
 import androidx.activity.compose.BackHandler
-import androidx.annotation.OptIn
+import androidx.annotation.OptIn as AndroidXOptIn
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
@@ -75,7 +75,7 @@ private data class Opt(val label: String, val selected: Boolean, val onClick: ()
  * Player avançado (estilo VLC): velocidade, trilhas de áudio/legenda, proporção, A-B repeat, sleep timer,
  * bloqueio de tela, gestos (volume/brilho/duplo toque), estatísticas, D-pad completo e troca de canal.
  */
-@OptIn(UnstableApi::class)
+@AndroidXOptIn(UnstableApi::class)
 @Composable
 fun PlayerScreen(request: PlayerRequest, onBack: () -> Unit, previewMode: Boolean = false, onProgress: (PlayerRequest, Long, Long) -> Unit = { _, _, _ -> }) {
     val context = LocalContext.current
