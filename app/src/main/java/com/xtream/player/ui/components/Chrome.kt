@@ -1,5 +1,6 @@
 package com.xtream.player.ui.components
 
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -94,7 +95,6 @@ fun Sidebar(selected: Tab, onSelect: (Tab) -> Unit, compact: Boolean, modifier: 
             Column(Modifier.fillMaxSize().padding(vertical = 4.dp), horizontalAlignment = Alignment.CenterHorizontally,
                 verticalArrangement = Arrangement.SpaceEvenly) {
                 primary.forEach { SideButton(it, selected == it, itemSize) { onSelect(it) } }
-                IconAction(Icons.Outlined.Settings, "Configurações", onClick = { onSelect(Tab.Settings) })
             }
         }
     }
@@ -114,7 +114,8 @@ fun IconAction(icon: ImageVector, label: String, modifier: Modifier = Modifier, 
 @Composable
 fun TopBar(
     tab: Tab, query: String, onQuery: (String) -> Unit,
-    searchFocus: FocusRequester, compact: Boolean, session: com.xtream.player.data.Session?, onRefresh: () -> Unit, onOpenSettings: () -> Unit,
+    searchFocus: FocusRequester, compact: Boolean, onRefresh: () -> Unit,
+    onAccountStatus: () -> Unit, onSwitchAccount: () -> Unit, onOpenSettings: () -> Unit,
 ) {
     val hideKeyboard = rememberHideKeyboard()
     Row(Modifier.fillMaxWidth().height(56.dp).background(XColors.Sidebar).padding(horizontal = if (compact) 10.dp else 20.dp),
@@ -148,18 +149,20 @@ fun TopBar(
             }
         } else Spacer(Modifier.weight(1f))
         if (!compact) IconAction(Icons.Outlined.Refresh, "Atualizar catálogo", onClick = onRefresh)
-        val accountShape = RoundedCornerShape(12.dp)
-        Row(Modifier.widthIn(max = if (compact) 190.dp else 300.dp)
-            .focusGlow(accountShape, zoom = 1f).clip(accountShape).background(XColors.Panel)
-            .combinedClickable(onClick = onOpenSettings).testTag("account-summary")
-            .padding(horizontal = 12.dp, vertical = 6.dp), verticalAlignment = Alignment.CenterVertically) {
-            Icon(Icons.Outlined.AccountCircle, null, tint = XColors.Accent, modifier = Modifier.size(28.dp))
-            Column(Modifier.padding(start = 8.dp)) {
-                Text(session?.username.orEmpty().ifBlank { "Minha conta" }, color = XColors.Text,
-                    fontWeight = FontWeight.SemiBold, fontSize = 13.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                Text("${session?.status ?: "—"} · ${session?.expDate?.let { com.xtream.player.util.fmtDateTime(it, true).substringBefore(" ") } ?: "Sem vencimento informado"}",
-                    color = XColors.TextDim, fontSize = 10.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
-            }
-        }
+        AccountIconAction(R.drawable.ic_account_status, "Status da conta", "account-status", onAccountStatus)
+        AccountIconAction(R.drawable.ic_account_switch, "Trocar conta", "account-switch", onSwitchAccount)
+        IconAction(Icons.Outlined.Settings, "Configurações", onClick = onOpenSettings)
+
+    }
+}
+
+/** Supplied reference artwork keeps its original colors; touch and D-pad targets are 44 dp. */
+@OptIn(ExperimentalFoundationApi::class)
+@Composable
+private fun AccountIconAction(icon: Int, label: String, tag: String, onClick: () -> Unit) {
+    val shape = RoundedCornerShape(10.dp)
+    Box(Modifier.size(44.dp).testTag(tag).focusGlow(shape, zoom = 1f).clip(shape)
+        .combinedClickable(onClick = onClick), contentAlignment = Alignment.Center) {
+        Image(painterResource(icon), label, Modifier.size(26.dp))
     }
 }

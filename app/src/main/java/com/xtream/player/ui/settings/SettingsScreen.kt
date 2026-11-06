@@ -46,7 +46,7 @@ fun SettingsScreen(
     session: Session?, content: ContentState, epg: Map<String, List<Programme>>,
     epgUpdatedAt: Long?, epgLoading: Boolean, epgMessage: String?, loading: Boolean, error: String?,
     profiles: List<SavedProfile>, settings: UserSettings, parentalUnlocked: Boolean, parentalBusy: Boolean,
-    testingConnection: Boolean, connectionTest: String?, actions: SettingsActions,
+    testingConnection: Boolean, connectionTest: String?, actions: SettingsActions, initialPage: String? = null,
 ) {
     var server by remember(session?.server) { mutableStateOf(session?.server.orEmpty()) }
     var user by remember(session?.username) { mutableStateOf(session?.username.orEmpty()) }
@@ -78,7 +78,7 @@ fun SettingsScreen(
         ConfirmSettingsDialog("Remover perfil?", "As credenciais, favoritos e histórico locais de ${profile.username} serão removidos deste dispositivo.",
             onDismiss = { removeProfile = null }, onConfirm = { actions.removeProfile(profile.id); removeProfile = null })
     }
-    var page by rememberSaveable { mutableStateOf<String?>(null) }
+    var page by rememberSaveable(initialPage, session?.username) { mutableStateOf(initialPage) }
     BackHandler(enabled = page != null) { page = null }
     BoxWithConstraints(Modifier.fillMaxSize()) {
         val gutter = if (maxWidth < 600.dp) 16.dp else 32.dp

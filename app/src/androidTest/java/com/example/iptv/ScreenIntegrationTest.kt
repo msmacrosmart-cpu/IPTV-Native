@@ -500,6 +500,13 @@ class ScreenIntegrationTest {
         reopened.saveProgress("vod:101", 99_000, 100_000, null)
         assertTrue(reopened.progress()["vod:101"] == null)
 
+        // The original settings gear stays in the header; reference icons open real pages.
+        compose.onNodeWithContentDescription("Status da conta").performClick()
+        compose.onNodeWithTag("settings-panel-Dados da conta").assertExists()
+        compose.onNodeWithTag("settings-shortcuts").assertDoesNotExist()
+        compose.onNodeWithContentDescription("Trocar conta").performClick()
+        compose.onNodeWithTag("settings-panel-Perfis").assertExists()
+        compose.onNodeWithTag("settings-panel-Dados da conta").assertDoesNotExist()
         compose.onNodeWithContentDescription("Configurações").performClick()
         compose.onNodeWithTag("settings-shortcuts").assertIsDisplayed()
         compose.onNodeWithTag("setting-shortcut-multi").assertDoesNotExist()

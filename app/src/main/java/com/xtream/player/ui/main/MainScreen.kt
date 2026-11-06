@@ -56,6 +56,7 @@ fun MainScreen(session: Session?, content: ContentState, epg: Map<String, List<P
                parentalUnlocked: Boolean, parentalBusy: Boolean, testingConnection: Boolean, connectionTest: String?, actions: MainActions,
                previewEnabled: Boolean = true, restoreChannelId: String? = null, onChannelRestored: () -> Unit = {}) {
     var tab by rememberSaveable { mutableStateOf(Tab.Home) }
+    var settingsPage by rememberSaveable { mutableStateOf<String?>(null) }
     var query by rememberSaveable { mutableStateOf("") }
     // Save each catalog's folder, search-in-folders, sort and grid position while
     // its details screen is shown. Keep profiles isolated without storing passwords.
@@ -88,12 +89,15 @@ fun MainScreen(session: Session?, content: ContentState, epg: Map<String, List<P
         actions.onCancelHeroPlayback()
         actions.onCloseDetails()
         returnToItem = null
-        tab = selected; query = ""
+        tab = selected; query = ""; settingsPage = null
     }
     BackHandler(enabled = detail == null && tab != Tab.Home) { selectTab(Tab.Home) }
 
     @Composable fun Header(compact: Boolean) {
-        TopBar(tab, query, { query = it }, searchFocus, compact, session, actions.onRefreshContent) { selectTab(Tab.Settings) }
+        TopBar(tab, query, { query = it }, searchFocus, compact, actions.onRefreshContent,
+            onAccountStatus = { selectTab(Tab.Settings); settingsPage = "Dados da conta" },
+            onSwitchAccount = { selectTab(Tab.Settings); settingsPage = "Perfis" },
+            onOpenSettings = { selectTab(Tab.Settings) })
     }
     @Composable fun Content(modifier: Modifier) {
         Box(modifier) {
@@ -120,7 +124,7 @@ fun MainScreen(session: Session?, content: ContentState, epg: Map<String, List<P
                         restoreItemKey = returnToItem, onReturnFocusRestored = { returnToItem = null })
                 }
                 Tab.Settings -> SettingsScreen(session, content, epg, epgUpdatedAt, epgLoading, epgMessage,
-                    loading, loginError, profiles, settings, parentalUnlocked, parentalBusy, testingConnection, connectionTest, actions.settings)
+                    loading, loginError, profiles, settings, parentalUnlocked, parentalBusy, testingConnection, connectionTest, actions.settings, initialPage = settingsPage)
             }
         }
     }
