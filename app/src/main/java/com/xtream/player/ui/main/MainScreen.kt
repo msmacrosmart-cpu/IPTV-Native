@@ -10,7 +10,6 @@ import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.input.InputMode
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.platform.LocalInputModeManager
-import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.unit.dp
 import com.example.iptv.data.model.VodDetails
 import com.xtream.player.data.*
@@ -53,12 +52,12 @@ fun MainScreen(session: Session?, content: ContentState, epg: Map<String, List<P
     var slots by rememberSaveable { mutableStateOf(List(4) { "" }) }
     var audible by rememberSaveable { mutableIntStateOf(0) }
     val searchFocus = remember { FocusRequester() }
-    val keyboard = LocalSoftwareKeyboardController.current
+    val hideKeyboard = rememberHideKeyboard()
     LaunchedEffect(session?.server, session?.username) { slots = List(4) { "" }; audible = 0 }
     val focusManager = LocalFocusManager.current
     val inputMode = LocalInputModeManager.current
     val selectTab: (Tab) -> Unit = { selected ->
-        keyboard?.hide()
+        hideKeyboard()
         if (inputMode.inputMode == InputMode.Touch) focusManager.clearFocus(force = true)
         actions.onCancelHeroPlayback()
         actions.onCloseDetails()

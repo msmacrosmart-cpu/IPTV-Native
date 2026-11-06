@@ -35,7 +35,6 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.platform.LocalInputModeManager
-import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.semantics
@@ -60,6 +59,7 @@ import com.xtream.player.ui.components.GlassPanel
 import com.xtream.player.ui.components.IconAction
 import com.xtream.player.ui.components.PillField
 import com.xtream.player.ui.components.focusGlow
+import com.xtream.player.ui.components.rememberHideKeyboard
 import com.xtream.player.ui.player.buildPlayer
 import com.xtream.player.ui.theme.XColors
 import kotlinx.coroutines.delay
@@ -157,9 +157,9 @@ private fun ChannelPicker(channels: List<Channel>, onDismiss: () -> Unit, onChoo
     Dialog(onDismissRequest = onDismiss) {
         // The dialog has its own window and text-input owner. Close its native IME before
         // removing the dialog, otherwise it can remain over the videos after selection.
-        val keyboard = LocalSoftwareKeyboardController.current
+        val hideKeyboard = rememberHideKeyboard()
         val focus = LocalFocusManager.current
-        val closePicker = { keyboard?.hide(); focus.clearFocus(force = true); onDismiss() }
+        val closePicker = { hideKeyboard(); focus.clearFocus(force = true); onDismiss() }
         GlassPanel(Modifier.widthIn(max = 500.dp).fillMaxWidth().heightIn(max = 560.dp), RoundedCornerShape(16.dp)) {
             Column(Modifier.fillMaxWidth().padding(20.dp)) {
                 Text("Escolher canal", color = XColors.Text, fontSize = 20.sp, fontWeight = FontWeight.SemiBold)
@@ -169,7 +169,7 @@ private fun ChannelPicker(channels: List<Channel>, onDismiss: () -> Unit, onChoo
                     items(filtered, key = { it.id }) { channel ->
                         val shape = RoundedCornerShape(8.dp)
                         Row(Modifier.fillMaxWidth().testTag("choose-channel-${channel.id}").focusGlow(shape, zoom = 1f).clip(shape)
-                            .combinedClickable { keyboard?.hide(); focus.clearFocus(force = true); onChoose(channel) }
+                            .combinedClickable { hideKeyboard(); focus.clearFocus(force = true); onChoose(channel) }
                             .padding(horizontal = 12.dp, vertical = 12.dp),
                             verticalAlignment = Alignment.CenterVertically) {
                             Icon(Icons.Filled.LiveTv, null, tint = XColors.TextDim, modifier = Modifier.size(20.dp))

@@ -24,7 +24,6 @@ import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.vector.ImageVector
-import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.selected
 import androidx.compose.ui.semantics.semantics
@@ -104,7 +103,7 @@ fun TopBar(
     tab: Tab, query: String, onQuery: (String) -> Unit, playlistName: String,
     playlistInfo: String, searchFocus: FocusRequester, compact: Boolean, onRefresh: () -> Unit,
 ) {
-    val keyboard = LocalSoftwareKeyboardController.current
+    val hideKeyboard = rememberHideKeyboard()
     Row(Modifier.fillMaxWidth().height(56.dp).background(XColors.Sidebar).padding(horizontal = if (compact) 10.dp else 20.dp),
         verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
         Row(Modifier.width(if (compact) 100.dp else 250.dp).clip(RoundedCornerShape(9.dp))
@@ -133,9 +132,12 @@ fun TopBar(
                             textStyle = TextStyle(color = XColors.Text, fontSize = 14.sp, fontFamily = DmSans),
                             cursorBrush = SolidColor(XColors.Accent),
                             keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
-                            keyboardActions = KeyboardActions(onSearch = { keyboard?.hide() }),
+                            keyboardActions = KeyboardActions(onSearch = { hideKeyboard() }),
                             modifier = Modifier.fillMaxWidth().testTag("search-field").focusRequester(searchFocus)
-                                .onFocusChanged { focused = it.isFocused })
+                                .onFocusChanged {
+                                    if (focused && !it.isFocused) hideKeyboard()
+                                    focused = it.isFocused
+                                })
                     }
                 }
             }

@@ -449,7 +449,12 @@ class ScreenIntegrationTest {
             .assertIsFocused().performKeyInput { pressKey(Key.DirectionDown) }
         compose.onNodeWithTag("channel-2").assertIsFocused()
         compose.waitUntil(10_000) { runCatching { compose.onNodeWithTag("preview-channel").assertTextContains("Canal Esportes", substring = true) }.isSuccess }
-        if (isTv) capture("screen-android-tv.png")
+        if (isTv) {
+            // A floating Android TV IME is not always reflected in WindowInsets; inspect the
+            // system IME state too, so screenshots cannot pass with a keyboard over the content.
+            compose.waitUntil(15_000) { !keyboardIsVisible() && !systemImeShown() }
+            capture("screen-android-tv.png")
+        }
     }
 
     @Test fun oldCachedAccountDatesAreCorrectedWithoutNetwork() {
@@ -487,6 +492,10 @@ class ScreenIntegrationTest {
     }
     private fun keyboardIsVisible(): Boolean =
         ViewCompat.getRootWindowInsets(compose.activity.window.decorView)?.isVisible(WindowInsetsCompat.Type.ime()) == true
+    private fun systemImeShown(): Boolean {
+        val output = InstrumentationRegistry.getInstrumentation().uiAutomation.executeShellCommand("dumpsys input_method")
+        return ParcelFileDescriptor.AutoCloseInputStream(output).bufferedReader().use { it.readText().contains("mInputShown=true") }
+    }
     private fun multiState(index: Int): String? = runCatching {
         compose.onNodeWithTag("multi-player-$index", useUnmergedTree = true).fetchSemanticsNode().config.getOrNull(SemanticsProperties.StateDescription)
     }.getOrNull()

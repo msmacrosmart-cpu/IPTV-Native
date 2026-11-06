@@ -28,7 +28,6 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
-import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
@@ -44,6 +43,7 @@ import com.xtream.player.ui.components.CatalogGridPadding
 import com.xtream.player.ui.components.PosterCard
 import com.xtream.player.ui.components.catalogColumns
 import com.xtream.player.ui.components.focusGlow
+import com.xtream.player.ui.components.rememberHideKeyboard
 import com.xtream.player.ui.theme.DmSans
 import com.xtream.player.ui.theme.XColors
 
@@ -101,16 +101,19 @@ private fun CategoryPane(title: String, categories: List<Category>, counts: Map<
 
 @Composable
 private fun CategorySearch(value: String, onValueChange: (String) -> Unit, modifier: Modifier = Modifier) {
-    val keyboard = LocalSoftwareKeyboardController.current
+    val hideKeyboard = rememberHideKeyboard()
     val shape = RoundedCornerShape(12.dp)
     var focused by remember { mutableStateOf(false) }
     BasicTextField(value, onValueChange, singleLine = true,
         textStyle = TextStyle(color = XColors.Text, fontSize = 13.sp, fontFamily = DmSans),
         cursorBrush = SolidColor(XColors.Accent),
         keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
-        keyboardActions = KeyboardActions(onSearch = { keyboard?.hide() }),
+        keyboardActions = KeyboardActions(onSearch = { hideKeyboard() }),
         modifier = modifier.fillMaxWidth().heightIn(min = 46.dp).testTag("category-search")
-            .onFocusChanged { focused = it.isFocused },
+            .onFocusChanged {
+                if (focused && !it.isFocused) hideKeyboard()
+                focused = it.isFocused
+            },
         decorationBox = { inner ->
             Row(Modifier.fillMaxWidth().heightIn(min = 46.dp).clip(shape).background(Color(0xB00A0C10))
                 .border(if (focused) 2.dp else 1.dp, if (focused) XColors.Focus else XColors.Line, shape)
