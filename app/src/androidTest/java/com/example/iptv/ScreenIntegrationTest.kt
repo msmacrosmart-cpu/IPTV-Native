@@ -637,6 +637,9 @@ class ScreenIntegrationTest {
             compose.waitUntil(15_000) { exists("poster-vod:101") && exists("search-field") }
             compose.onNodeWithTag("poster-vod:101").performClick()
             compose.waitUntil(25_000) { vm.detailExtras.fromTmdb && vm.detailExtras.cast.size == 8 && exists("cast-member-0") && exists("detail-trailer") }
+            // The search and settings keyboards must not obscure the newly opened details.
+            Thread.sleep(700)
+            compose.waitUntil(15_000) { !keyboardIsVisible() && !systemImeShown() && compose.activity.window.decorView.hasWindowFocus() }
             assertEquals("Sinopse do TMDB", vm.detailItem?.plot)
             assertFalse(exists("search-field"))
             val cast = compose.onNodeWithTag("cast-member-0").fetchSemanticsNode().boundsInRoot
@@ -1073,12 +1076,18 @@ class ScreenIntegrationTest {
     /** Move through newly composed grid rows using the same Down key as a real remote. */
     @OptIn(ExperimentalTestApi::class)
     private fun dpadDownPastFirstBatch(type: String) {
+        fun focusedPoster(): String? = compose.onAllNodes(isFocused()).fetchSemanticsNodes()
+            .mapNotNull { it.config.getOrNull(SemanticsProperties.TestTag) }
+            .singleOrNull { it.startsWith("poster-$type:") }
         repeat(80) {
-            val tag = compose.onAllNodes(isFocused()).fetchSemanticsNodes().firstOrNull()
-                ?.config?.getOrNull(SemanticsProperties.TestTag)
-            val id = tag?.takeIf { it.startsWith("poster-$type:") }?.substringAfter(':')?.toIntOrNull()
+            // Lazy grids can briefly have no focused semantics node while the next row is
+            // composed. Wait for each real focus transition rather than racing the layout.
+            compose.waitUntil(10_000) { focusedPoster() != null }
+            val tag = checkNotNull(focusedPoster())
+            val id = tag.substringAfter(':').toIntOrNull()
             if (id != null && id > 124) return
-            compose.onNode(isFocused()).performKeyInput { pressKey(Key.DirectionDown) }
+            shell("input keyevent KEYCODE_DPAD_DOWN")
+            compose.waitUntil(10_000) { focusedPoster()?.let { it != tag } == true }
         }
         throw AssertionError("D-pad did not advance beyond the first 24 $type items")
     }

@@ -11,6 +11,9 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.input.InputMode
+import androidx.compose.ui.platform.LocalFocusManager
+import androidx.compose.ui.platform.LocalInputModeManager
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
@@ -28,6 +31,7 @@ import com.xtream.player.ui.components.CategoryChip
 import com.xtream.player.ui.components.GlowButton
 import com.xtream.player.ui.components.IconAction
 import com.xtream.player.ui.components.PillField
+import com.xtream.player.ui.components.rememberHideKeyboard
 import com.xtream.player.ui.theme.XColors
 import com.xtream.player.util.fmtDateTime
 
@@ -38,6 +42,14 @@ fun AdvancedSettings(settings: UserSettings, epgChannels: Int, epgUpdatedAt: Lon
     var xmltv by remember(settings.customXmltvUrl) { mutableStateOf(settings.customXmltvUrl) }
     var agent by remember(settings.userAgent) { mutableStateOf(settings.userAgent) }
     var tmdbKey by remember(settings.tmdbApiKey) { mutableStateOf(settings.tmdbApiKey) }
+    val hideKeyboard = rememberHideKeyboard()
+    val focusManager = LocalFocusManager.current
+    val inputMode = LocalInputModeManager.current
+    val saveTmdbKey: (String) -> Unit = { key ->
+        hideKeyboard()
+        if (inputMode.inputMode == InputMode.Touch) focusManager.clearFocus(force = true)
+        actions.updateSettings(settings.copy(tmdbApiKey = key))
+    }
     var confirmClear by remember { mutableStateOf(false) }
     if (confirmClear) ConfirmSettingsDialog("Limpar cache desta conta?",
         "O catálogo e o guia salvos serão removidos. Credenciais, perfis, favoritos e histórico serão mantidos.",
@@ -143,13 +155,13 @@ fun AdvancedSettings(settings: UserSettings, epgChannels: Int, epgUpdatedAt: Lon
     Spacer(Modifier.height(18.dp))
     SettingsPanel("Informações de filmes e séries", "Opcional: use sua chave de API v3 do TMDB para buscar sinopse, elenco e trailers.") {
         PillField(tmdbKey, { tmdbKey = it }, "Chave de API v3 do TMDB", Modifier.fillMaxWidth().testTag("setting-tmdb-key"),
-            password = true, imeAction = ImeAction.Done, onDone = { actions.updateSettings(settings.copy(tmdbApiKey = tmdbKey)) })
+            password = true, imeAction = ImeAction.Done, onDone = { saveTmdbKey(tmdbKey) })
         Text("Sem chave, o aplicativo usa os dados de elenco e trailer que o próprio provedor disponibilizar. " +
             "Ao ativar o TMDB, o título pesquisado é enviado ao serviço; credenciais do IPTV não são enviadas.",
             color = XColors.TextDim, fontSize = 12.sp, modifier = Modifier.padding(top = 8.dp))
         Row(Modifier.padding(top = 12.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            GlowButton("Salvar chave TMDB", ringAlways = false) { actions.updateSettings(settings.copy(tmdbApiKey = tmdbKey)) }
-            GlowButton("Remover chave", ringAlways = false) { tmdbKey = ""; actions.updateSettings(settings.copy(tmdbApiKey = "")) }
+            GlowButton("Salvar chave TMDB", ringAlways = false) { saveTmdbKey(tmdbKey) }
+            GlowButton("Remover chave", ringAlways = false) { tmdbKey = ""; saveTmdbKey("") }
         }
         Image(painterResource(R.drawable.tmdb_logo), "The Movie Database", Modifier.padding(top = 18.dp).width(110.dp))
         Text("This product uses the TMDB API but is not endorsed or certified by TMDB.",
