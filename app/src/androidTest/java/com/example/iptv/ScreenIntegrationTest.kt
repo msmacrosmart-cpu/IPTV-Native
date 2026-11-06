@@ -22,8 +22,6 @@ import androidx.compose.ui.test.assertTextContains
 import androidx.compose.ui.test.click
 import androidx.compose.ui.test.ExperimentalTestApi
 import androidx.compose.ui.test.SemanticsMatcher
-import androidx.compose.ui.test.hasTestTag
-import androidx.compose.ui.test.hasText
 import androidx.compose.ui.test.isFocused
 import androidx.compose.ui.test.junit4.createAndroidComposeRule
 import androidx.compose.ui.test.onAllNodesWithContentDescription
@@ -36,7 +34,7 @@ import androidx.compose.ui.test.performImeAction
 import androidx.compose.ui.test.performKeyInput
 import androidx.compose.ui.test.performScrollTo
 import androidx.compose.ui.test.performScrollToIndex
-import androidx.compose.ui.test.performScrollToNode
+import androidx.compose.ui.test.performScrollToKey
 import androidx.compose.ui.test.performSemanticsAction
 import androidx.compose.ui.test.performTextInput
 import androidx.compose.ui.test.performTextClearance
@@ -332,20 +330,24 @@ class ScreenIntegrationTest {
         // Wait beyond an autoplay period: a keyboard must never bounce to another page by itself.
         Thread.sleep(8_500)
         compose.onNodeWithTag("hero-watch-vod:101").assertIsFocused()
-        listOf("Continuar assistindo", "Canais favoritos ao vivo", "Filmes e séries favoritos").forEach { title ->
-            assertTrue("Empty rail must be completely absent: $title", runCatching {
-                compose.onNodeWithTag("home-list").performScrollToNode(hasText(title))
-            }.isFailure)
+        // Query the lazy-list keys instead of traversing its semantics tree off the UI thread.
+        listOf("continue", "live-favs", "vod-favs").forEach { key ->
+            val error = runCatching { compose.onNodeWithTag("home-list").performScrollToKey(key) }.exceptionOrNull()
+            assertTrue("Empty rail must be completely absent: $key", error is IllegalArgumentException &&
+                error.message.orEmpty().contains("couldn't find the key"))
         }
         // Two separate top-ten rails are ranked by panel score; the playlist block is gone.
         assertFalse(textExists("Xtream · 2 canais"))
-        compose.onNodeWithTag("home-list").performScrollToNode(hasText("Top 10 filmes · por nota do provedor"))
+        compose.onNodeWithTag("home-list").performScrollToKey("top-movies")
         compose.onNodeWithTag("top-movies").assertIsDisplayed()
+        compose.onNodeWithText("Top 10 filmes · por nota do provedor").assertIsDisplayed()
         capture("screen-top-10.png")
-        compose.onNodeWithTag("home-list").performScrollToNode(hasText("Top 10 séries · por nota do provedor"))
+        compose.onNodeWithTag("home-list").performScrollToKey("top-series")
         compose.onNodeWithTag("top-series").assertIsDisplayed()
-        compose.onNodeWithTag("home-list").performScrollToNode(hasText("Explore sua biblioteca"))
-        compose.onNodeWithTag("rail-explore").performScrollToNode(hasTestTag("poster-vod:125"))
+        compose.onNodeWithText("Top 10 séries · por nota do provedor").assertIsDisplayed()
+        compose.onNodeWithTag("home-list").performScrollToKey("suggested")
+        compose.onNodeWithText("Explore sua biblioteca").assertIsDisplayed()
+        compose.onNodeWithTag("rail-explore").performScrollToKey("vod:125")
         compose.onNodeWithTag("poster-vod:125").assertIsDisplayed()
         compose.onNodeWithTag("home-list").performScrollToIndex(0)
         listOf("Home", "TV", "Filmes", "Séries", "Configurações").forEach {
@@ -360,7 +362,7 @@ class ScreenIntegrationTest {
         showControls()
         compose.onNodeWithContentDescription("Voltar").performClick()
         compose.runOnIdle { vm.saveProgress(com.xtream.player.data.PlayerRequest("Filme Teste", "unused", false, libraryKey = "vod:101"), 20_000, 100_000) }
-        compose.onNodeWithTag("home-list").performScrollToNode(hasText("Continuar assistindo"))
+        compose.onNodeWithTag("home-list").performScrollToKey("continue")
         compose.waitUntil(10_000) { exists("poster-vod:101") }
         val homeCardWidth = compose.onAllNodesWithTag("poster-vod:101").fetchSemanticsNodes().first().boundsInRoot.width
 
@@ -379,7 +381,7 @@ class ScreenIntegrationTest {
         compose.onNodeWithTag("category-search").performImeAction()
         compose.waitUntil(10_000) { textExists("Ação") && !keyboardIsVisible() }
         compose.onNodeWithContentDescription("Próxima página").assertDoesNotExist()
-        compose.onNodeWithTag("catalog-grid").performScrollToNode(hasTestTag("poster-vod:125"))
+        compose.onNodeWithTag("catalog-grid").performScrollToKey("vod:125")
         compose.waitUntil(10_000) { exists("poster-vod:125") }
         compose.onNodeWithTag("catalog-grid").performScrollToIndex(0)
         compose.waitUntil(10_000) { exists("poster-vod:101") }
@@ -396,7 +398,7 @@ class ScreenIntegrationTest {
         compose.onNodeWithTag("poster-series:101").performClick()
         compose.waitUntil(20_000) { vm.episodeSelection?.choices?.size == 2 }
         capture("screen-series.png")
-        compose.onNodeWithTag("detail-list").performScrollToNode(hasText("T1 E2 · Segundo"))
+        compose.onNodeWithTag("detail-list").performScrollToKey("202")
         compose.onNodeWithText("T1 E2 · Segundo").performClick()
         compose.waitUntil(30_000) { streamPaths.any { it.endsWith("/202.ts") } && playerState() == "playing" }
         compose.waitUntil(10_000) { !keyboardIsVisible() }
@@ -443,11 +445,12 @@ class ScreenIntegrationTest {
         compose.onNodeWithContentDescription("TV").performClick()
         compose.waitUntil(10_000) { exists("channel-1") && exists("channel-2") }
         assertSideBySide("tv-categories-pane", "tv-channel-pane", "tv-preview-pane")
-        compose.onNodeWithTag("category-list").performScrollToNode(hasText("Esportes"))
+        compose.onNodeWithTag("category-list").performScrollToKey("2")
         compose.onNodeWithText("Esportes").performClick()
         compose.waitUntil(10_000) { exists("channel-2") && !exists("channel-1") }
+        compose.onNodeWithTag("category-list").performScrollToIndex(0)
         compose.onNodeWithText("Todos").performClick()
-        compose.onNodeWithTag("channel-list").performScrollToNode(hasTestTag("channel-2"))
+        compose.waitUntil(10_000) { exists("channel-1") && exists("channel-2") }
         useRemoteInputMode()
         val liveBeforeFocus = streamPaths.count { it.startsWith("/live/") }
         compose.onNodeWithTag("channel-1").performSemanticsAction(SemanticsActions.RequestFocus)
@@ -477,7 +480,7 @@ class ScreenIntegrationTest {
         assertFalse("Returning focus alone must not restart the preview", exists("preview-channel"))
 
         compose.onNodeWithContentDescription("Home").performClick()
-        compose.onNodeWithTag("home-list").performScrollToNode(hasText("Filmes e séries favoritos"))
+        compose.onNodeWithTag("home-list").performScrollToKey("vod-favs")
         compose.waitUntil(10_000) { exists("poster-vod:101") && exists("poster-series:101") }
         capture("screen-favorites.png")
         val credentials = app.repository.currentCredentials()!!
@@ -565,7 +568,7 @@ class ScreenIntegrationTest {
             compose.waitUntil(10_000) { exists("hero-watch-vod:102") }
             compose.onNodeWithTag("hero-carousel").performTouchInput { swipeRight() }
             compose.waitUntil(10_000) { exists("hero-watch-vod:101") }
-            compose.onNodeWithTag("home-list").performScrollToNode(hasText("Explore sua biblioteca"))
+            compose.onNodeWithTag("home-list").performScrollToKey("suggested")
             compose.waitUntil(30_000) { exists("poster-vod:101") && existsUnmerged("loaded-poster-vod:101") }
             val homeCardWidth = compose.onAllNodesWithTag("poster-vod:101").fetchSemanticsNodes().first().boundsInRoot.width
             capture("screen-phone-home.png")
@@ -678,7 +681,7 @@ class ScreenIntegrationTest {
             compose.onNodeWithTag("cast-member-7").assertIsDisplayed()
             val lastTop = compose.onNodeWithTag("cast-member-7").fetchSemanticsNode().boundsInRoot.top
             assertTrue("The cast must stay in one horizontal row", kotlin.math.abs(firstTop - lastTop) < 2f)
-            compose.onNodeWithTag("detail-list").performScrollToNode(hasTestTag("detail-synopsis"))
+            compose.onNodeWithTag("detail-list").performScrollToKey("synopsis")
             compose.onNodeWithTag("detail-synopsis").assertTextContains("Sinopse do TMDB")
             compose.onNodeWithTag("detail-list").performScrollToIndex(0)
 
@@ -725,7 +728,7 @@ class ScreenIntegrationTest {
         compose.waitUntil(30_000) { vm.content.movies.size == 40 && vm.content.series.size == 40 }
 
         fun chooseSort(name: String) {
-            compose.onNodeWithTag("catalog-sort-list").performScrollToNode(hasTestTag("catalog-sort-$name"))
+            compose.onNodeWithTag("catalog-sort-list").performScrollToKey(name.uppercase(Locale.ROOT))
             compose.onNodeWithTag("catalog-sort-$name").performClick()
             compose.onNodeWithTag("catalog-sort-$name").assertIsSelected()
         }
@@ -754,11 +757,28 @@ class ScreenIntegrationTest {
             compose.onNodeWithTag("catalog-sort-direction").performClick().assertTextContains("Crescente", substring = true)
             assertFirstCatalogItem("poster-$type:140")
 
+            // The same criteria and directions must sort the results of a title search.
+            val search = if (type == "vod") "Filme 10" else "Série 10"
+            compose.onNodeWithTag("search-field").performTextInput(search).performImeAction()
+            chooseSort("rating")
+            assertFirstCatalogItem("poster-$type:103")
+            compose.onNodeWithTag("catalog-sort-direction").performClick()
+            assertFirstCatalogItem("poster-$type:102")
+            chooseSort("recent")
+            assertFirstCatalogItem("poster-$type:102")
+            compose.onNodeWithTag("catalog-sort-direction").performClick()
+            assertFirstCatalogItem("poster-$type:109")
+            chooseSort("title")
+            assertFirstCatalogItem("poster-$type:102")
+            compose.onNodeWithTag("catalog-sort-direction").performClick()
+            assertFirstCatalogItem("poster-$type:109")
+            compose.onNodeWithTag("search-field").performTextClearance().performImeAction()
+
             // Open an item far down an alphabetical folder and return without resetting
             // the selected folder, sort direction, or the grid's scroll position.
             chooseSort("title")
             assertFirstCatalogItem("poster-$type:102")
-            compose.onNodeWithTag("catalog-grid").performScrollToNode(hasTestTag("poster-$type:125"))
+            compose.onNodeWithTag("catalog-grid").performScrollToKey("$type:125")
             compose.onNodeWithTag("poster-$type:125").assertIsDisplayed().performClick()
             compose.waitUntil(20_000) { exists("detail-list") }
             compose.onNodeWithContentDescription("Voltar aos itens").performClick()
@@ -857,7 +877,7 @@ class ScreenIntegrationTest {
         compose.waitUntil(10_000) { exists("catalog-grid") && runCatching {
             compose.onNodeWithTag("catalog-category-title").assertTextContains("Lançamentos")
         }.isSuccess }
-        compose.onNodeWithTag("catalog-grid").performScrollToNode(hasTestTag("poster-vod:125"))
+        compose.onNodeWithTag("catalog-grid").performScrollToKey("vod:125")
         compose.onNodeWithTag("poster-vod:125").performSemanticsAction(SemanticsActions.RequestFocus)
             .performKeyInput { pressKey(Key.DirectionCenter) }
         compose.waitUntil(20_000) { exists("detail-trailer") && exists("cast-member-0") }
@@ -879,7 +899,7 @@ class ScreenIntegrationTest {
         compose.waitUntil(10_000) { exists("catalog-grid") && runCatching {
             compose.onNodeWithTag("catalog-category-title").assertTextContains("Drama")
         }.isSuccess }
-        compose.onNodeWithTag("catalog-grid").performScrollToNode(hasTestTag("poster-series:125"))
+        compose.onNodeWithTag("catalog-grid").performScrollToKey("series:125")
         compose.onNodeWithTag("poster-series:125").performSemanticsAction(SemanticsActions.RequestFocus)
             .performKeyInput { pressKey(Key.DirectionCenter) }
         compose.waitUntil(20_000) { exists("detail-list") }
@@ -1041,7 +1061,7 @@ class ScreenIntegrationTest {
         compose.onNodeWithContentDescription("Séries").performClick()
         compose.onNodeWithTag("poster-series:101").performClick()
         compose.waitUntil(20_000) { vm.episodeSelection?.choices?.size == 2 }
-        compose.onNodeWithTag("detail-list").performScrollToNode(hasText("T1 E1 · Primeiro"))
+        compose.onNodeWithTag("detail-list").performScrollToKey("201")
         compose.onNodeWithText("T1 E1 · Primeiro").performClick()
         compose.waitUntil(30_000) { streamPaths.any { it.endsWith("/201.ts") } && playerState() == "playing" }
         compose.waitUntil(45_000) { vm.playerRequest?.episodeId == "202" && streamPaths.any { it.endsWith("/202.ts") } }
