@@ -24,6 +24,8 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.onFocusChanged
+import androidx.compose.ui.input.InputMode
+import androidx.compose.ui.platform.LocalInputModeManager
 import androidx.compose.ui.input.key.Key
 import androidx.compose.ui.input.key.KeyEventType
 import androidx.compose.ui.input.key.key
@@ -117,7 +119,7 @@ fun HomeScreen(content: ContentState, epg: Map<String, List<Programme>>, query: 
                     "Marque filmes ou séries como favoritos para encontrá-los aqui.")
             }
             if (matching.isNotEmpty()) item(key = "suggested") {
-                PosterRail("Explore sua biblioteca", matching.take(20), gutter, cardWidth, favorites, onSelectItem, onToggleFav, "")
+                PosterRail("Explore sua biblioteca", matching, gutter, cardWidth, favorites, onSelectItem, onToggleFav, "", tag = "explore")
             }
         }
     }
@@ -130,7 +132,8 @@ private fun PosterRail(title: String, items: List<VodItem>, gutter: androidx.com
     Column(if (tag.isNotEmpty()) Modifier.testTag(tag) else Modifier) {
         RailHeader(title, items.size, gutter)
         if (items.isEmpty()) EmptyRail(empty, gutter)
-        else LazyRow(contentPadding = PaddingValues(start = gutter, end = gutter, top = 10.dp, bottom = 6.dp),
+        else LazyRow(modifier = if (tag.isNotEmpty()) Modifier.testTag("rail-$tag") else Modifier,
+            contentPadding = PaddingValues(start = gutter, end = gutter, top = 10.dp, bottom = 6.dp),
             horizontalArrangement = Arrangement.spacedBy(CatalogGridGap)) {
             itemsIndexed(items, key = { _, item -> item.favoriteKey }) { index, item ->
                 PosterCard(item, width = cardWidth, onLongClick = { onToggleFav(item.favoriteKey) },
@@ -162,46 +165,66 @@ private fun HeroCarousel(slides: List<VodItem>, height: androidx.compose.ui.unit
                          loadingHeroKey: String?, onSelect: (VodItem) -> Unit, onWatch: (VodItem) -> Unit) {
     val pager = rememberPagerState(pageCount = { slides.size })
     val scope = rememberCoroutineScope()
-    val watchFocus = remember(slides.map { it.favoriteKey }) { slides.associate { it.favoriteKey to FocusRequester() } }
-    val detailsFocus = remember(slides.map { it.favoriteKey }) { slides.associate { it.favoriteKey to FocusRequester() } }
+    val inputMode = LocalInputModeManager.current
+    val ids = slides.map { it.favoriteKey }
+    val watchFocus = remember(ids) { ids.associateWith { FocusRequester() } }
+    val detailsFocus = remember(ids) { ids.associateWith { FocusRequester() } }
+    val indicatorFocus = remember(ids) { ids.associateWith { FocusRequester() } }
     var hasFocus by remember { mutableStateOf(false) }
     var focusedControl by remember { mutableStateOf(HeroFocus.None) }
-    LaunchedEffect(pager, slides.size, hasFocus, loadingHeroKey) {
+    var changingPage by remember { mutableStateOf(false) }
+    // Auto-advance only for touch. A physical keyboard or TV remote never fights a timer.
+    LaunchedEffect(pager, slides.size, hasFocus, loadingHeroKey, inputMode.inputMode) {
         while (slides.size > 1) {
             delay(8_000)
-            if (!hasFocus && loadingHeroKey == null && !pager.isScrollInProgress) pager.animateScrollToPage((pager.currentPage + 1) % slides.size)
+            if (inputMode.inputMode == InputMode.Touch && !hasFocus && !changingPage &&
+                loadingHeroKey == null && !pager.isScrollInProgress) {
+                pager.animateScrollToPage((pager.currentPage + 1) % slides.size)
+            }
         }
     }
     Box(Modifier.fillMaxWidth().height(height).testTag("hero-carousel")
-        .onFocusChanged { hasFocus = it.hasFocus; if (!it.hasFocus) focusedControl = HeroFocus.None }
+        .onFocusChanged { hasFocus = it.hasFocus; if (!it.hasFocus && !changingPage) focusedControl = HeroFocus.None }
         .onPreviewKeyEvent { event ->
             val delta = when (event.key) { Key.DirectionRight -> 1; Key.DirectionLeft -> -1; else -> 0 }
-            val movePage = when (focusedControl) {
-                HeroFocus.Watch -> delta < 0
-                HeroFocus.Details -> delta > 0
-                HeroFocus.Indicator -> delta != 0
-                HeroFocus.None -> false
-            }
-            if (slides.size > 1 && event.type == KeyEventType.KeyDown && movePage) {
-                if (!pager.isScrollInProgress) {
-                    val target = (pager.currentPage + delta + slides.size) % slides.size
-                    val control = focusedControl
-                    scope.launch {
-                        pager.animateScrollToPage(target)
-                        // Keep the same action focused after the new slide is composed.
-                        delay(50)
-                        val key = slides[target].favoriteKey
-                        runCatching {
-                            when (control) {
-                                HeroFocus.Watch -> watchFocus[key]?.requestFocus()
-                                HeroFocus.Details -> detailsFocus[key]?.requestFocus()
-                                else -> Unit
+            val control = focusedControl
+            if (delta == 0 || control == HeroFocus.None) false
+            else if (event.type == KeyEventType.KeyUp) true
+            else if (event.type != KeyEventType.KeyDown) false
+            else {
+                // Consume repeats and both edges: HorizontalPager must not also move the page.
+                if (!changingPage && event.nativeKeyEvent.repeatCount == 0) {
+                    val current = pager.currentPage.coerceIn(0, slides.lastIndex)
+                    val currentKey = slides[current].favoriteKey
+                    when {
+                        control == HeroFocus.Watch && delta > 0 ->
+                            runCatching { detailsFocus[currentKey]?.requestFocus() }
+                        control == HeroFocus.Details && delta < 0 ->
+                            runCatching { watchFocus[currentKey]?.requestFocus() }
+                        slides.size > 1 -> {
+                            val target = (current + delta + slides.size) % slides.size
+                            changingPage = true
+                            scope.launch {
+                                try {
+                                    // A direct jump avoids the focused old page pulling an animation back.
+                                    pager.scrollToPage(target)
+                                    withFrameNanos { }
+                                    val nextKey = slides[target].favoriteKey
+                                    runCatching {
+                                        when (control) {
+                                            HeroFocus.Watch -> watchFocus[nextKey]?.requestFocus()
+                                            HeroFocus.Details -> detailsFocus[nextKey]?.requestFocus()
+                                            HeroFocus.Indicator -> indicatorFocus[nextKey]?.requestFocus()
+                                            HeroFocus.None -> Unit
+                                        }
+                                    }
+                                } finally { changingPage = false }
                             }
                         }
                     }
                 }
                 true
-            } else false
+            }
         }.focusGroup()) {
         HorizontalPager(state = pager, key = { slides[it].favoriteKey }, modifier = Modifier.fillMaxSize()) { index ->
             val item = slides[index]
@@ -212,14 +235,18 @@ private fun HeroCarousel(slides: List<VodItem>, height: androidx.compose.ui.unit
                     .onFocusChanged { if (it.isFocused) focusedControl = HeroFocus.Details },
                 onSelect = { onSelect(item) }, onWatch = { onWatch(item) })
         }
-        if (slides.size > 1) Row(Modifier.align(Alignment.BottomEnd).padding(end = if (compact) 8.dp else 24.dp, bottom = 8.dp),
+        if (slides.size > 1) Row(
+            if (compact) Modifier.align(Alignment.TopEnd).padding(end = 8.dp, top = 2.dp)
+            else Modifier.align(Alignment.BottomEnd).padding(end = 24.dp, bottom = 8.dp),
             verticalAlignment = Alignment.CenterVertically) {
             slides.forEachIndexed { index, slide ->
                 val shape = RoundedCornerShape(50)
-                Box(Modifier.size(34.dp).onFocusChanged { if (it.isFocused) focusedControl = HeroFocus.Indicator }
+                Box(Modifier.size(if (compact) 26.dp else 34.dp)
+                    .focusRequester(indicatorFocus.getValue(slide.favoriteKey))
+                    .onFocusChanged { if (it.isFocused) focusedControl = HeroFocus.Indicator }
                     .focusGlow(shape, zoom = 1f).clip(shape)
                     .semantics { contentDescription = "Destaque ${index + 1}: ${slide.title}" }
-                    .combinedClickable { scope.launch { pager.animateScrollToPage(index) } }, contentAlignment = Alignment.Center) {
+                    .combinedClickable { scope.launch { pager.scrollToPage(index) } }, contentAlignment = Alignment.Center) {
                     Box(Modifier.width(if (pager.currentPage == index) 18.dp else 6.dp).height(6.dp).clip(shape)
                         .background(if (pager.currentPage == index) XColors.Text else XColors.TextDim.copy(alpha = .5f)))
                 }
@@ -231,33 +258,24 @@ private fun HeroCarousel(slides: List<VodItem>, height: androidx.compose.ui.unit
 @Composable
 private fun HeroSlide(item: VodItem, compact: Boolean, loading: Boolean,
                       watchModifier: Modifier, detailsModifier: Modifier, onSelect: () -> Unit, onWatch: () -> Unit) {
-    var backdropFailed by remember(item.backdrop) { mutableStateOf(false) }
-    val backdrop = item.backdrop?.takeIf { it.isNotBlank() && !backdropFailed }
-    val image = backdrop ?: item.poster?.takeIf { it.isNotBlank() }
-    var imageLoaded by remember(image) { mutableStateOf(false) }
     Box(Modifier.fillMaxSize()) {
         Box(Modifier.fillMaxSize().background(Brush.linearGradient(listOf(XColors.Bg, XColors.PanelHeader, XColors.Shell))))
-        if (image != null) {
-            // A wide backdrop fills the hero. If the provider only has a poster, keep it sharp
-            // and uncropped on the right instead of stretching and blurring it across the screen.
-            val imageModifier = if (backdrop != null) Modifier.fillMaxSize() else Modifier.align(Alignment.CenterEnd)
-                .fillMaxWidth(if (compact) .48f else .52f).fillMaxHeight().padding(8.dp)
-            val imageTag = "hero-${if (backdrop != null) "backdrop" else "poster"}-${if (imageLoaded) "loaded-" else ""}${item.favoriteKey}"
-            AsyncImage(image, null, contentScale = if (backdrop != null) ContentScale.Crop else ContentScale.Fit,
-                modifier = imageModifier.testTag(imageTag), onSuccess = { imageLoaded = true },
-                onError = { if (backdrop != null) backdropFailed = true })
-        }
+        WideBackdrop(item.backdrop, "hero-backdrop-${item.favoriteKey}", "hero-backdrop-loaded-${item.favoriteKey}",
+            "hero-backdrop-rejected-${item.favoriteKey}", Modifier.fillMaxSize())
         Box(Modifier.fillMaxSize().background(Brush.horizontalGradient(
             0f to XColors.Bg.copy(alpha = .97f), .45f to XColors.Bg.copy(alpha = .82f), 1f to Color.Transparent)))
         Box(Modifier.fillMaxSize().background(Brush.verticalGradient(
             0f to XColors.Bg.copy(alpha = .10f), .65f to Color.Transparent, 1f to XColors.Bg.copy(alpha = .8f))))
+        // Text and buttons occupy disjoint regions: long titles/plots may ellipsize, but
+        // never measure over, cover or clip the two actions on short landscape screens.
         Column(Modifier.align(Alignment.BottomStart).fillMaxWidth(if (compact) .90f else .60f)
-            .padding(start = if (compact) 16.dp else 28.dp, end = 12.dp, bottom = 52.dp)) {
+            .fillMaxHeight().padding(start = if (compact) 16.dp else 28.dp, end = 12.dp, top = 10.dp, bottom = 70.dp),
+            verticalArrangement = Arrangement.Bottom) {
             Text("FILME  ·  LANÇAMENTOS", color = XColors.TextDim,
-                fontSize = 11.sp, letterSpacing = 1.1.sp, fontWeight = FontWeight.SemiBold)
+                fontSize = 11.sp, letterSpacing = 1.1.sp, fontWeight = FontWeight.SemiBold, maxLines = 1)
             Spacer(Modifier.height(5.dp))
-            Text(item.title, color = XColors.Text, fontSize = if (compact) 30.sp else 40.sp,
-                lineHeight = if (compact) 34.sp else 44.sp, fontWeight = FontWeight.Bold,
+            Text(item.title, color = XColors.Text, fontSize = if (compact) 27.sp else 40.sp,
+                lineHeight = if (compact) 31.sp else 44.sp, fontWeight = FontWeight.Bold,
                 maxLines = 2, overflow = TextOverflow.Ellipsis)
             Spacer(Modifier.height(8.dp))
             Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
@@ -266,17 +284,19 @@ private fun HeroSlide(item: VodItem, compact: Boolean, loading: Boolean,
                 if (item.year.isNotBlank()) HeroPill(item.year, XColors.Text)
             }
             if (item.plot.isNotBlank()) Text(item.plot, color = XColors.TextDim, fontSize = 13.sp,
-                lineHeight = 19.sp, maxLines = 2, overflow = TextOverflow.Ellipsis, modifier = Modifier.padding(top = 10.dp))
-            if (item.progress > 0) Box(Modifier.padding(top = 10.dp).width(170.dp).height(3.dp).background(Color(0x4DFFFFFF))) {
+                lineHeight = 19.sp, maxLines = if (compact) 1 else 2, overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.padding(top = 8.dp))
+            if (item.progress > 0) Box(Modifier.padding(top = 8.dp).width(170.dp).height(3.dp).background(Color(0x4DFFFFFF))) {
                 Box(Modifier.fillMaxHeight().fillMaxWidth(item.progress.coerceIn(0f, 1f)).background(XColors.Accent))
             }
-            Spacer(Modifier.height(14.dp))
-            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp), verticalAlignment = Alignment.CenterVertically) {
-                GlowButton(if (loading) "Carregando…" else "Assistir", Icons.Filled.PlayArrow,
-                    watchModifier.weight(1f, fill = false).testTag("hero-watch-${item.favoriteKey}"), onClick = { if (!loading) onWatch() })
-                GlowButton("Detalhes", Icons.Filled.Info, detailsModifier.weight(1f, fill = false).testTag("hero-details-${item.favoriteKey}"),
-                    ringAlways = false, onClick = onSelect)
-            }
+        }
+        Row(Modifier.align(Alignment.BottomStart).fillMaxWidth(if (compact) .9f else .6f)
+            .padding(start = if (compact) 16.dp else 28.dp, end = 12.dp, bottom = 14.dp),
+            horizontalArrangement = Arrangement.spacedBy(12.dp), verticalAlignment = Alignment.CenterVertically) {
+            GlowButton(if (loading) "Carregando…" else "Assistir", Icons.Filled.PlayArrow,
+                watchModifier.weight(1f, fill = false).testTag("hero-watch-${item.favoriteKey}"), onClick = { if (!loading) onWatch() })
+            GlowButton("Detalhes", Icons.Filled.Info, detailsModifier.weight(1f, fill = false).testTag("hero-details-${item.favoriteKey}"),
+                ringAlways = false, onClick = onSelect)
         }
     }
 }

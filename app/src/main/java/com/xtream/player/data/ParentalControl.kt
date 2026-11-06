@@ -34,7 +34,7 @@ object ParentalPin {
     }
 }
 
-/** Filter before Home, search, live TV and Multitela so restricted content cannot leak there. */
+/** Filter before Home, search and live TV so restricted content cannot leak there. */
 fun ContentState.withParentalRestrictions(blocked: Set<String>, unlocked: Boolean): ContentState {
     if (unlocked || blocked.isEmpty()) return this
     return copy(

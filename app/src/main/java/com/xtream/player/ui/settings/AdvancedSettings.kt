@@ -1,6 +1,5 @@
 package com.xtream.player.ui.settings
 
-import androidx.compose.foundation.Image
 import androidx.compose.foundation.layout.*
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
@@ -11,17 +10,12 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.input.InputMode
-import androidx.compose.ui.platform.LocalFocusManager
-import androidx.compose.ui.platform.LocalInputModeManager
 import androidx.compose.ui.platform.testTag
-import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import com.example.iptv.R
 import com.example.iptv.data.model.DEFAULT_USER_AGENT
 import com.example.iptv.data.model.PlaybackApp
 import com.example.iptv.data.model.StreamFormat
@@ -31,7 +25,6 @@ import com.xtream.player.ui.components.CategoryChip
 import com.xtream.player.ui.components.GlowButton
 import com.xtream.player.ui.components.IconAction
 import com.xtream.player.ui.components.PillField
-import com.xtream.player.ui.components.rememberHideKeyboard
 import com.xtream.player.ui.theme.XColors
 import com.xtream.player.util.fmtDateTime
 
@@ -41,21 +34,12 @@ fun AdvancedSettings(settings: UserSettings, epgChannels: Int, epgUpdatedAt: Lon
                      epgMessage: String?, actions: SettingsActions) {
     var xmltv by remember(settings.customXmltvUrl) { mutableStateOf(settings.customXmltvUrl) }
     var agent by remember(settings.userAgent) { mutableStateOf(settings.userAgent) }
-    var tmdbKey by remember(settings.tmdbApiKey) { mutableStateOf(settings.tmdbApiKey) }
-    val hideKeyboard = rememberHideKeyboard()
-    val focusManager = LocalFocusManager.current
-    val inputMode = LocalInputModeManager.current
-    val saveTmdbKey: (String) -> Unit = { key ->
-        hideKeyboard()
-        if (inputMode.inputMode == InputMode.Touch) focusManager.clearFocus(force = true)
-        actions.updateSettings(settings.copy(tmdbApiKey = key))
-    }
     var confirmClear by remember { mutableStateOf(false) }
     if (confirmClear) ConfirmSettingsDialog("Limpar cache desta conta?",
         "O catálogo e o guia salvos serão removidos. Credenciais, perfis, favoritos e histórico serão mantidos.",
         onDismiss = { confirmClear = false }, onConfirm = { confirmClear = false; actions.clearCache() })
 
-    SettingsPanel("Reprodução", "As alterações são aplicadas aos próximos vídeos e à Multitela.") {
+    SettingsPanel("Configurações gerais", "As alterações são aplicadas aos próximos vídeos.") {
         SettingLabel("Formato da transmissão ao vivo")
         FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
             StreamFormat.entries.forEach { format ->
@@ -105,14 +89,31 @@ fun AdvancedSettings(settings: UserSettings, epgChannels: Int, epgUpdatedAt: Lon
             color = XColors.TextDim, fontSize = 12.sp, modifier = Modifier.padding(top = 12.dp))
     }
     Spacer(Modifier.height(18.dp))
+    SettingsPanel("Automação", "Abra o conteúdo salvo imediatamente e atualize o catálogo em segundo plano.") {
+        SettingLabel("Atualização do conteúdo")
+        FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            (1..3).forEach { days ->
+                CategoryChip(if (days == 1) "1 dia" else "$days dias", settings.catalogIntervalDays == days,
+                    modifier = Modifier.testTag("setting-catalog-interval-$days")) {
+                    actions.updateSettings(settings.copy(catalogIntervalDays = days))
+                }
+            }
+        }
+        Text("Padrão: 3 dias. O Android pode adiar atualizações por economia de bateria ou falta de rede.",
+            color = XColors.Body, fontSize = 12.sp, modifier = Modifier.padding(top = 8.dp))
+    }
+    Spacer(Modifier.height(18.dp))
     SettingsPanel("Guia de programação (EPG)", "Última atualização: ${epgUpdatedAt?.let { fmtDateTime(it, settings.time24Hour) } ?: "Nunca"}  ·  $epgChannels canais") {
         SettingToggle("Atualizar EPG automaticamente", settings.autoUpdateEpg, "setting-epg-auto") {
             actions.updateSettings(settings.copy(autoUpdateEpg = it))
         }
         SettingLabel("Intervalo de atualização")
         FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-            listOf(6, 12, 24, 48).forEach { hours ->
-                CategoryChip("${hours}h", settings.epgIntervalHours == hours) { actions.updateSettings(settings.copy(epgIntervalHours = hours)) }
+            listOf(6, 8, 12, 24, 48).forEach { hours ->
+                val label = when (hours) { 8 -> "3 vezes ao dia"; 24 -> "1 dia"; else -> "${hours}h" }
+                CategoryChip(label, settings.epgIntervalHours == hours, modifier = Modifier.testTag("setting-epg-interval-$hours")) {
+                    actions.updateSettings(settings.copy(epgIntervalHours = hours))
+                }
             }
         }
         SettingLabel("Deslocamento do EPG")
@@ -153,29 +154,7 @@ fun AdvancedSettings(settings: UserSettings, epgChannels: Int, epgUpdatedAt: Lon
         if (epgMessage != null) Text(epgMessage, color = XColors.TextDim, fontSize = 13.sp, modifier = Modifier.padding(top = 10.dp))
     }
     Spacer(Modifier.height(18.dp))
-    SettingsPanel("Informações de filmes e séries", "Opcional: use sua chave de API v3 do TMDB para buscar sinopse, elenco e trailers.") {
-        PillField(tmdbKey, { tmdbKey = it }, "Chave de API v3 do TMDB", Modifier.fillMaxWidth().testTag("setting-tmdb-key"),
-            password = true, imeAction = ImeAction.Done, onDone = { saveTmdbKey(tmdbKey) })
-        Text("Sem chave, o aplicativo usa os dados de elenco e trailer que o próprio provedor disponibilizar. " +
-            "Ao ativar o TMDB, o título pesquisado é enviado ao serviço; credenciais do IPTV não são enviadas.",
-            color = XColors.TextDim, fontSize = 12.sp, modifier = Modifier.padding(top = 8.dp))
-        Row(Modifier.padding(top = 12.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            GlowButton("Salvar chave TMDB", ringAlways = false) { saveTmdbKey(tmdbKey) }
-            GlowButton("Remover chave", ringAlways = false) { tmdbKey = ""; saveTmdbKey("") }
-        }
-        Image(painterResource(R.drawable.tmdb_logo), "The Movie Database", Modifier.padding(top = 18.dp).width(110.dp))
-        Text("This product uses the TMDB API but is not endorsed or certified by TMDB.",
-            color = XColors.Body, fontSize = 11.sp, modifier = Modifier.padding(top = 8.dp))
-    }
-    Spacer(Modifier.height(18.dp))
-    SettingsPanel("Multitela e armazenamento", "Até quatro canais independentes; o limite real depende do provedor e do dispositivo.") {
-        SettingLabel("Quantidade de telas")
-        FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            (1..4).forEach { count ->
-                CategoryChip("$count", settings.multiScreens == count) { actions.updateSettings(settings.copy(multiScreens = count)) }
-            }
-        }
-        Spacer(Modifier.height(14.dp))
+    SettingsPanel("Armazenamento", "Libere o cache local do perfil atual sem apagar favoritos ou histórico.") {
         GlowButton("Limpar cache da conta", ringAlways = false) { confirmClear = true }
     }
 }
@@ -192,7 +171,7 @@ private fun PlayerChoice(label: String, selected: PlaybackApp, onSelect: (Playba
 @Composable
 internal fun SettingLabel(label: String) {
     Text(label, color = XColors.Text, fontSize = 13.sp, fontWeight = FontWeight.Medium,
-        modifier = Modifier.padding(top = 16.dp, bottom = 8.dp))
+        modifier = settingsAnchor(label).padding(top = 16.dp, bottom = 8.dp))
 }
 
 @Composable

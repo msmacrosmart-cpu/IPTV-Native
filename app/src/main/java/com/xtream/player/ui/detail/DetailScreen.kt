@@ -5,6 +5,7 @@ import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.focusable
+import androidx.compose.foundation.focusGroup
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
@@ -46,11 +47,13 @@ import com.xtream.player.ui.components.GlowButton
 import com.xtream.player.ui.components.FavoriteAction
 import com.xtream.player.ui.components.IconAction
 import com.xtream.player.ui.components.PosterArt
+import com.xtream.player.ui.components.WideBackdrop
 import com.xtream.player.ui.components.focusGlow
 import com.xtream.player.ui.theme.XColors
 import java.util.Locale
 import kotlinx.coroutines.delay
 
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
 fun DetailScreen(item: VodItem, favorite: Boolean, selection: AppViewModel.EpisodeSelection?, loading: Boolean,
                  error: String?, extras: DetailExtras, metadataLoading: Boolean, metadataMessage: String?,
@@ -67,24 +70,23 @@ fun DetailScreen(item: VodItem, favorite: Boolean, selection: AppViewModel.Episo
       val compact = maxWidth < 700.dp || short
       // On a short landscape screen leave the top of the cast visible without scrolling.
       val heroHeight = if (short) (maxHeight * .62f).coerceIn(200.dp, 250.dp) else if (compact) 340.dp else 380.dp
-      val castColumns = (((maxWidth.value - 42f) / 122f).toInt()).coerceIn(1, 12)
-      val castRows = remember(extras.cast, castColumns) { extras.cast.chunked(castColumns) }
       LazyColumn(Modifier.fillMaxSize().testTag("detail-list"), contentPadding = PaddingValues(bottom = 32.dp)) {
         item(key = "hero") {
             DetailHero(item, favorite, !item.isSeries || choices.isNotEmpty(), loading, compact, short, heroHeight,
                 extras.youtubeId, onBack, onFavorite, onPlay, onTrailer)
         }
-        if (castRows.isNotEmpty()) {
-            item(key = "cast-heading") {
-                Text("Elenco", color = XColors.Text, fontSize = 20.sp, fontWeight = FontWeight.SemiBold,
-                    modifier = Modifier.padding(start = 26.dp, end = 26.dp, top = 14.dp, bottom = 8.dp).testTag("detail-cast"))
-            }
-            // Separate lazy rows, rather than a horizontal rail: pressing Down reveals every actor.
-            itemsIndexed(castRows, key = { row, _ -> "cast-row-$row" }) { row, people ->
-                Row(Modifier.fillMaxWidth().padding(start = 26.dp, end = 26.dp, bottom = 10.dp),
-                    horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                    people.forEachIndexed { column, person ->
-                        CastCard(person, Modifier.testTag("cast-member-${row * castColumns + column}"))
+        if (extras.cast.isNotEmpty()) {
+            item(key = "cast") {
+                Column {
+                    Text("Elenco", color = XColors.Text, fontSize = 20.sp, fontWeight = FontWeight.SemiBold,
+                        modifier = Modifier.padding(start = 26.dp, end = 26.dp, top = 14.dp, bottom = 8.dp).testTag("detail-cast"))
+                    // A single lazy rail: every actor remains reachable to the right by D-pad.
+                    LazyRow(Modifier.testTag("cast-rail").focusGroup(),
+                        contentPadding = PaddingValues(start = 26.dp, end = 26.dp, bottom = 10.dp),
+                        horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                        itemsIndexed(extras.cast, key = { index, _ -> index }) { index, person ->
+                            CastCard(person, Modifier.testTag("cast-member-$index"))
+                        }
                     }
                 }
             }
@@ -135,15 +137,10 @@ private fun DetailHero(item: VodItem, favorite: Boolean, canPlay: Boolean, loadi
         if (canPlay && inputMode.inputMode != InputMode.Touch) { delay(120); runCatching { playFocus.requestFocus() } }
     }
     BoxWithConstraints(Modifier.fillMaxWidth()) {
-        Box(Modifier.fillMaxWidth().height(heroHeight)) {
+        Box(Modifier.fillMaxWidth().height(heroHeight).testTag("detail-hero")) {
             Box(Modifier.fillMaxSize().background(XColors.PanelHeader))
-            var backdropFailed by remember(item.backdrop) { mutableStateOf(false) }
-            val backdrop = item.backdrop?.takeIf { it.isNotBlank() && !backdropFailed }
-            val image = backdrop ?: item.poster?.takeIf { it.isNotBlank() }
-            if (image != null) AsyncImage(image, null, contentScale = if (backdrop != null) ContentScale.Crop else ContentScale.Fit,
-                modifier = if (backdrop != null) Modifier.fillMaxSize() else Modifier.align(Alignment.CenterEnd)
-                    .fillMaxWidth(.5f).fillMaxHeight().padding(8.dp),
-                onError = { if (backdrop != null) backdropFailed = true })
+            WideBackdrop(item.backdrop, "detail-backdrop", "detail-backdrop-loaded", "detail-backdrop-rejected",
+                Modifier.fillMaxSize())
             Box(Modifier.fillMaxSize().background(Brush.horizontalGradient(
                 0f to XColors.Bg.copy(alpha = .96f), .5f to XColors.Bg.copy(alpha = .82f), 1f to XColors.Bg.copy(alpha = .22f))))
             Box(Modifier.fillMaxSize().background(Brush.verticalGradient(0f to XColors.Bg.copy(alpha = .15f), .56f to Color.Transparent, 1f to XColors.Bg)))

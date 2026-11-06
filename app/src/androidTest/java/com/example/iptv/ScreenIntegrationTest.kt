@@ -106,6 +106,8 @@ class ScreenIntegrationTest {
     val cleanSession = object : ExternalResource() {
         override fun before() {
             val app = InstrumentationRegistry.getInstrumentation().targetContext.applicationContext as IPTVApplication
+            // All network calls in this suite use a local mock, even when the APK has a real build key.
+            app.tmdbApiKey = ""
             app.repository.logout()
             app.getSharedPreferences("iptv_native_profiles", Context.MODE_PRIVATE).edit().clear().commit()
             app.getSharedPreferences("xtream_library", Context.MODE_PRIVATE).edit().clear().commit()
@@ -131,7 +133,7 @@ class ScreenIntegrationTest {
                 val text = "view=${decor.width}x${decor.height} safe=$safeBounds login=$loginBounds " +
                     "session=${vm.session?.username} channels=${vm.content.channels.size} " +
                     "movies=${vm.content.movies.size} series=${vm.content.series.size} " +
-                    "favorites=${vm.favorites} streams=$streamPaths epg=${vm.epg.keys} volumes=${multiVolumes()} " +
+                    "favorites=${vm.favorites} streams=$streamPaths epg=${vm.epg.keys} " +
                     "windowFocus=${compose.activity.window.decorView.hasWindowFocus()} currentFocus=${compose.activity.currentFocus?.javaClass?.simpleName} " +
                     "imeInsets=${keyboardIsVisible()}\n${imeTrace.joinToString("\n")}\n$ime\n$nodes"
                 writeHostFile("ui-failure.txt", text.toByteArray())
@@ -241,8 +243,9 @@ class ScreenIntegrationTest {
                     "get_vod_info" -> {
                         val id = url.queryParameter("vod_id").orEmpty()
                         vodInfoIds.add(id)
-                        // One item deliberately has no backdrop, to exercise the sharp poster fallback.
+                        // Missing and mislabeled portrait artwork must never become a wide banner.
                         if (id == "102") """{"info":{"plot":"Sem arte larga"}}"""
+                        else if (id == "103") """{"info":{"plot":"Arte vertical","backdrop_path":["${panelBase.resolve("/art/poster-black-harbor.webp")}"]}}"""
                         else """{"info":{"plot":"Sinopse real","genre":"Ação","cast":"Ator do painel, Atriz do painel","tmdb_id":"42","youtube_trailer":"abcdefghijk","backdrop_path":["${panelBase.resolve("/art/backdrop-black-harbor.webp")}"]}}"""
                     }
                     "get_series_categories" -> """[{"category_id":"20","category_name":"Drama"}]"""
@@ -261,6 +264,7 @@ class ScreenIntegrationTest {
     @After fun stopPanel() {
         val app = InstrumentationRegistry.getInstrumentation().targetContext.applicationContext as IPTVApplication
         app.tmdbRepository = TmdbRepository(ApiClient.httpClient())
+        app.tmdbApiKey = ""
         releaseVod.countDown()
         stageRelease.values.forEach { it.countDown() }
         server.shutdown()
@@ -299,6 +303,8 @@ class ScreenIntegrationTest {
         val heroBounds = compose.onNodeWithTag("hero-carousel").fetchSemanticsNode().boundsInRoot
         assertTrue("Hero actions must not overlap", watchBounds.right < detailsBounds.left)
         assertTrue("The hero must extend across the content pane", heroBounds.width > watchBounds.width * 3)
+        assertTrue("Both hero buttons must fit inside the banner", watchBounds.top >= heroBounds.top &&
+            watchBounds.bottom <= heroBounds.bottom && detailsBounds.top >= heroBounds.top && detailsBounds.bottom <= heroBounds.bottom)
         capture("screen-home.png")
         compose.onNodeWithTag("hero-watch-vod:101").performKeyInput { pressKey(Key.DirectionRight) }
         compose.waitUntil(10_000) { runCatching { compose.onNodeWithTag("hero-details-vod:101").assertIsFocused() }.isSuccess }
@@ -308,6 +314,9 @@ class ScreenIntegrationTest {
         compose.waitUntil(10_000) { runCatching { compose.onNodeWithTag("hero-watch-vod:102").assertIsFocused() }.isSuccess }
         compose.onNodeWithTag("hero-watch-vod:102").performKeyInput { pressKey(Key.DirectionLeft) }
         compose.waitUntil(10_000) { runCatching { compose.onNodeWithTag("hero-watch-vod:101").assertIsFocused() }.isSuccess }
+        // Wait beyond an autoplay period: a keyboard must never bounce to another page by itself.
+        Thread.sleep(8_500)
+        compose.onNodeWithTag("hero-watch-vod:101").assertIsFocused()
         listOf("Continuar assistindo", "Canais favoritos ao vivo", "Filmes e séries favoritos").forEach { title ->
             assertTrue("Empty rail must be completely absent: $title", runCatching {
                 compose.onNodeWithTag("home-list").performScrollToNode(hasText(title))
@@ -320,10 +329,14 @@ class ScreenIntegrationTest {
         capture("screen-top-10.png")
         compose.onNodeWithTag("home-list").performScrollToNode(hasText("Top 10 séries · por nota do provedor"))
         compose.onNodeWithTag("top-series").assertIsDisplayed()
+        compose.onNodeWithTag("home-list").performScrollToNode(hasText("Explore sua biblioteca"))
+        compose.onNodeWithTag("rail-explore").performScrollToNode(hasTestTag("poster-vod:125"))
+        compose.onNodeWithTag("poster-vod:125").assertIsDisplayed()
         compose.onNodeWithTag("home-list").performScrollToIndex(0)
-        listOf("Home", "TV", "Filmes", "Séries", "Multitela", "Configurações").forEach {
+        listOf("Home", "TV", "Filmes", "Séries", "Configurações").forEach {
             compose.onNodeWithContentDescription(it).assertExists()
         }
+        compose.onNodeWithContentDescription("Multitela").assertDoesNotExist()
         // Assistir on the hero plays a movie directly without going through details.
         compose.onNodeWithContentDescription("Destaque 1: Filme Teste").performClick()
         compose.waitUntil(10_000) { exists("hero-watch-vod:101") }
@@ -395,12 +408,18 @@ class ScreenIntegrationTest {
         showControls()
         compose.onNodeWithContentDescription("Voltar").performClick()
 
-        // If the panel has no wide image, the second release uses its original sharp poster.
+        // A missing landscape image leaves the neutral backdrop, not the portrait poster.
         compose.onNodeWithContentDescription("Home").performClick()
         compose.onNodeWithTag("home-list").performScrollToIndex(0)
         compose.onNodeWithContentDescription("Destaque 2: Filme 102").performClick()
-        compose.waitUntil(30_000) { existsUnmerged("hero-poster-loaded-vod:102") && !keyboardIsVisible() }
-        capture("screen-hero-poster.png")
+        compose.waitUntil(30_000) { exists("hero-watch-vod:102") && !keyboardIsVisible() }
+        assertFalse(existsUnmerged("hero-poster-loaded-vod:102"))
+        assertFalse(existsUnmerged("hero-backdrop-loaded-vod:102"))
+        capture("screen-hero-no-backdrop.png")
+        // A provider may lie about the image type: portrait data is rejected after decoding.
+        compose.onNodeWithContentDescription("Destaque 3: Filme 103").performClick()
+        compose.waitUntil(30_000) { existsUnmerged("hero-backdrop-rejected-vod:103") }
+        assertFalse(existsUnmerged("hero-backdrop-loaded-vod:103"))
 
         compose.onNodeWithContentDescription("TV").performClick()
         compose.waitUntil(10_000) { exists("channel-1") && exists("channel-2") }
@@ -454,49 +473,17 @@ class ScreenIntegrationTest {
         reopened.saveProgress("vod:101", 99_000, 100_000, null)
         assertTrue(reopened.progress()["vod:101"] == null)
 
-        // Two separate Media3 players must be playing at the same time, not merely placeholders.
-        compose.onNodeWithContentDescription("Multitela").performClick()
-        compose.onNodeWithContentDescription("Adicionar canal 1").performClick()
-        compose.onNodeWithText("Buscar canal").performTextInput("Notícias")
-        compose.waitUntil(10_000) { exists("choose-channel-1") && !exists("choose-channel-2") }
-        compose.onNodeWithTag("choose-channel-1").performClick()
-        compose.waitUntil(10_000) { !keyboardIsVisible() }
-        compose.onNodeWithContentDescription("Adicionar canal 2").performClick()
-        compose.onNodeWithTag("choose-channel-2").performClick()
-        // A queued IME show from the picker must not reappear over the playback controls.
-        Thread.sleep(1_000)
-        compose.waitUntil(15_000) { !keyboardIsVisible() && !systemImeShown() && compose.activity.window.decorView.hasWindowFocus() }
-        compose.waitUntil(10_000) { runCatching { compose.onNodeWithTag("multi-tile-2").assertIsFocused() }.isSuccess }
-        compose.waitUntil(30_000) { multiState(1) == "playing" && multiState(2) == "playing" }
-        compose.onNodeWithContentDescription("Som ativo na tela 2").assertExists()
-        compose.waitUntil(10_000) { multiVolumes() == listOf(0f, 1f) }
-        val firstTile = compose.onNodeWithTag("multi-tile-1").fetchSemanticsNode().boundsInRoot
-        val thirdTile = compose.onNodeWithTag("multi-tile-3").fetchSemanticsNode().boundsInRoot
-        val soundButton = compose.onNodeWithTag("multi-sound-1").fetchSemanticsNode().boundsInRoot
-        assertTrue("Multi-screen rows must not overlap", firstTile.bottom <= thirdTile.top + 1f)
-        assertTrue("Sound control must be inside its tile", soundButton.top >= firstTile.top && soundButton.bottom <= firstTile.bottom)
-        // Test a real touch, not just the semantics callback; an overflowing row could
-        // otherwise route this click to the empty tile below and reopen the picker.
-        compose.onNodeWithTag("multi-sound-1").performTouchInput { click() }
-        compose.waitUntil(10_000) { compose.onAllNodesWithContentDescription("Som ativo na tela 1").fetchSemanticsNodes().isNotEmpty() }
-        compose.waitUntil(10_000) { multiVolumes() == listOf(1f, 0f) }
-        assertFalse(exists("choose-channel-1"))
-        useRemoteInputMode()
-        compose.onNodeWithTag("multi-sound-2").performSemanticsAction(SemanticsActions.RequestFocus)
-            .assertIsFocused().performKeyInput { pressKey(Key.DirectionCenter) }
-        compose.waitUntil(10_000) { multiVolumes() == listOf(0f, 1f) }
-        compose.onNodeWithTag("multi-sound-1").performSemanticsAction(SemanticsActions.RequestFocus)
-            .assertIsFocused().performKeyInput { pressKey(Key.DirectionCenter) }
-        compose.waitUntil(10_000) { multiVolumes() == listOf(1f, 0f) }
-        compose.waitUntil(10_000) { multiState(1) == "playing" && multiState(2) == "playing" }
-        compose.onNodeWithTag("multi-count-2").performClick()
-        compose.waitUntil(10_000) { !exists("multi-tile-3") && !exists("multi-tile-4") }
-        assertEquals(2, vm.settings.multiScreens)
-        compose.onNodeWithTag("multi-count-4").performClick()
-        compose.waitUntil(10_000) { exists("multi-tile-3") && exists("multi-tile-4") && multiState(1) == "playing" && multiState(2) == "playing" }
-        capture("screen-multi.png")
-
         compose.onNodeWithContentDescription("Configurações").performClick()
+        compose.onNodeWithTag("settings-shortcuts").assertIsDisplayed()
+        compose.onNodeWithTag("setting-shortcut-multi").assertDoesNotExist()
+        compose.onNodeWithTag("setting-tmdb-key").assertDoesNotExist()
+        assertEquals(24, vm.settings.epgIntervalHours)
+        assertEquals(3, vm.settings.catalogIntervalDays)
+        compose.onNodeWithTag("setting-shortcut-epg").performClick()
+        compose.waitUntil(10_000) { runCatching { compose.onNodeWithText("Guia de programação (EPG)").assertIsDisplayed() }.isSuccess }
+        compose.onNodeWithTag("setting-catalog-interval-1").performScrollTo().performClick()
+        compose.waitUntil(10_000) { vm.settings.catalogIntervalDays == 1 }
+        assertEquals(1, app.sessionManager.loadSettings().catalogIntervalDays)
         compose.onNodeWithText("Testar conexão").performScrollTo().performClick()
         compose.waitUntil(20_000) { vm.connectionTest?.contains("ms") == true }
         compose.onNodeWithText("Guia de programação (EPG)").performScrollTo().assertExists()
@@ -541,9 +528,9 @@ class ScreenIntegrationTest {
             compose.onNodeWithText("Usuário").performScrollTo().performTextInput("alice")
             compose.onNodeWithText("Senha").performScrollTo().performTextInput("senha")
             compose.onNodeWithContentDescription("Entrar").performScrollTo().performClick()
-            compose.waitUntil(30_000) { compose.onAllNodesWithContentDescription("Multitela").fetchSemanticsNodes().isNotEmpty() }
+            compose.waitUntil(30_000) { compose.onAllNodesWithContentDescription("TV").fetchSemanticsNodes().isNotEmpty() }
             compose.waitUntil(10_000) { !keyboardIsVisible() }
-            listOf("Home", "TV", "Filmes", "Séries", "Multitela", "Configurações").forEach {
+            listOf("Home", "TV", "Filmes", "Séries", "Configurações").forEach {
                 compose.onNodeWithContentDescription(it).assertIsDisplayed()
             }
             val vm = ViewModelProvider(compose.activity)[AppViewModel::class.java]
@@ -584,10 +571,9 @@ class ScreenIntegrationTest {
             compose.waitUntil(10_000) { runCatching { compose.onNodeWithTag("preview-channel").assertTextContains("Canal Esportes", substring = true) }.isSuccess }
             capture("screen-phone-tv.png")
 
-            compose.onNodeWithContentDescription("Multitela").performTouchInput { click() }
-            compose.waitUntil(10_000) { exists("multi-tile-1") && exists("multi-tile-2") }
-            assertSideBySide("multi-tile-1", "multi-tile-2")
-            compose.onNodeWithContentDescription("Adicionar canal 1").assertIsDisplayed()
+            compose.onNodeWithContentDescription("Multitela").assertDoesNotExist()
+            compose.onNodeWithContentDescription("Configurações").performTouchInput { click() }
+            compose.onNodeWithTag("settings-shortcuts").assertIsDisplayed()
         } finally {
             shell("wm size 768x1376")
         }
@@ -623,15 +609,10 @@ class ScreenIntegrationTest {
             compose.waitUntil(10_000) { exists("search-field") && exists("poster-vod:101") }
             compose.onNodeWithTag("search-field").assertTextContains("Filme Teste")
 
-            // Save the user's own API key and verify it is not stored as plaintext.
+            // The production key is supplied automatically by the build, never by a settings field.
             compose.onNodeWithContentDescription("Configurações").performClick()
-            compose.onNodeWithTag("setting-tmdb-key").performScrollTo().performTextInput("mock-key")
-            compose.onNodeWithText("Salvar chave TMDB").performScrollTo().performClick()
-            compose.waitUntil(10_000) { vm.settings.tmdbApiKey == "mock-key" }
-            assertEquals("mock-key", app.sessionManager.loadSettings().tmdbApiKey)
-            val storedKey = app.getSharedPreferences("iptv_native_session", Context.MODE_PRIVATE)
-                .getString("setting_tmdb_api_key", "")
-            assertTrue("TMDB key must not be stored in plaintext", storedKey != "mock-key" && !storedKey.isNullOrBlank())
+            compose.onNodeWithTag("setting-tmdb-key").assertDoesNotExist()
+            compose.runOnIdle { app.tmdbApiKey = "mock-key" }
 
             compose.onNodeWithContentDescription("Filmes").performClick()
             compose.waitUntil(15_000) { exists("poster-vod:101") && exists("search-field") }
@@ -641,7 +622,11 @@ class ScreenIntegrationTest {
             Thread.sleep(700)
             compose.waitUntil(15_000) { !keyboardIsVisible() && !systemImeShown() && compose.activity.window.decorView.hasWindowFocus() }
             assertEquals("Sinopse do TMDB", vm.detailItem?.plot)
+            assertEquals("https://image.tmdb.org/t/p/w185/ator.jpg", vm.detailExtras.cast.first().photo)
             assertFalse(exists("search-field"))
+            val banner = compose.onNodeWithTag("detail-hero").fetchSemanticsNode().boundsInRoot
+            val detailWidth = compose.onNodeWithTag("detail-list").fetchSemanticsNode().boundsInRoot.width
+            assertTrue("Detail banner must use the full content width", kotlin.math.abs(banner.width - detailWidth) < 2f)
             val cast = compose.onNodeWithTag("cast-member-0").fetchSemanticsNode().boundsInRoot
             val viewport = compose.onNodeWithTag("detail-list").fetchSemanticsNode().boundsInRoot
             val visibleHeight = minOf(cast.bottom, viewport.bottom) - maxOf(cast.top, viewport.top)
@@ -649,21 +634,20 @@ class ScreenIntegrationTest {
                 visibleHeight > 0f && visibleHeight < 140f * compose.activity.resources.displayMetrics.density)
             capture("screen-phone-detail.png")
 
-            // Down enters the cast, then moves to its next row and scrolls it fully into view.
+            // Down enters a single horizontal cast rail; Right reaches every actor and scrolls it.
             useRemoteInputMode()
             compose.onNodeWithTag("detail-trailer").performSemanticsAction(SemanticsActions.RequestFocus)
                 .assertIsFocused().performKeyInput { pressKey(Key.DirectionDown) }
             compose.waitUntil(10_000) { (0..7).any { focused("cast-member-$it") } }
-            val columns = (((viewport.width / compose.activity.resources.displayMetrics.density - 42f) / 122f).toInt()).coerceIn(1, 12)
-            assertTrue("Test cast must span more than one row", columns < 8)
-            compose.onNodeWithTag("cast-member-0").performSemanticsAction(SemanticsActions.RequestFocus)
-                .assertIsFocused().performKeyInput { pressKey(Key.DirectionDown) }
-            compose.waitUntil(10_000) { focused("cast-member-$columns") }
-            for (index in columns until 7) {
+            compose.onNodeWithTag("cast-member-0").performSemanticsAction(SemanticsActions.RequestFocus).assertIsFocused()
+            val firstTop = compose.onNodeWithTag("cast-member-0").fetchSemanticsNode().boundsInRoot.top
+            for (index in 0 until 7) {
                 compose.onNodeWithTag("cast-member-$index").performKeyInput { pressKey(Key.DirectionRight) }
                 compose.waitUntil(10_000) { focused("cast-member-${index + 1}") }
             }
             compose.onNodeWithTag("cast-member-7").assertIsDisplayed()
+            val lastTop = compose.onNodeWithTag("cast-member-7").fetchSemanticsNode().boundsInRoot.top
+            assertTrue("The cast must stay in one horizontal row", kotlin.math.abs(firstTop - lastTop) < 2f)
             compose.onNodeWithTag("detail-list").performScrollToNode(hasTestTag("detail-synopsis"))
             compose.onNodeWithTag("detail-synopsis").assertTextContains("Sinopse do TMDB")
             compose.onNodeWithTag("detail-list").performScrollToIndex(0)
@@ -692,9 +676,9 @@ class ScreenIntegrationTest {
             compose.waitUntil(10_000) { exists("search-field") && exists("poster-series:101") }
 
             // An invalid key must not block panel-provided episodes, cast or the details screen.
-            compose.runOnIdle { vm.updateUserSettings(vm.settings.copy(tmdbApiKey = "wrong")) }
+            compose.runOnIdle { app.tmdbApiKey = "wrong" }
             compose.onNodeWithTag("poster-series:101").performClick()
-            compose.waitUntil(20_000) { vm.detailMetadataMessage?.contains("Chave TMDB inválida") == true && vm.episodeSelection?.choices?.size == 2 }
+            compose.waitUntil(20_000) { vm.detailMetadataMessage?.contains("Informações externas indisponíveis") == true && vm.episodeSelection?.choices?.size == 2 }
             assertEquals("Pessoa da série", vm.detailExtras.cast.first().name)
             assertEquals("Sinopse da série", vm.detailItem?.plot)
         } finally {
@@ -863,7 +847,7 @@ class ScreenIntegrationTest {
             vm.toggleFavorite("ch:1")
             vm.saveProgress(com.xtream.player.data.PlayerRequest("Filme", "unused", false, libraryKey = "vod:101"), 20_000, 100_000)
             vm.updateUserSettings(vm.settings.copy(bufferSeconds = 30, streamFormat = com.example.iptv.data.model.StreamFormat.HLS,
-                autoUpdateEpg = false, epgOffsetHours = 1, userAgent = "IPTV-Test-Agent/1.0", tmdbApiKey = "alice-key"))
+                autoUpdateEpg = false, epgOffsetHours = 1, userAgent = "IPTV-Test-Agent/1.0", catalogIntervalDays = 1))
         }
         assertEquals(originalStart + 3_600_000L, vm.epg.getValue("news").first().start)
         assertTrue(vm.content.channels.first().url.endsWith(".m3u8"))
@@ -871,7 +855,7 @@ class ScreenIntegrationTest {
         compose.waitUntil(30_000) { !vm.loading && vm.session?.username == "bob" && vm.content.movies.size == 30 }
         assertEquals(2, vm.profiles.size)
         assertTrue("Another profile must not inherit favorites", vm.favorites.isEmpty())
-        assertEquals("", vm.settings.tmdbApiKey)
+        assertEquals(3, vm.settings.catalogIntervalDays)
         assertEquals(15, vm.settings.bufferSeconds)
         compose.runOnIdle { vm.toggleFavorite("ch:2") }
         offline.set(true)
@@ -881,12 +865,11 @@ class ScreenIntegrationTest {
         assertFalse(vm.favorites.contains("ch:2"))
         assertEquals(30, vm.settings.bufferSeconds)
         assertEquals("IPTV-Test-Agent/1.0", vm.settings.userAgent)
-        assertEquals("alice-key", vm.settings.tmdbApiKey)
+        assertEquals(1, vm.settings.catalogIntervalDays)
         assertEquals(1, vm.settings.epgOffsetHours)
         assertTrue(vm.content.movies.first { it.id == "101" }.progress > 0f)
         val stored = app.getSharedPreferences("iptv_native_profiles", Context.MODE_PRIVATE).all.toString()
         assertFalse("Profile passwords must not be stored as plaintext", stored.contains("senha"))
-        assertFalse("TMDB keys must not be stored as plaintext in profiles", stored.contains("alice-key"))
         offline.set(false)
         compose.onNodeWithContentDescription("TV").performClick()
         compose.waitUntil(10_000) { exists("channel-1") }
@@ -932,7 +915,7 @@ class ScreenIntegrationTest {
         compose.waitUntil(45_000) { vm.playerRequest?.episodeId == "202" && streamPaths.any { it.endsWith("/202.ts") } }
     }
 
-    @Test fun parentalLocksFilterHomeLiveAndMultiUntilPinUnlocks() {
+    @Test fun parentalLocksFilterHomeAndLiveUntilPinUnlocks() {
         connectToPanel()
         val vm = ViewModelProvider(compose.activity)[AppViewModel::class.java]
         compose.waitUntil(30_000) { vm.content.channels.size == 2 && vm.content.movies.size == 30 }
@@ -948,11 +931,6 @@ class ScreenIntegrationTest {
         compose.waitUntil(10_000) { exists("hero-empty") }
         compose.onNodeWithContentDescription("TV").performClick()
         compose.waitUntil(10_000) { exists("channel-1") && !exists("channel-2") }
-        compose.onNodeWithContentDescription("Multitela").performClick()
-        compose.onNodeWithContentDescription("Adicionar canal 1").performClick()
-        compose.waitUntil(10_000) { exists("choose-channel-1") }
-        assertFalse(exists("choose-channel-2"))
-        compose.onNodeWithContentDescription("Fechar").performClick()
         val result = java.util.concurrent.atomic.AtomicReference<String?>()
         compose.runOnIdle { vm.unlockParental("9999") { result.set(it) } }
         compose.waitUntil(30_000) { !vm.parentalBusy && result.get() != null }
@@ -1113,10 +1091,6 @@ class ScreenIntegrationTest {
         return volume
     }
 
-    private fun multiVolumes(): List<Float> = mutableListOf<Float>().also { volumes ->
-        previewPlayerProperty { view -> view.player?.volume?.let(volumes::add) }
-    }
-
     private fun previewPlayerIdentity(): Int? {
         var identity: Int? = null
         previewPlayerProperty { identity = it.player?.let(System::identityHashCode) }
@@ -1155,9 +1129,6 @@ class ScreenIntegrationTest {
         val flags = readShell("dumpsys input_method").lineSequence().firstOrNull { it.contains("mInputShown=") }.orEmpty().trim()
         imeTrace.add("IME $label: insets=${keyboardIsVisible()} $flags")
     }
-    private fun multiState(index: Int): String? = runCatching {
-        compose.onNodeWithTag("multi-player-$index", useUnmergedTree = true).fetchSemanticsNode().config.getOrNull(SemanticsProperties.StateDescription)
-    }.getOrNull()
     private fun playerState(): String? = runCatching {
         compose.onNodeWithTag("player-root").fetchSemanticsNode().config.getOrNull(SemanticsProperties.StateDescription)
     }.getOrNull()
@@ -1180,6 +1151,10 @@ class ScreenIntegrationTest {
             }.getOrDefault(false)
         }
         compose.onNodeWithTag("login-submit").assertIsDisplayed()
+        val field = compose.onNodeWithTag("login-server").fetchSemanticsNode().boundsInRoot
+        val button = compose.onNodeWithTag("login-submit").fetchSemanticsNode().boundsInRoot
+        assertTrue("Login button and input must have the same width", kotlin.math.abs(field.width - button.width) < 2f)
+        assertTrue("Login button and input must have the same height", kotlin.math.abs(field.height - button.height) < 2f)
     }
 
     private fun assertSideBySide(vararg tags: String) {

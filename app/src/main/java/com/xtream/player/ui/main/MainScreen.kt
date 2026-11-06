@@ -21,7 +21,6 @@ import com.xtream.player.ui.components.*
 import com.xtream.player.ui.detail.DetailScreen
 import com.xtream.player.ui.home.HomeScreen
 import com.xtream.player.ui.live.LiveScreen
-import com.xtream.player.ui.multi.MultiScreen
 import com.xtream.player.ui.settings.SettingsScreen
 import com.xtream.player.ui.settings.SettingsActions
 import com.xtream.player.ui.theme.XColors
@@ -55,14 +54,11 @@ fun MainScreen(session: Session?, content: ContentState, epg: Map<String, List<P
                previewEnabled: Boolean = true, restoreChannelId: String? = null, onChannelRestored: () -> Unit = {}) {
     var tab by rememberSaveable { mutableStateOf(Tab.Home) }
     var query by rememberSaveable { mutableStateOf("") }
-    var slots by rememberSaveable { mutableStateOf(List(4) { "" }) }
-    var audible by rememberSaveable { mutableIntStateOf(0) }
     val visibleContent = remember(content, settings.lockedCategories, parentalUnlocked) {
         content.withParentalRestrictions(settings.lockedCategories, parentalUnlocked)
     }
     val searchFocus = remember { FocusRequester() }
     val hideKeyboard = rememberHideKeyboard()
-    LaunchedEffect(session?.server, session?.username) { slots = List(4) { "" }; audible = 0 }
     // TV input services sometimes finish a queued show after the tab changes. Repeat the
     // hide once the new screen is mounted, so it does not cover the player or catalog.
     LaunchedEffect(tab) { delay(250); hideKeyboard() }
@@ -85,7 +81,7 @@ fun MainScreen(session: Session?, content: ContentState, epg: Map<String, List<P
     BackHandler(enabled = detail == null && tab != Tab.Home) { selectTab(Tab.Home) }
 
     @Composable fun Header(compact: Boolean) {
-        TopBar(tab, query, { query = it }, searchFocus, compact, actions.onRefreshContent)
+        TopBar(tab, query, { query = it }, searchFocus, compact, actions.onRefreshContent) { selectTab(Tab.Settings) }
     }
     @Composable fun Content(modifier: Modifier) {
         Box(modifier) {
@@ -103,10 +99,6 @@ fun MainScreen(session: Session?, content: ContentState, epg: Map<String, List<P
                     actions.onChannelFocused, restoreChannelId, onChannelRestored)
                 Tab.Movies -> BrowseScreen("filmes", visibleContent.movieCategories, visibleContent.movies, query, favorites, actions.onToggleFav, actions.onOpenDetails)
                 Tab.Series -> BrowseScreen("séries", visibleContent.seriesCategories, visibleContent.series, query, favorites, actions.onToggleFav, actions.onOpenDetails)
-                Tab.Multi -> MultiScreen(visibleContent.channels, slots, audible, previewEnabled, settings.multiScreens,
-                    onScreenCount = { actions.settings.updateSettings(settings.copy(multiScreens = it)) },
-                    onSetSlot = { index, id -> slots = slots.toMutableList().also { it[index] = id.orEmpty() } },
-                    onAudible = { audible = it }, onPlay = actions.onPlay)
                 Tab.Settings -> SettingsScreen(session, content, epg, epgUpdatedAt, epgLoading, epgMessage,
                     loading, loginError, profiles, settings, parentalUnlocked, parentalBusy, testingConnection, connectionTest, actions.settings)
             }

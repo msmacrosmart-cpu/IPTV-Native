@@ -133,7 +133,8 @@ class SessionManager(context: Context) {
             lastEpgSyncMillis = prefs.getLong(KEY_EPG_SYNC, 0L),
             autoUpdateEpg = prefs.getBoolean(KEY_EPG_AUTO, true),
             customXmltvUrl = readSecret(prefs.getString(KEY_EPG_URL, "")).orEmpty(),
-            epgIntervalHours = prefs.getInt(KEY_EPG_INTERVAL, 12).coerceIn(6, 48),
+            epgIntervalHours = prefs.getInt(KEY_EPG_INTERVAL, 24).coerceIn(6, 48),
+            catalogIntervalDays = prefs.getInt(KEY_CATALOG_INTERVAL, 3).coerceIn(1, 3),
             epgOffsetHours = prefs.getInt(KEY_EPG_OFFSET, 0).coerceIn(-12, 12),
             time24Hour = prefs.getBoolean(KEY_TIME_24, true),
             showChannelEpg = prefs.getBoolean(KEY_SHOW_EPG, true),
@@ -143,8 +144,6 @@ class SessionManager(context: Context) {
             subtitleSizePercent = prefs.getInt(KEY_SUBTITLE_SIZE, 100).coerceIn(75, 150),
             autoplayNextEpisode = prefs.getBoolean(KEY_NEXT_EPISODE, false),
             userAgent = prefs.getString(KEY_USER_AGENT, DEFAULT_USER_AGENT).orEmpty().ifBlank { DEFAULT_USER_AGENT },
-            tmdbApiKey = readSecret(prefs.getString(KEY_TMDB_API_KEY, "")).orEmpty(),
-            multiScreens = prefs.getInt(KEY_MULTI_SCREENS, 4).coerceIn(1, 4),
             livePlayer = playbackApp(KEY_LIVE_PLAYER), moviePlayer = playbackApp(KEY_MOVIE_PLAYER),
             seriesPlayer = playbackApp(KEY_SERIES_PLAYER),
             parentalSalt = prefs.getString(KEY_PARENTAL_SALT, "").orEmpty(),
@@ -165,6 +164,7 @@ class SessionManager(context: Context) {
             .putBoolean(KEY_EPG_AUTO, settings.autoUpdateEpg)
             .putString(KEY_EPG_URL, settings.customXmltvUrl.takeIf { it.isNotBlank() }?.let(::encrypt).orEmpty())
             .putInt(KEY_EPG_INTERVAL, settings.epgIntervalHours.coerceIn(6, 48))
+            .putInt(KEY_CATALOG_INTERVAL, settings.catalogIntervalDays.coerceIn(1, 3))
             .putInt(KEY_EPG_OFFSET, settings.epgOffsetHours.coerceIn(-12, 12))
             .putBoolean(KEY_TIME_24, settings.time24Hour)
             .putBoolean(KEY_SHOW_EPG, settings.showChannelEpg)
@@ -174,8 +174,8 @@ class SessionManager(context: Context) {
             .putInt(KEY_SUBTITLE_SIZE, settings.subtitleSizePercent.coerceIn(75, 150))
             .putBoolean(KEY_NEXT_EPISODE, settings.autoplayNextEpisode)
             .putString(KEY_USER_AGENT, settings.userAgent)
-            .putString(KEY_TMDB_API_KEY, settings.tmdbApiKey.takeIf { it.isNotBlank() }?.let(::encrypt).orEmpty())
-            .putInt(KEY_MULTI_SCREENS, settings.multiScreens.coerceIn(1, 4))
+            .remove(KEY_TMDB_API_KEY) // Remove the obsolete per-profile key when preferences are next saved.
+            .remove(KEY_MULTI_SCREENS) // Retire the removed multi-screen preference.
             .putString(KEY_LIVE_PLAYER, settings.livePlayer.name)
             .putString(KEY_MOVIE_PLAYER, settings.moviePlayer.name)
             .putString(KEY_SERIES_PLAYER, settings.seriesPlayer.name)
@@ -376,6 +376,7 @@ class SessionManager(context: Context) {
         private const val KEY_EPG_AUTO = "setting_epg_auto"
         private const val KEY_EPG_URL = "setting_epg_url"
         private const val KEY_EPG_INTERVAL = "setting_epg_interval"
+        private const val KEY_CATALOG_INTERVAL = "setting_catalog_interval_days"
         private const val KEY_EPG_OFFSET = "setting_epg_offset"
         private const val KEY_TIME_24 = "setting_time_24"
         private const val KEY_SHOW_EPG = "setting_show_epg"

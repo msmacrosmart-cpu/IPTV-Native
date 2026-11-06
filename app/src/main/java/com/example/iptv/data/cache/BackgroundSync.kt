@@ -15,28 +15,33 @@ import java.util.concurrent.TimeUnit
 
 /** WorkManager is intentionally inexact: Android may defer work for Doze/battery/network. */
 object BackgroundSync {
-    const val CATALOG_WORK = "xtream-catalog-every-3-days"
-    const val GUIDE_WORK = "xtream-guide-every-12-hours"
-    const val GUIDE_TTL_MILLIS = 12L * 60 * 60 * 1000
+    const val CATALOG_WORK = "xtream-catalog-sync"
+    const val GUIDE_WORK = "xtream-guide-sync"
+    private const val LEGACY_CATALOG_WORK = "xtream-catalog-every-3-days"
+    private const val LEGACY_GUIDE_WORK = "xtream-guide-every-12-hours"
+    const val GUIDE_TTL_MILLIS = 24L * 60 * 60 * 1000
 
-    fun schedule(context: Context, guideIntervalHours: Int = 12) {
+    fun schedule(context: Context, guideIntervalHours: Int = 24, catalogIntervalDays: Int = 3) {
         val manager = WorkManager.getInstance(context)
         val connected = Constraints.Builder().setRequiredNetworkType(NetworkType.CONNECTED).build()
-        val catalog = PeriodicWorkRequestBuilder<CatalogSyncWorker>(3, TimeUnit.DAYS)
-            .setInitialDelay(3, TimeUnit.DAYS).setConstraints(connected)
+        val days = catalogIntervalDays.coerceIn(1, 3).toLong()
+        val catalog = PeriodicWorkRequestBuilder<CatalogSyncWorker>(days, TimeUnit.DAYS)
+            .setInitialDelay(days, TimeUnit.DAYS).setConstraints(connected)
             .setBackoffCriteria(BackoffPolicy.EXPONENTIAL, 30, TimeUnit.MINUTES).build()
-        val interval = guideIntervalHours.coerceIn(6, 48).toLong()
-        val guide = PeriodicWorkRequestBuilder<GuideSyncWorker>(interval, TimeUnit.HOURS)
-            .setInitialDelay(interval, TimeUnit.HOURS).setConstraints(connected)
+        val hours = guideIntervalHours.coerceIn(6, 48).toLong()
+        val guide = PeriodicWorkRequestBuilder<GuideSyncWorker>(hours, TimeUnit.HOURS)
+            .setInitialDelay(hours, TimeUnit.HOURS).setConstraints(connected)
             .setBackoffCriteria(BackoffPolicy.EXPONENTIAL, 30, TimeUnit.MINUTES).build()
-        manager.enqueueUniquePeriodicWork(CATALOG_WORK, ExistingPeriodicWorkPolicy.KEEP, catalog)
+        // Retire periodic jobs created by earlier versions so upgrades do not duplicate syncs.
+        manager.cancelUniqueWork(LEGACY_CATALOG_WORK)
+        manager.cancelUniqueWork(LEGACY_GUIDE_WORK)
+        manager.enqueueUniquePeriodicWork(CATALOG_WORK, ExistingPeriodicWorkPolicy.UPDATE, catalog)
         manager.enqueueUniquePeriodicWork(GUIDE_WORK, ExistingPeriodicWorkPolicy.UPDATE, guide)
     }
 
     fun cancel(context: Context) {
         val manager = WorkManager.getInstance(context)
-        manager.cancelUniqueWork(CATALOG_WORK)
-        manager.cancelUniqueWork(GUIDE_WORK)
+        listOf(CATALOG_WORK, GUIDE_WORK, LEGACY_CATALOG_WORK, LEGACY_GUIDE_WORK).forEach(manager::cancelUniqueWork)
     }
 }
 

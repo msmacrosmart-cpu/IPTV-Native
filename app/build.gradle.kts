@@ -5,6 +5,15 @@ plugins {
     id("org.jetbrains.kotlin.plugin.serialization")
 }
 
+// Supply a v3 key at build time; never commit credentials. The key is still
+// recoverable from a distributed APK, as with any client-side API key.
+val tmdbApiKey = providers.environmentVariable("TMDB_API_KEY")
+    .orElse(providers.gradleProperty("TMDB_API_KEY"))
+    .orElse("").get().trim()
+require(tmdbApiKey.isEmpty() || tmdbApiKey.matches(Regex("[a-fA-F0-9]{32}"))) {
+    "TMDB_API_KEY must be a 32-character v3 API key"
+}
+
 android {
     namespace = "com.example.iptv"
     compileSdk = 35
@@ -13,8 +22,9 @@ android {
         applicationId = "com.example.iptv"
         minSdk = 24
         targetSdk = 35
-        versionCode = 7
-        versionName = "2.5.0"
+        versionCode = 8
+        versionName = "2.6.0"
+        buildConfigField("String", "TMDB_API_KEY", "\"$tmdbApiKey\"")
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
 
         vectorDrawables {

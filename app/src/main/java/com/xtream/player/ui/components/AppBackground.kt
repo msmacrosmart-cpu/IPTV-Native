@@ -13,7 +13,10 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.platform.LocalContext
 import coil.compose.AsyncImage
+import coil.request.ImageRequest
+import coil.size.Size
 import com.example.iptv.R
 
 /** The same user-provided image behind login and the app; the scrim preserves text contrast. */
@@ -21,11 +24,15 @@ import com.example.iptv.R
 fun AppBackground(content: @Composable BoxScope.() -> Unit) {
     var loaded by remember { mutableStateOf(false) }
     Box(Modifier.fillMaxSize().background(Color.Black)) {
-        // Coil decodes at the viewport size instead of retaining a full 3780px bitmap on
-        // low-memory phones and TV sticks. The packaged image itself is the supplied original.
+        // Preserve the supplied 3780×1890 source rather than enlarging a sampled thumbnail.
+        // Coil shares one decoded bitmap across destinations and bounds the memory cache.
+        val context = LocalContext.current
+        val wallpaper = remember(context) {
+            ImageRequest.Builder(context).data(R.drawable.app_background).size(Size.ORIGINAL).build()
+        }
         Box(Modifier.fillMaxSize().testTag("app-background")) {
             AsyncImage(
-                model = R.drawable.app_background,
+                model = wallpaper,
                 contentDescription = null,
                 contentScale = ContentScale.Crop,
                 modifier = Modifier.fillMaxSize().then(if (loaded) Modifier.testTag("app-background-loaded") else Modifier),

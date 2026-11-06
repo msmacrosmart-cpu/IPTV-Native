@@ -315,8 +315,8 @@ class XtreamRepository(private val session: SessionManager) {
         val safe = newSettings.copy(
             bufferSeconds = newSettings.bufferSeconds.coerceIn(5, 60),
             epgIntervalHours = newSettings.epgIntervalHours.coerceIn(6, 48),
+            catalogIntervalDays = newSettings.catalogIntervalDays.coerceIn(1, 3),
             epgOffsetHours = newSettings.epgOffsetHours.coerceIn(-12, 12),
-            multiScreens = newSettings.multiScreens.coerceIn(1, 4),
             subtitleSizePercent = newSettings.subtitleSizePercent.coerceIn(75, 150),
         )
         _settings.update { safe }

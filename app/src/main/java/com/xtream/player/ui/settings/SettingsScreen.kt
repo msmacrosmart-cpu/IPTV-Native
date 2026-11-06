@@ -1,5 +1,6 @@
 package com.xtream.player.ui.settings
 
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -18,6 +19,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardType
@@ -25,6 +27,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
+import com.example.iptv.R
 import com.example.iptv.data.model.UserSettings
 import com.example.iptv.data.preferences.SavedProfile
 import com.xtream.player.data.ContentState
@@ -60,6 +63,9 @@ fun SettingsScreen(
         GlassPanel(Modifier.widthIn(max = 620.dp).fillMaxWidth().heightIn(max = 600.dp), RoundedCornerShape(16.dp)) {
             Column(Modifier.padding(20.dp)) {
                 Text("Licenças de terceiros", color = XColors.Text, fontSize = 20.sp, fontWeight = FontWeight.SemiBold)
+                Image(painterResource(R.drawable.tmdb_logo), "The Movie Database", Modifier.padding(top = 10.dp).width(90.dp))
+                Text("This product uses the TMDB API but is not endorsed or certified by TMDB.",
+                    color = XColors.Body, fontSize = 10.sp, modifier = Modifier.padding(top = 5.dp))
                 Text(licenses, color = XColors.TextDim, fontSize = 12.sp, lineHeight = 18.sp,
                     modifier = Modifier.weight(1f, fill = false).verticalScroll(rememberScrollState()).padding(vertical = 14.dp))
                 GlowButton("Fechar", ringAlways = false) { showLicenses = false }
@@ -70,14 +76,17 @@ fun SettingsScreen(
         ConfirmSettingsDialog("Remover perfil?", "As credenciais, favoritos e histórico locais de ${profile.username} serão removidos deste dispositivo.",
             onDismiss = { removeProfile = null }, onConfirm = { actions.removeProfile(profile.id); removeProfile = null })
     }
+    val anchors = rememberSettingsAnchors()
     BoxWithConstraints(Modifier.fillMaxSize()) {
         val gutter = if (maxWidth < 600.dp) 16.dp else 32.dp
+        CompositionLocalProvider(LocalSettingsAnchors provides anchors) {
         Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).testTag("settings-list")
             .padding(horizontal = gutter, vertical = 26.dp), verticalArrangement = Arrangement.spacedBy(18.dp)) {
             Column {
                 Text("Configurações", color = XColors.Text, fontSize = 28.sp, fontWeight = FontWeight.SemiBold)
                 Text("Contas, reprodução e guia de programação", color = XColors.TextDim, fontSize = 14.sp, modifier = Modifier.padding(top = 4.dp))
             }
+            SettingsShortcuts()
             SettingsPanel("Perfis", "Alterne entre contas Xtream sem misturar favoritos, histórico ou cache.") {
                 if (profiles.isEmpty()) Text("Nenhum perfil salvo neste dispositivo.", color = XColors.TextDim, fontSize = 13.sp)
                 profiles.forEach { profile ->
@@ -144,6 +153,7 @@ fun SettingsScreen(
             GlowButton("Licenças de terceiros", Icons.Filled.Info, ringAlways = false) { showLicenses = true }
             Text("IPTV Native ${com.example.iptv.BuildConfig.VERSION_NAME}", color = XColors.Body, fontSize = 12.sp, modifier = Modifier.padding(bottom = 20.dp))
         }
+        }
     }
 }
 
@@ -151,7 +161,7 @@ fun SettingsScreen(
 internal fun SettingsPanel(title: String, description: String = "", content: @Composable ColumnScope.() -> Unit) {
     GlassPanel(Modifier.widthIn(max = 1000.dp).fillMaxWidth(), RoundedCornerShape(16.dp)) {
         Column(Modifier.fillMaxWidth().padding(22.dp)) {
-            Text(title, color = XColors.Text, fontSize = 17.sp, fontWeight = FontWeight.SemiBold)
+            Text(title, color = XColors.Text, fontSize = 17.sp, fontWeight = FontWeight.SemiBold, modifier = settingsAnchor(title))
             if (description.isNotBlank()) Text(description, color = XColors.TextDim, fontSize = 13.sp, modifier = Modifier.padding(top = 5.dp))
             Spacer(Modifier.height(16.dp))
             content()

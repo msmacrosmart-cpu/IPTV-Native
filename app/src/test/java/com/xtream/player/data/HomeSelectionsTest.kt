@@ -47,6 +47,13 @@ class HomeSelectionsTest {
         assertTrue(cacheIsFresh(now - CATALOG_TTL_MILLIS + 1, now))
         assertFalse(cacheIsFresh(now - CATALOG_TTL_MILLIS, now))
         assertFalse(cacheIsFresh(now + 1, now))
+        val day = 24L * 60 * 60 * 1000
+        assertFalse(cacheIsFresh(now - day, now, intervalDays = 1))
+        assertTrue(cacheIsFresh(now - day, now, intervalDays = 2))
+        assertFalse(cacheIsFresh(now - 2 * day, now, intervalDays = 2))
+        assertTrue(cacheIsFresh(now - 2 * day, now, intervalDays = 3))
+        assertEquals(24, com.example.iptv.data.model.UserSettings().epgIntervalHours)
+        assertEquals(3, com.example.iptv.data.model.UserSettings().catalogIntervalDays)
         assertFalse(CachedCatalog("key", now, complete = false).isFresh(now))
         val one = PanelCredentials("http://example.com/", "alice", "one")
         assertNotEquals(CatalogCache.accountKey(one), CatalogCache.accountKey(one.copy(username = "bob")))

@@ -99,7 +99,7 @@ fun LoginScreen(loading: Boolean, error: String?, profiles: List<SavedProfile> =
                     Text("Entre com sua conta Xtream Codes", color = XColors.TextDim, fontSize = if (compact) 12.sp else 14.sp,
                         modifier = Modifier.padding(top = if (compact) 2.dp else 6.dp))
                     Spacer(Modifier.height(if (compact) 8.dp else 22.dp))
-                    PillField(server, { server = it }, "Servidor Xtream", Modifier.fillMaxWidth(),
+                    PillField(server, { server = it }, "Servidor Xtream", Modifier.fillMaxWidth().testTag("login-server"),
                         keyboardType = KeyboardType.Uri, minHeight = fieldHeight)
                     Spacer(Modifier.height(gap))
                     PillField(user, { user = it }, "Usuário", Modifier.fillMaxWidth(), minHeight = fieldHeight)
@@ -108,15 +108,14 @@ fun LoginScreen(loading: Boolean, error: String?, profiles: List<SavedProfile> =
                         imeAction = ImeAction.Done, onDone = submit, minHeight = fieldHeight)
                     if (error != null) Text(error, color = XColors.Live, fontSize = 13.sp, modifier = Modifier.padding(top = gap))
                     Spacer(Modifier.height(if (compact) 8.dp else 22.dp))
-                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End, verticalAlignment = Alignment.CenterVertically) {
-                        if (profiles.isNotEmpty()) {
-                            GlowButton("Perfis salvos", ringAlways = false) { showProfiles = true }
-                            Spacer(Modifier.weight(1f))
-                        }
-                        if (loading) CircularProgressIndicator(Modifier.padding(end = 12.dp).size(22.dp), color = XColors.Accent, strokeWidth = 2.dp)
-                        GlowButton("Entrar", Icons.Filled.Link, Modifier.testTag("login-submit")
+                    Box(Modifier.fillMaxWidth()) {
+                        GlowButton("Entrar", Icons.Filled.Link, Modifier.fillMaxWidth().height(fieldHeight).testTag("login-submit")
                             .semantics { contentDescription = "Entrar" }, onClick = submit)
+                        if (loading) CircularProgressIndicator(Modifier.align(Alignment.CenterEnd).padding(end = 12.dp).size(22.dp),
+                            color = XColors.Shell, strokeWidth = 2.dp)
                     }
+                    if (profiles.isNotEmpty()) GlowButton("Perfis salvos", ringAlways = false,
+                        modifier = Modifier.padding(top = gap)) { showProfiles = true }
                     Text("Use demo no servidor para explorar a interface.", color = XColors.Body, fontSize = 12.sp,
                         modifier = Modifier.padding(top = if (compact) 6.dp else 18.dp))
                 }

@@ -2,7 +2,6 @@ package com.xtream.player.ui.components
 
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
-import androidx.compose.foundation.Image
 import androidx.compose.foundation.border
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.*
@@ -22,75 +21,79 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.onFocusChanged
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.selected
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.iptv.R
 import com.xtream.player.ui.theme.DmSans
+import java.util.Locale
 import com.xtream.player.ui.theme.XColors
 
-/** The only six primary destinations requested for this app. */
-enum class Tab(val label: String, val outlined: ImageVector, val filled: ImageVector) {
-    Home("Home", Icons.Outlined.Home, Icons.Filled.Home),
-    Live("TV", Icons.Outlined.LiveTv, Icons.Filled.LiveTv),
-    Movies("Filmes", Icons.Outlined.LocalMovies, Icons.Filled.LocalMovies),
-    Series("Séries", Icons.Outlined.Tv, Icons.Filled.Tv),
-    Multi("Multitela", Icons.Outlined.GridView, Icons.Filled.GridView),
-    Settings("Configurações", Icons.Outlined.Settings, Icons.Filled.Settings),
+/** Four primary destinations; settings is a separate action in the header. */
+enum class Tab(val label: String, val icon: Int?) {
+    Home("Home", R.drawable.ic_nav_home),
+    Live("TV", R.drawable.ic_nav_tv),
+    Movies("Filmes", R.drawable.ic_nav_movies),
+    Series("Séries", R.drawable.ic_nav_series),
+    Settings("Configurações", null),
 }
 
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
 private fun SideButton(tab: Tab, selected: Boolean, size: Dp = 48.dp, onClick: () -> Unit) {
+    val neon = Color(0xFF8BAFFF)
     val shape = RoundedCornerShape(12.dp)
-    val neon = Color(0xFF86B8FF)
     var focused by remember { mutableStateOf(false) }
-    // The same restrained halo is drawn on phone and TV: no elevation or dark shadow.
-    Box(Modifier.size(size).onFocusChanged { focused = it.hasFocus }
-        .border(3.dp, if (focused) neon.copy(alpha = .12f) else Color.Transparent, shape)
-        .padding(2.dp).clip(shape)
-        .background(if (selected || focused) Color(0xFF202331) else Color.Transparent)
-        .border(1.dp, when { focused -> neon; selected -> neon.copy(alpha = .5f); else -> Color.Transparent }, shape)
-        .semantics { this.selected = selected }
-        .combinedClickable(onClick = onClick), contentAlignment = Alignment.Center) {
-        Icon(if (selected) tab.filled else tab.outlined, tab.label,
-            tint = if (selected || focused) neon else XColors.TextDim, modifier = Modifier.size(22.dp))
+    // Thin translucent rings give the supplied icon style a blue halo, without a heavy shadow.
+    Column(Modifier.width(size + 14.dp).onFocusChanged { focused = it.hasFocus }
+        .semantics(mergeDescendants = true) { contentDescription = tab.label; this.selected = selected }
+        .combinedClickable(onClick = onClick).padding(vertical = 2.dp),
+        horizontalAlignment = Alignment.CenterHorizontally) {
+        Box(Modifier.size(size + 6.dp)
+            .background(neon.copy(alpha = if (focused) .24f else .10f), RoundedCornerShape(15.dp))
+            .padding(3.dp).clip(shape)
+            .background(Brush.verticalGradient(listOf(Color(0xD8414655), Color(0xE8191C25))))
+            .border(if (focused) 2.dp else 1.5.dp,
+                neon.copy(alpha = if (focused || selected) 1f else .67f), shape),
+            contentAlignment = Alignment.Center) {
+            tab.icon?.let { icon ->
+                Icon(painterResource(icon), null, tint = Color.Unspecified, modifier = Modifier.size(size * .55f))
+            }
+        }
+        Text(tab.label.uppercase(Locale.ROOT), color = if (focused || selected) Color.White else XColors.TextDim,
+            fontSize = if (size < 44.dp) 8.sp else 10.sp, fontWeight = FontWeight.Medium,
+            textAlign = TextAlign.Center, maxLines = 1, overflow = TextOverflow.Clip)
     }
 }
 
 @Composable
 fun Sidebar(selected: Tab, onSelect: (Tab) -> Unit, compact: Boolean, modifier: Modifier = Modifier) {
+    val primary = listOf(Tab.Home, Tab.Live, Tab.Movies, Tab.Series)
     if (compact) {
-        Row(modifier.fillMaxWidth().height(56.dp).background(XColors.Sidebar).padding(horizontal = 8.dp),
+        Row(modifier.fillMaxWidth().height(78.dp).background(XColors.Sidebar).padding(horizontal = 8.dp),
             horizontalArrangement = Arrangement.SpaceEvenly, verticalAlignment = Alignment.CenterVertically) {
-            Tab.entries.forEach { SideButton(it, selected == it) { onSelect(it) } }
+            primary.forEach { SideButton(it, selected == it, 40.dp) { onSelect(it) } }
         }
     } else {
-        BoxWithConstraints(modifier.fillMaxHeight().width(64.dp).background(XColors.Sidebar)) {
-            val dense = maxHeight < 420.dp
-            val itemSize = when { maxHeight < 300.dp -> 34.dp; maxHeight < 350.dp -> 38.dp; else -> 48.dp }
-            Column(Modifier.fillMaxSize().padding(horizontal = 8.dp, vertical = if (dense) 4.dp else 8.dp),
-                horizontalAlignment = Alignment.CenterHorizontally) {
-                Image(painterResource(R.drawable.brand_square), "IPTV Native",
-                    modifier = Modifier.size(if (dense) 32.dp else 42.dp).clip(RoundedCornerShape(8.dp)))
-                Spacer(Modifier.height(if (dense) 4.dp else 18.dp))
-                Tab.entries.filter { it != Tab.Settings }.forEach {
-                    SideButton(it, selected == it, itemSize) { onSelect(it) }
-                    Spacer(Modifier.height(2.dp))
-                }
-                Spacer(Modifier.weight(1f))
-                SideButton(Tab.Settings, selected == Tab.Settings, itemSize) { onSelect(Tab.Settings) }
+        BoxWithConstraints(modifier.fillMaxHeight().width(76.dp).background(XColors.Sidebar)) {
+            val itemSize = when { maxHeight < 300.dp -> 38.dp; maxHeight < 350.dp -> 42.dp; maxHeight < 450.dp -> 48.dp; else -> 56.dp }
+            Column(Modifier.fillMaxSize().padding(vertical = 4.dp), horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.SpaceEvenly) {
+                primary.forEach { SideButton(it, selected == it, itemSize) { onSelect(it) } }
             }
         }
     }
@@ -109,12 +112,12 @@ fun IconAction(icon: ImageVector, label: String, modifier: Modifier = Modifier, 
 @Composable
 fun TopBar(
     tab: Tab, query: String, onQuery: (String) -> Unit,
-    searchFocus: FocusRequester, compact: Boolean, onRefresh: () -> Unit,
+    searchFocus: FocusRequester, compact: Boolean, onRefresh: () -> Unit, onOpenSettings: () -> Unit,
 ) {
     val hideKeyboard = rememberHideKeyboard()
     Row(Modifier.fillMaxWidth().height(56.dp).background(XColors.Sidebar).padding(horizontal = if (compact) 10.dp else 20.dp),
         verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-        if (tab != Tab.Settings && tab != Tab.Multi) {
+        if (tab != Tab.Settings) {
             val shape = RoundedCornerShape(10.dp)
             var focused by remember { mutableStateOf(false) }
             val placeholder = when (tab) {
@@ -143,5 +146,6 @@ fun TopBar(
             }
         } else Spacer(Modifier.weight(1f))
         if (!compact) IconAction(Icons.Outlined.Refresh, "Atualizar catálogo", onClick = onRefresh)
+        IconAction(Icons.Outlined.Settings, "Configurações", onClick = onOpenSettings)
     }
 }

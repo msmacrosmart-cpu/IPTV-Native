@@ -37,8 +37,9 @@ import java.util.zip.GZIPOutputStream
 
 const val CATALOG_TTL_MILLIS = 3L * 24 * 60 * 60 * 1000
 
-fun cacheIsFresh(updatedAtMillis: Long, now: Long = System.currentTimeMillis()): Boolean =
-    updatedAtMillis > 0 && now >= updatedAtMillis && now - updatedAtMillis < CATALOG_TTL_MILLIS
+fun cacheIsFresh(updatedAtMillis: Long, now: Long = System.currentTimeMillis(), intervalDays: Int = 3): Boolean =
+    updatedAtMillis > 0 && now >= updatedAtMillis &&
+        now - updatedAtMillis < intervalDays.coerceIn(1, 3) * 24L * 60 * 60 * 1000
 
 /** A snapshot contains provider data only. Playback URLs are reconstructed from the current
  * encrypted session instead of storing the password in each channel/movie entry. */
@@ -54,11 +55,17 @@ data class CachedCatalog(
     val seriesCategories: List<SeriesCategory> = emptyList(),
     val series: List<SeriesItem> = emptyList(),
 ) {
-    fun isFresh(now: Long = System.currentTimeMillis()): Boolean = complete && cacheIsFresh(updatedAtMillis, now)
+    fun isFresh(now: Long = System.currentTimeMillis(), intervalDays: Int = 3): Boolean =
+        complete && cacheIsFresh(updatedAtMillis, now, intervalDays)
 }
 
 @Serializable
-data class CachedHero(val fetchedAtMillis: Long, val details: VodDetails)
+data class CachedHero(
+    val fetchedAtMillis: Long,
+    val details: VodDetails,
+    // Older snapshots did not contain TMDB artwork; enrich them once after upgrading.
+    val tmdbChecked: Boolean = false,
+)
 
 @Serializable
 data class CachedHeroes(val accountKey: String, val entries: Map<String, CachedHero> = emptyMap())
@@ -156,7 +163,8 @@ class CatalogCache(private val directory: File, private val repository: XtreamRe
         val token = repository.sessionToken(credentials) ?: return@withLock CatalogRefreshResult(null, 1, false)
         val previous = load(credentials)
         if (!repository.isSessionCurrent(credentials, token)) return@withLock CatalogRefreshResult(null, 1, false)
-        if (!force && previous?.isFresh() == true) return@withLock CatalogRefreshResult(previous, 0, false)
+        if (!force && previous?.isFresh(intervalDays = repository.settings.value.catalogIntervalDays) == true)
+            return@withLock CatalogRefreshResult(previous, 0, false)
         val result = coroutineScope {
             onProgress(CatalogStage.PLAYLIST)
             // Start the independent requests together, but advance the label only as each

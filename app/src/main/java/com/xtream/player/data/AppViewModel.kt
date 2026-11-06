@@ -30,6 +30,7 @@ import kotlinx.coroutines.withContext
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.flow.collectLatest
 import java.util.Locale
 import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
 
@@ -45,6 +46,7 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
     private var shortEpgJob: Job? = null
     private var detailJob: Job? = null
     private var restoreJob: Job? = null
+    private var auxiliaryRestoreJob: Job? = null
     private var heroPlayJob: Job? = null
     private var heroPrepJob: Job? = null
     private var cacheClearJob: Job? = null
@@ -93,12 +95,11 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
     init {
         viewModelScope.launch { repository.settings.collect { settings = it } }
         viewModelScope.launch {
-            app.catalogCache.catalog.collect { cached ->
+            app.catalogCache.catalog.collectLatest { cached ->
                 val creds = repository.currentCredentials()
                 if (cached != null && creds != null && session?.isDemo == false &&
                     cached.accountKey == CatalogCache.accountKey(creds) && session?.username == creds.username && session?.server == creds.serverUrl) {
-                    val mapped = applyProgress(mapCatalog(cached, creds))
-                    if (repository.currentCredentials() == creds) content = mapped
+                    publishCatalog(cached, creds, generation)
                 }
             }
         }
@@ -282,14 +283,9 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
             notice = "O user agent deve conter apenas caracteres ASCII imprimíveis (até 200)."
             return
         }
-        val tmdbKey = requested.tmdbApiKey.trim()
-        if (tmdbKey.length > 128 || tmdbKey.any { it !in 'a'..'z' && it !in 'A'..'Z' && it !in '0'..'9' && it != '_' && it != '-' }) {
-            notice = "Use uma chave de API v3 do TMDB válida, sem espaços."
-            return
-        }
         val changedSource = old.customXmltvUrl != url
         // Parental credentials and locks have their own verified actions.
-        val next = requested.copy(customXmltvUrl = url, userAgent = agent, tmdbApiKey = tmdbKey,
+        val next = requested.copy(customXmltvUrl = url, userAgent = agent,
             lastEpgSyncMillis = if (changedSource) 0L else old.lastEpgSyncMillis,
             parentalSalt = old.parentalSalt, parentalHash = old.parentalHash, lockedCategories = old.lockedCategories)
         repository.updateSettings(next)
@@ -312,13 +308,25 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
             val token = generation
             guideJob = viewModelScope.launch { updateGuide(creds, token) }
         }
-        if (creds != null && old.epgIntervalHours != next.epgIntervalHours) BackgroundSync.schedule(app, next.epgIntervalHours)
+        if (creds != null && (old.epgIntervalHours != next.epgIntervalHours || old.catalogIntervalDays != next.catalogIntervalDays)) {
+            BackgroundSync.schedule(app, next.epgIntervalHours, next.catalogIntervalDays)
+            val cached = app.catalogCache.catalog.value
+            if (old.catalogIntervalDays != next.catalogIntervalDays && cached != null &&
+                !cached.isFresh(intervalDays = next.catalogIntervalDays) && catalogueJob?.isActive != true) {
+                val token = generation
+                catalogueJob = viewModelScope.launch {
+                    val result = app.catalogCache.refresh(creds)
+                    if (generation == token && repository.currentCredentials() == creds && result.failures > 0)
+                        notice = "Não foi possível atualizar todo o catálogo. Os dados anteriores foram preservados."
+                }
+            }
+        }
     }
 
     fun clearCache() {
         val creds = repository.currentCredentials() ?: run { notice = "Nenhum cache de conta para limpar."; return }
         val token = generation
-        catalogueJob?.cancel(); guideJob?.cancel(); shortEpgJob?.cancel(); heroPrepJob?.cancel()
+        catalogueJob?.cancel(); guideJob?.cancel(); shortEpgJob?.cancel(); heroPrepJob?.cancel(); auxiliaryRestoreJob?.cancel()
         BackgroundSync.cancel(app)
         xmltv.invalidate()
         val source = repository.settings.value.customXmltvUrl
@@ -330,7 +338,7 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
             shortGuide.clear(); shortGuideFetchedAt.clear(); heroDetails = emptyMap()
             epg = emptyMap(); epgUpdatedAt = null; repository.clearEpgSync()
             notice = if (cleared) "Cache local desta conta limpo. O catálogo atual permanece na memória." else "Não foi possível limpar o cache."
-            BackgroundSync.schedule(app, repository.settings.value.epgIntervalHours)
+            BackgroundSync.schedule(app, repository.settings.value.epgIntervalHours, repository.settings.value.catalogIntervalDays)
         }
     }
 
@@ -396,7 +404,7 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
     private suspend fun activate(account: AccountInfo) {
         val creds = repository.currentCredentials() ?: return
         cancelActiveWork()
-        BackgroundSync.cancel(app)
+        // Keep existing periodic work on normal reopen; rescheduling must not reset its clock.
         xmltv.invalidate()
         app.catalogCache.forgetMemory()
         library.select(creds)
@@ -410,46 +418,61 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
         session = mapSession(account, creds)
         val token = generation
         loadingMessage = "Verificando cache…"
-        // The cached data contains no stream credentials; URLs are rebuilt for this account.
-        val heroes = app.catalogCache.loadHeroes(creds)
+        // Catalog is the only disk read on the critical path. Hero artwork and both guide
+        // caches restore independently, so even a very large XMLTV file cannot delay Home.
         val cached = app.catalogCache.load(creds)
-        val short = app.catalogCache.loadShortGuide(creds, repository.settings.value.epgOffsetHours * 3_600_000L)
         if (generation != token || repository.currentCredentials() != creds) return
-        heroDetails = heroes.entries.mapValues { it.value.details }
-        if (cached != null) content = applyProgress(mapCatalog(cached, creds))
-        short.entries.forEach { (key, entry) ->
-            shortGuide[key] = entry.programmes
-            shortGuideFetchedAt[key] = entry.fetchedAtMillis
+        if (cached != null) publishCatalog(cached, creds, token)
+        val activeSettings = repository.settings.value
+        auxiliaryRestoreJob = viewModelScope.launch {
+            val heroes = app.catalogCache.loadHeroes(creds)
+            val short = app.catalogCache.loadShortGuide(creds, activeSettings.epgOffsetHours * 3_600_000L)
+            if (generation != token || repository.currentCredentials() != creds) return@launch
+            heroDetails = (app.catalogCache.heroes.value?.takeIf { it.accountKey == heroes.accountKey } ?: heroes)
+                .entries.mapValues { it.value.details }
+            short.entries.forEach { (key, entry) ->
+                shortGuide[key] = entry.programmes
+                shortGuideFetchedAt[key] = entry.fetchedAtMillis
+            }
+            mergeGuide()
         }
-        val settings = repository.settings.value
-        val loadedGuide = xmltv.loadFromDisk(creds, settings.customXmltvUrl)
-        if (generation != token || repository.currentCredentials() != creds) return
-        if (loadedGuide) epgUpdatedAt = xmltv.guide.value.cachedAtMillis.takeIf { it > 0 }
-        mergeGuide()
-        val last = if (loadedGuide) xmltv.guide.value.cachedAtMillis else 0L
-        val guideFresh = last > 0 && System.currentTimeMillis() >= last &&
-            System.currentTimeMillis() - last < settings.epgIntervalHours * 3_600_000L
-        if (settings.autoUpdateEpg && (!loadedGuide || !guideFresh)) {
-            guideJob = viewModelScope.launch { updateGuide(creds, token) }
+        guideJob = viewModelScope.launch {
+            val loadedGuide = xmltv.loadFromDisk(creds, activeSettings.customXmltvUrl)
+            if (generation != token || repository.currentCredentials() != creds ||
+                repository.settings.value.customXmltvUrl != activeSettings.customXmltvUrl) return@launch
+            if (loadedGuide) epgUpdatedAt = xmltv.guide.value.cachedAtMillis.takeIf { it > 0 }
+            mergeGuide()
+            val last = if (loadedGuide) xmltv.guide.value.cachedAtMillis else 0L
+            val guideFresh = last > 0 && System.currentTimeMillis() >= last &&
+                System.currentTimeMillis() - last < activeSettings.epgIntervalHours * 3_600_000L
+            if (repository.settings.value.autoUpdateEpg && (!loadedGuide || !guideFresh)) updateGuide(creds, token)
         }
         if (cached == null) {
-            // On the first login wait for real responses before entering Home. Partial
-            // results remain usable, and a failure is reported instead of trapping splash.
+            // First login waits for actual provider responses; later opens use the saved snapshot.
             val result = app.catalogCache.refresh(creds) { stage ->
                 if (generation == token && repository.currentCredentials() == creds) loadingMessage = stage.label
             }
             if (generation != token || repository.currentCredentials() != creds) return
-            result.snapshot?.let { content = applyProgress(mapCatalog(it, creds)) }
+            result.snapshot?.let { publishCatalog(it, creds, token) }
             if (result.failures > 0) notice = "Não foi possível baixar todo o catálogo. Tente atualizar novamente."
-        } else if (!cached.isFresh()) {
-            // An older or partial snapshot opens immediately; refresh it in the background.
+        } else if (!cached.isFresh(intervalDays = activeSettings.catalogIntervalDays)) {
             catalogueJob = viewModelScope.launch {
                 val result = app.catalogCache.refresh(creds)
                 if (generation == token && repository.currentCredentials() == creds && result.failures > 0)
                     notice = "Não foi possível atualizar todo o catálogo. Os dados anteriores foram preservados."
             }
         }
-        if (generation == token && repository.currentCredentials() == creds) BackgroundSync.schedule(app, settings.epgIntervalHours)
+        if (generation == token && repository.currentCredentials() == creds)
+            BackgroundSync.schedule(app, activeSettings.epgIntervalHours, activeSettings.catalogIntervalDays)
+    }
+
+    /** Transform big snapshots off the UI thread and ignore late work for another account/version. */
+    private suspend fun publishCatalog(cached: CachedCatalog, creds: PanelCredentials, token: Int) {
+        val progress = history
+        val mapped = withContext(Dispatchers.Default) { applyProgress(mapCatalog(cached, creds), progress) }
+        if (generation == token && repository.currentCredentials() == creds && app.catalogCache.catalog.value === cached) {
+            content = if (history === progress) mapped else applyProgress(mapped)
+        }
     }
 
     private fun mapSession(account: AccountInfo, creds: PanelCredentials): Session {
@@ -513,13 +536,13 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
         val creds = repository.currentCredentials() ?: return
         if (session?.isDemo != false) return
         val targets = items.asSequence().filter { !it.isSeries }.take(6)
-            .mapNotNull { item -> item.id.toIntOrNull()?.let { HeroTarget(it, item.poster) } }.toList()
+            .mapNotNull { item -> item.id.toIntOrNull()?.let { HeroTarget(it, item.title, item.year) } }.toList()
         heroPrepJob?.cancel()
         heroPrepJob = viewModelScope.launch { app.heroLoader.prepare(creds, targets) }
     }
 
-    private fun applyProgress(value: ContentState): ContentState {
-        fun update(item: VodItem): VodItem = item.copy(progress = history[item.favoriteKey]?.fraction ?: item.progress)
+    private fun applyProgress(value: ContentState, progress: Map<String, UserLibrary.Progress> = history): ContentState {
+        fun update(item: VodItem): VodItem = item.copy(progress = progress[item.favoriteKey]?.fraction ?: item.progress)
         return value.copy(movies = value.movies.map(::update), series = value.series.map(::update))
     }
 
@@ -590,7 +613,7 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
         detailJob?.cancel()
         val detailToken = ++detailGeneration
         val token = generation
-        val apiKey = repository.settings.value.tmdbApiKey
+        val apiKey = app.tmdbApiKey
         val isDemo = session?.isDemo == true
         detailItem = item
         detailExtras = providerExtras(heroDetails[item.favoriteKey])
@@ -647,7 +670,7 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
                             )
                         }
                         TmdbResult.NotFound -> if (isCurrent()) detailMetadataMessage = "Título não encontrado no TMDB; exibindo os dados disponíveis do provedor."
-                        TmdbResult.Unauthorized -> if (isCurrent()) detailMetadataMessage = "Chave TMDB inválida ou sem acesso; confira as configurações."
+                        TmdbResult.Unauthorized -> if (isCurrent()) detailMetadataMessage = "Informações externas indisponíveis; exibindo os dados do provedor."
                         TmdbResult.Unavailable -> if (isCurrent()) detailMetadataMessage = "TMDB indisponível; exibindo os dados disponíveis do provedor."
                     }
                 }
@@ -782,7 +805,7 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
 
     private fun cancelActiveWork() {
         generation++; detailGeneration++
-        catalogueJob?.cancel(); guideJob?.cancel(); shortEpgJob?.cancel(); cacheClearJob?.cancel()
+        catalogueJob?.cancel(); guideJob?.cancel(); shortEpgJob?.cancel(); cacheClearJob?.cancel(); auxiliaryRestoreJob?.cancel()
         connectionJob?.cancel(); connectionTest = null; testingConnection = false
         detailJob?.cancel()
         cancelHeroPlayback()

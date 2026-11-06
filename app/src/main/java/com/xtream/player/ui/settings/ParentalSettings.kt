@@ -42,7 +42,7 @@ fun ParentalSettings(content: ContentState, settings: UserSettings, unlocked: Bo
     dialog?.let { mode ->
         PinEntryDialog(mode, busy, onDismiss = { dialog = null }, onUnlock = actions.unlock, onSetPin = actions.setPin)
     }
-    SettingsPanel("Controle parental", "Bloqueie categorias para este perfil. O bloqueio é aplicado à Home, busca, TV e Multitela.") {
+    SettingsPanel("Controle parental", "Bloqueie categorias para este perfil. O bloqueio é aplicado à Home, buscas e TV.") {
         when {
             !hasPin -> GlowButton("Criar PIN", ringAlways = false) { dialog = PinDialog.Create }
             !unlocked -> GlowButton("Desbloquear controle parental", ringAlways = false) { dialog = PinDialog.Unlock }

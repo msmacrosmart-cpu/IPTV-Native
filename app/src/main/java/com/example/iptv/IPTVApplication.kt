@@ -37,8 +37,10 @@ class IPTVApplication : Application(), ImageLoaderFactory {
     lateinit var heroLoader: HeroLoader
         private set
 
-    // Injectable in instrumentation tests; normal builds always use the official HTTPS endpoint.
+    // Injectable only in instrumentation tests; production uses the build-time key and HTTPS endpoint.
     lateinit var tmdbRepository: TmdbRepository
+        internal set
+    var tmdbApiKey: String = BuildConfig.TMDB_API_KEY
         internal set
 
     override fun onCreate() {
@@ -47,8 +49,8 @@ class IPTVApplication : Application(), ImageLoaderFactory {
         epgRepository = XmltvRepository(cacheDir, ApiClient.httpClient())
         repository = XtreamRepository(sessionManager)
         catalogCache = CatalogCache(filesDir.resolve("catalog-cache"), repository)
-        heroLoader = HeroLoader(this, repository, catalogCache)
         tmdbRepository = TmdbRepository(ApiClient.httpClient())
+        heroLoader = HeroLoader(this, repository, catalogCache, { tmdbRepository }, { tmdbApiKey })
     }
 
     override fun newImageLoader(): ImageLoader = ImageLoader.Builder(this)
