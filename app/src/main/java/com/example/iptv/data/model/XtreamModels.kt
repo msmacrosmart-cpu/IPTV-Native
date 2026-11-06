@@ -76,6 +76,7 @@ data class UserSettings(
     val subtitleSizePercent: Int = 100,
     val autoplayNextEpisode: Boolean = false,
     val userAgent: String = DEFAULT_USER_AGENT,
+    val tmdbApiKey: String = "",
     val multiScreens: Int = 4,
     val livePlayer: PlaybackApp = PlaybackApp.INTERNAL,
     val moviePlayer: PlaybackApp = PlaybackApp.INTERNAL,
@@ -188,7 +189,9 @@ data class VodDetails(
     val releaseDate: String? = null,
     val durationLabel: String? = null,
     val backdrop: String? = null,
-    val rating: String? = null
+    val rating: String? = null,
+    val tmdbId: String? = null,
+    val youtubeTrailer: String? = null,
 )
 
 /** Everything the player needs to start a stream. */

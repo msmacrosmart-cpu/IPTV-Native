@@ -12,6 +12,7 @@ import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.platform.LocalInputModeManager
 import androidx.compose.ui.unit.dp
 import com.example.iptv.data.model.VodDetails
+import com.example.iptv.data.tmdb.DetailExtras
 import com.example.iptv.data.model.UserSettings
 import com.example.iptv.data.preferences.SavedProfile
 import com.xtream.player.data.*
@@ -36,6 +37,7 @@ class MainActions(
     val onCancelHeroPlayback: () -> Unit,
     val onPlaySeries: () -> Unit,
     val onPlayEpisode: (AppViewModel.EpisodeChoice) -> Unit,
+    val onTrailer: (String) -> Unit,
     val onToggleFav: (String) -> Unit,
     val onRefreshContent: () -> Unit,
     val onChannelFocused: (Channel) -> Unit,
@@ -47,7 +49,8 @@ fun MainScreen(session: Session?, content: ContentState, epg: Map<String, List<P
                favorites: List<String>, epgUpdatedAt: Long?, epgLoading: Boolean, epgMessage: String?,
                heroDetails: Map<String, VodDetails>, loadingHeroKey: String?,
                loading: Boolean, loginError: String?, detail: VodItem?, episodes: AppViewModel.EpisodeSelection?,
-               episodeLoading: Boolean, episodeError: String?, profiles: List<SavedProfile>, settings: UserSettings,
+               episodeLoading: Boolean, episodeError: String?, detailExtras: DetailExtras, metadataLoading: Boolean, metadataMessage: String?,
+               profiles: List<SavedProfile>, settings: UserSettings,
                parentalUnlocked: Boolean, parentalBusy: Boolean, testingConnection: Boolean, connectionTest: String?, actions: MainActions,
                previewEnabled: Boolean = true, restoreChannelId: String? = null, onChannelRestored: () -> Unit = {}) {
     var tab by rememberSaveable { mutableStateOf(Tab.Home) }
@@ -80,8 +83,10 @@ fun MainScreen(session: Session?, content: ContentState, epg: Map<String, List<P
     @Composable fun Content(modifier: Modifier) {
         Box(modifier) {
             if (detail != null) DetailScreen(detail, detail.favoriteKey in favorites, episodes, episodeLoading, episodeError,
+                detailExtras, metadataLoading, metadataMessage,
                 onBack = actions.onCloseDetails, onFavorite = { actions.onToggleFav(detail.favoriteKey) },
-                onPlay = { if (detail.isSeries) actions.onPlaySeries() else actions.onPlayItem(detail) }, onEpisode = actions.onPlayEpisode)
+                onPlay = { if (detail.isSeries) actions.onPlaySeries() else actions.onPlayItem(detail) },
+                onTrailer = actions.onTrailer, onEpisode = actions.onPlayEpisode)
             else when (tab) {
                 Tab.Home -> HomeScreen(visibleContent, epg, query, favorites, heroDetails, loadingHeroKey, settings.time24Hour,
                     actions.onOpenDetails, actions.onPlayHero, actions.onPrepareHeroes,
@@ -105,7 +110,8 @@ fun MainScreen(session: Session?, content: ContentState, epg: Map<String, List<P
         Row(Modifier.fillMaxSize()) {
             Sidebar(tab, selectTab, compact = false)
             Column(Modifier.weight(1f).fillMaxHeight()) {
-                Header(compactHeader)
+                // Details need the full height; restore the search bar when returning to the catalog.
+                if (detail == null) Header(compactHeader)
                 Content(Modifier.weight(1f).fillMaxWidth())
             }
         }

@@ -143,6 +143,7 @@ class SessionManager(context: Context) {
             subtitleSizePercent = prefs.getInt(KEY_SUBTITLE_SIZE, 100).coerceIn(75, 150),
             autoplayNextEpisode = prefs.getBoolean(KEY_NEXT_EPISODE, false),
             userAgent = prefs.getString(KEY_USER_AGENT, DEFAULT_USER_AGENT).orEmpty().ifBlank { DEFAULT_USER_AGENT },
+            tmdbApiKey = readSecret(prefs.getString(KEY_TMDB_API_KEY, "")).orEmpty(),
             multiScreens = prefs.getInt(KEY_MULTI_SCREENS, 4).coerceIn(1, 4),
             livePlayer = playbackApp(KEY_LIVE_PLAYER), moviePlayer = playbackApp(KEY_MOVIE_PLAYER),
             seriesPlayer = playbackApp(KEY_SERIES_PLAYER),
@@ -173,6 +174,7 @@ class SessionManager(context: Context) {
             .putInt(KEY_SUBTITLE_SIZE, settings.subtitleSizePercent.coerceIn(75, 150))
             .putBoolean(KEY_NEXT_EPISODE, settings.autoplayNextEpisode)
             .putString(KEY_USER_AGENT, settings.userAgent)
+            .putString(KEY_TMDB_API_KEY, settings.tmdbApiKey.takeIf { it.isNotBlank() }?.let(::encrypt).orEmpty())
             .putInt(KEY_MULTI_SCREENS, settings.multiScreens.coerceIn(1, 4))
             .putString(KEY_LIVE_PLAYER, settings.livePlayer.name)
             .putString(KEY_MOVIE_PLAYER, settings.moviePlayer.name)
@@ -383,6 +385,7 @@ class SessionManager(context: Context) {
         private const val KEY_SUBTITLE_SIZE = "setting_subtitle_size"
         private const val KEY_NEXT_EPISODE = "setting_next_episode"
         private const val KEY_USER_AGENT = "setting_user_agent"
+        private const val KEY_TMDB_API_KEY = "setting_tmdb_api_key"
         private const val KEY_MULTI_SCREENS = "setting_multi_screens"
         private const val KEY_LIVE_PLAYER = "setting_live_player"
         private const val KEY_MOVIE_PLAYER = "setting_movie_player"

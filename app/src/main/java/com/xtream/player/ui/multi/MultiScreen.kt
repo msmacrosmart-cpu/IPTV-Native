@@ -109,7 +109,7 @@ fun MultiScreen(channels: List<Channel>, slotIds: List<String?>, audible: Int, e
         }
         if (pendingFocus == index) pendingFocus = null
     }
-    BoxWithConstraints(Modifier.fillMaxSize()) {
+    BoxWithConstraints(Modifier.fillMaxSize().testTag("multi-root").semantics { stateDescription = "Áudio da tela ${audible + 1}" }) {
         val compact = maxHeight < 400.dp || maxWidth < 700.dp
         Column(Modifier.fillMaxSize().padding(if (compact) 8.dp else 16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
             Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {

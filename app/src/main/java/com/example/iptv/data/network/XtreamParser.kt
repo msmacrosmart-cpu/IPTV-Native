@@ -265,7 +265,9 @@ object XtreamParser {
             releaseDate = info?.string("releasedate") ?: info?.string("release_date") ?: info?.string("releaseDate"),
             durationLabel = info?.string("duration")?.takeIf { it.isNotBlank() },
             backdrop = backdrop?.takeIf { it.isNotBlank() },
-            rating = info?.string("rating")?.takeIf { it.isNotBlank() }
+            rating = info?.string("rating")?.takeIf { it.isNotBlank() },
+            tmdbId = (info?.string("tmdb_id") ?: info?.string("tmdb"))?.takeIf { it.toLongOrNull()?.let { id -> id > 0 } == true },
+            youtubeTrailer = (info?.string("youtube_trailer") ?: info?.string("trailer"))?.takeIf { it.isNotBlank() }
         )
     }
 

@@ -11,6 +11,7 @@ import com.example.iptv.data.epg.XmltvRepository
 import com.example.iptv.data.network.ApiClient
 import com.example.iptv.data.preferences.SessionManager
 import com.example.iptv.data.repository.XtreamRepository
+import com.example.iptv.data.tmdb.TmdbRepository
 
 /**
  * Application entry point. Owns the session storage and the single [XtreamRepository]
@@ -36,6 +37,10 @@ class IPTVApplication : Application(), ImageLoaderFactory {
     lateinit var heroLoader: HeroLoader
         private set
 
+    // Injectable in instrumentation tests; normal builds always use the official HTTPS endpoint.
+    lateinit var tmdbRepository: TmdbRepository
+        internal set
+
     override fun onCreate() {
         super.onCreate()
         sessionManager = SessionManager(this)
@@ -43,6 +48,7 @@ class IPTVApplication : Application(), ImageLoaderFactory {
         repository = XtreamRepository(sessionManager)
         catalogCache = CatalogCache(filesDir.resolve("catalog-cache"), repository)
         heroLoader = HeroLoader(this, repository, catalogCache)
+        tmdbRepository = TmdbRepository(ApiClient.httpClient())
     }
 
     override fun newImageLoader(): ImageLoader = ImageLoader.Builder(this)

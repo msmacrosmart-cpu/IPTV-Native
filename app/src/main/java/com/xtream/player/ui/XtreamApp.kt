@@ -20,6 +20,7 @@ import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
+import com.example.iptv.data.tmdb.youtubeVideoId
 import com.xtream.player.data.AppViewModel
 import com.xtream.player.data.PlayerRequest
 import com.xtream.player.ui.components.AppBackground
@@ -100,6 +101,15 @@ fun XtreamApp(vm: AppViewModel = viewModel()) {
                 onCancelHeroPlayback = vm::cancelHeroPlayback,
                 onPlaySeries = { vm.playSeries(::openPlayer) },
                 onPlayEpisode = { vm.playEpisode(it, ::openPlayer) },
+                onTrailer = { rawId ->
+                    youtubeVideoId(rawId)?.let { id ->
+                        val url = Uri.Builder().scheme("https").authority("www.youtube.com").appendPath("watch")
+                            .appendQueryParameter("v", id).build()
+                        try { context.startActivity(Intent(Intent.ACTION_VIEW, url)) }
+                        catch (_: ActivityNotFoundException) { Toast.makeText(context, "Instale um aplicativo compatível com YouTube para abrir o trailer.", Toast.LENGTH_LONG).show() }
+                        catch (_: SecurityException) { Toast.makeText(context, "Não foi possível abrir o trailer neste dispositivo.", Toast.LENGTH_LONG).show() }
+                    }
+                },
                 onToggleFav = vm::toggleFavorite,
                 onRefreshContent = vm::refreshContent,
                 onChannelFocused = vm::channelFocused,
@@ -127,7 +137,7 @@ fun XtreamApp(vm: AppViewModel = viewModel()) {
             DeviceSafeArea {
                 MainScreen(vm.session, vm.content, vm.epg, vm.favorites, vm.epgUpdatedAt, vm.epgLoading, vm.epgMessage,
                     vm.heroDetails, vm.loadingHeroKey, vm.loading, vm.loginError, vm.detailItem, vm.episodeSelection, vm.episodeLoading, vm.episodeError,
-                    vm.profiles, vm.settings, vm.parentalUnlocked, vm.parentalBusy, vm.testingConnection, vm.connectionTest, actions, previewEnabled = entry?.destination?.route == "main", restoreChannelId = vm.lastPlayedChannelId,
+                    vm.detailExtras, vm.detailMetadataLoading, vm.detailMetadataMessage, vm.profiles, vm.settings, vm.parentalUnlocked, vm.parentalBusy, vm.testingConnection, vm.connectionTest, actions, previewEnabled = entry?.destination?.route == "main", restoreChannelId = vm.lastPlayedChannelId,
                     onChannelRestored = vm::consumeChannelRestore)
             }
         }

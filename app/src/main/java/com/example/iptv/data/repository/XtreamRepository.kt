@@ -259,9 +259,9 @@ class XtreamRepository(private val session: SessionManager) {
             service.seriesInfo(creds.username, creds.password, XtreamActions.SERIES_INFO, seriesId)
         }
 
-    /** The same series-info response also has an `info` section with a wide backdrop. */
-    suspend fun seriesDetails(seriesId: Int): ApiResult<VodDetails> =
-        withApi({ XtreamParser.parseVodInfo(it) }) { service, creds ->
+    /** Parse details and episodes from the same panel response, without a duplicate request. */
+    suspend fun seriesInfoWithDetails(seriesId: Int): ApiResult<Pair<VodDetails, List<SeasonEpisodes>>> =
+        withApi({ XtreamParser.parseVodInfo(it) to XtreamParser.parseSeriesInfo(it) }) { service, creds ->
             service.seriesInfo(creds.username, creds.password, XtreamActions.SERIES_INFO, seriesId)
         }
 

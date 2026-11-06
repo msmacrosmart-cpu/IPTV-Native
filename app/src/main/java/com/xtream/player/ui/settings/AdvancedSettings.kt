@@ -1,5 +1,6 @@
 package com.xtream.player.ui.settings
 
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.layout.*
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
@@ -11,11 +12,13 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.example.iptv.R
 import com.example.iptv.data.model.DEFAULT_USER_AGENT
 import com.example.iptv.data.model.PlaybackApp
 import com.example.iptv.data.model.StreamFormat
@@ -34,6 +37,7 @@ fun AdvancedSettings(settings: UserSettings, epgChannels: Int, epgUpdatedAt: Lon
                      epgMessage: String?, actions: SettingsActions) {
     var xmltv by remember(settings.customXmltvUrl) { mutableStateOf(settings.customXmltvUrl) }
     var agent by remember(settings.userAgent) { mutableStateOf(settings.userAgent) }
+    var tmdbKey by remember(settings.tmdbApiKey) { mutableStateOf(settings.tmdbApiKey) }
     var confirmClear by remember { mutableStateOf(false) }
     if (confirmClear) ConfirmSettingsDialog("Limpar cache desta conta?",
         "O catálogo e o guia salvos serão removidos. Credenciais, perfis, favoritos e histórico serão mantidos.",
@@ -135,6 +139,21 @@ fun AdvancedSettings(settings: UserSettings, epgChannels: Int, epgUpdatedAt: Lon
             GlowButton(if (epgLoading) "Atualizando…" else "Atualizar EPG", Icons.Filled.Refresh, ringAlways = false, onClick = actions.refreshEpg)
         }
         if (epgMessage != null) Text(epgMessage, color = XColors.TextDim, fontSize = 13.sp, modifier = Modifier.padding(top = 10.dp))
+    }
+    Spacer(Modifier.height(18.dp))
+    SettingsPanel("Informações de filmes e séries", "Opcional: use sua chave de API v3 do TMDB para buscar sinopse, elenco e trailers.") {
+        PillField(tmdbKey, { tmdbKey = it }, "Chave de API v3 do TMDB", Modifier.fillMaxWidth().testTag("setting-tmdb-key"),
+            password = true, imeAction = ImeAction.Done, onDone = { actions.updateSettings(settings.copy(tmdbApiKey = tmdbKey)) })
+        Text("Sem chave, o aplicativo usa os dados de elenco e trailer que o próprio provedor disponibilizar. " +
+            "Ao ativar o TMDB, o título pesquisado é enviado ao serviço; credenciais do IPTV não são enviadas.",
+            color = XColors.TextDim, fontSize = 12.sp, modifier = Modifier.padding(top = 8.dp))
+        Row(Modifier.padding(top = 12.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            GlowButton("Salvar chave TMDB", ringAlways = false) { actions.updateSettings(settings.copy(tmdbApiKey = tmdbKey)) }
+            GlowButton("Remover chave", ringAlways = false) { tmdbKey = ""; actions.updateSettings(settings.copy(tmdbApiKey = "")) }
+        }
+        Image(painterResource(R.drawable.tmdb_logo), "The Movie Database", Modifier.padding(top = 18.dp).width(110.dp))
+        Text("This product uses the TMDB API but is not endorsed or certified by TMDB.",
+            color = XColors.Body, fontSize = 11.sp, modifier = Modifier.padding(top = 8.dp))
     }
     Spacer(Modifier.height(18.dp))
     SettingsPanel("Multitela e armazenamento", "Até quatro canais independentes; o limite real depende do provedor e do dispositivo.") {

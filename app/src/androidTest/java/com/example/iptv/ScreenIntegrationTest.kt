@@ -1,6 +1,9 @@
 package com.example.iptv
 
+import android.app.Activity
+import android.app.Instrumentation
 import android.content.Context
+import android.content.Intent
 import android.content.pm.ActivityInfo
 import android.content.res.Configuration
 import android.graphics.Bitmap
@@ -44,6 +47,9 @@ import androidx.media3.ui.PlayerView
 import androidx.work.WorkManager
 import androidx.core.view.ViewCompat
 import androidx.core.view.WindowInsetsCompat
+import androidx.test.espresso.intent.Intents
+import androidx.test.espresso.intent.matcher.IntentMatchers.hasAction
+import androidx.test.espresso.intent.matcher.IntentMatchers.hasData
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
 import com.example.iptv.data.cache.BackgroundSync
@@ -52,6 +58,7 @@ import com.example.iptv.data.epg.XmltvRepository
 import com.example.iptv.data.model.ApiResult
 import com.example.iptv.data.model.PanelCredentials
 import com.example.iptv.data.network.ApiClient
+import com.example.iptv.data.tmdb.TmdbRepository
 import com.xtream.player.data.AppViewModel
 import com.xtream.player.data.UserLibrary
 import coil.imageLoader
@@ -64,6 +71,7 @@ import okhttp3.mockwebserver.MockResponse
 import okhttp3.mockwebserver.MockWebServer
 import okhttp3.mockwebserver.RecordedRequest
 import okio.Buffer
+import org.hamcrest.Matchers.allOf
 import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -127,6 +135,7 @@ class ScreenIntegrationTest {
                     "windowFocus=${compose.activity.window.decorView.hasWindowFocus()} currentFocus=${compose.activity.currentFocus?.javaClass?.simpleName} " +
                     "imeInsets=${keyboardIsVisible()}\n${imeTrace.joinToString("\n")}\n$ime\n$nodes"
                 writeHostFile("ui-failure.txt", text.toByteArray())
+                writeHostFile("ui-failure-${description.methodName}.txt", text.toByteArray())
             }
         }
     }
@@ -134,6 +143,7 @@ class ScreenIntegrationTest {
     private val streamPaths = CopyOnWriteArrayList<String>()
     private val imeTrace = CopyOnWriteArrayList<String>()
     private val vodInfoIds = CopyOnWriteArrayList<String>()
+    private val tmdbRequests = CopyOnWriteArrayList<String>()
     private val guideRequests = AtomicInteger()
     private val shortRequests = AtomicInteger()
     private val catalogueRequests = AtomicInteger()
@@ -157,7 +167,10 @@ class ScreenIntegrationTest {
     @Before fun startPanel() {
         server = MockWebServer()
         server.dispatcher = object : Dispatcher() {
-            override fun dispatch(request: RecordedRequest): MockResponse {
+            override fun dispatch(request: RecordedRequest): MockResponse =
+                respond(request).setHeader("Connection", "close")
+
+            private fun respond(request: RecordedRequest): MockResponse {
                 val url = request.requestUrl ?: return MockResponse().setResponseCode(400)
                 val path = url.encodedPath
                 val action = url.queryParameter("action")
@@ -173,6 +186,20 @@ class ScreenIntegrationTest {
                 if (action == "get_vod_streams" && blockNextVod.compareAndSet(true, false)) {
                     vodBlocked.countDown()
                     if (!releaseVod.await(15, TimeUnit.SECONDS)) return MockResponse().setResponseCode(503)
+                }
+                if (path.startsWith("/tmdb/3/")) {
+                    tmdbRequests.add(request.path.orEmpty())
+                    if (url.queryParameter("api_key") != "mock-key") return MockResponse().setResponseCode(401)
+                    val details = """{"overview":"Sinopse do TMDB","release_date":"2024-01-01","vote_average":8.2,
+                        "genres":[{"name":"Aventura"}],"credits":{"cast":[
+                        {"name":"Ator do TMDB","character":"Protagonista","profile_path":"/ator.jpg"},
+                        {"name":"Atriz do TMDB","character":"Amiga"},
+                        {"name":"Ator 3"},{"name":"Ator 4"},{"name":"Ator 5"},
+                        {"name":"Ator 6"},{"name":"Ator 7"},{"name":"Ator 8"}]},
+                        "videos":{"results":[{"site":"YouTube","type":"Trailer","official":true,"key":"abcdefghijk"}]}}"""
+                    return if (path == "/tmdb/3/movie/42" || path == "/tmdb/3/tv/77")
+                        MockResponse().setHeader("Content-Type", "application/json").setBody(details)
+                    else MockResponse().setResponseCode(404)
                 }
                 if (path.endsWith("/xmltv.php")) {
                     guideRequests.incrementAndGet()
@@ -213,14 +240,14 @@ class ScreenIntegrationTest {
                         vodInfoIds.add(id)
                         // One item deliberately has no backdrop, to exercise the sharp poster fallback.
                         if (id == "102") """{"info":{"plot":"Sem arte larga"}}"""
-                        else """{"info":{"plot":"Sinopse real","genre":"Ação","backdrop_path":["${server.url("/art/backdrop-black-harbor.webp")}"]}}"""
+                        else """{"info":{"plot":"Sinopse real","genre":"Ação","cast":"Ator do painel, Atriz do painel","tmdb_id":"42","youtube_trailer":"abcdefghijk","backdrop_path":["${server.url("/art/backdrop-black-harbor.webp")}"]}}"""
                     }
                     "get_series_categories" -> """[{"category_id":"20","category_name":"Drama"}]"""
                     "get_series" -> (101 until 101 + seriesCount.get()).joinToString(prefix = "[", postfix = "]") { id ->
                         val name = if (id == 101) "Série Teste" else "Série $id"
                         """{"series_id":$id,"name":"$name","category_id":"20","genre":"Drama","cover":"${server.url("/art/poster-skyline-sentinels.webp")}"}"""
                     }
-                    "get_series_info" -> """{"info":{"plot":"Sinopse da série","backdrop_path":["${server.url("/art/backdrop-skyline-sentinels.webp")}"]},"episodes":{"1":[{"id":"201","episode_num":1,"season":1,"title":"Primeiro","container_extension":"ts"},{"id":"202","episode_num":2,"season":1,"title":"Segundo","container_extension":"ts"}]}}"""
+                    "get_series_info" -> """{"info":{"plot":"Sinopse da série","cast":"Pessoa da série","tmdb_id":"77","youtube_trailer":"abcdefghijk","backdrop_path":["${server.url("/art/backdrop-skyline-sentinels.webp")}"]},"episodes":{"1":[{"id":"201","episode_num":1,"season":1,"title":"Primeiro","container_extension":"ts"},{"id":"202","episode_num":2,"season":1,"title":"Segundo","container_extension":"ts"}]}}"""
                     else -> "{}"
                 }
                 return MockResponse().setHeader("Content-Type", "application/json").setBody(body)
@@ -230,6 +257,8 @@ class ScreenIntegrationTest {
     }
 
     @After fun stopPanel() {
+        val app = InstrumentationRegistry.getInstrumentation().targetContext.applicationContext as IPTVApplication
+        app.tmdbRepository = TmdbRepository(ApiClient.httpClient())
         releaseVod.countDown()
         stageRelease.values.forEach { it.countDown() }
         server.shutdown()
@@ -480,6 +509,8 @@ class ScreenIntegrationTest {
                 val view = compose.activity.window.decorView
                 view.width > view.height && view.width in 700..900 && view.height in 250..450
             }
+            // A size change recreates the Activity; wait for the new splash to finish.
+            compose.waitUntil(20_000) { textExists("Adicionar conexão") }
             compose.onNodeWithTag("app-background", useUnmergedTree = true).assertExists()
             assertLoginFitsAndIsCentered()
             compose.waitUntil(15_000) { !keyboardIsVisible() && !systemImeShown() }
@@ -536,6 +567,105 @@ class ScreenIntegrationTest {
             compose.waitUntil(10_000) { exists("multi-tile-1") && exists("multi-tile-2") }
             assertSideBySide("multi-tile-1", "multi-tile-2")
             compose.onNodeWithContentDescription("Adicionar canal 1").assertIsDisplayed()
+        } finally {
+            shell("wm size 768x1376")
+        }
+    }
+
+    @OptIn(ExperimentalTestApi::class)
+    @Test fun tmdbDetailsHideSearchAndSupportRemoteCastAndTrailer() {
+        try {
+            shell("wm size 360x800")
+            compose.waitUntil(20_000) {
+                val view = compose.activity.window.decorView
+                view.width in 700..900 && view.height in 250..450 && textExists("Adicionar conexão")
+            }
+            connectToPanel()
+            val app = compose.activity.application as IPTVApplication
+            app.tmdbRepository = TmdbRepository(ApiClient.httpClient(), server.url("/tmdb/3/"))
+            val vm = ViewModelProvider(compose.activity)[AppViewModel::class.java]
+            compose.waitUntil(30_000) { vm.content.movies.size == 30 && vm.content.series.size == 1 }
+
+            // Without a TMDB key, provider metadata still supplies a description, cast and trailer.
+            compose.onNodeWithContentDescription("Filmes").performClick()
+            compose.waitUntil(15_000) { exists("poster-vod:101") && exists("search-field") }
+            compose.onNodeWithTag("search-field").performTextInput("Filme Teste")
+            compose.onNodeWithTag("poster-vod:101").performClick()
+            compose.waitUntil(20_000) { vm.detailItem?.plot == "Sinopse real" && vm.detailExtras.cast.size == 2 && exists("detail-trailer") }
+            assertFalse("Search must disappear when a movie is selected", exists("search-field"))
+            assertEquals("Ator do painel", vm.detailExtras.cast.first().name)
+            assertTrue("No request should be sent to TMDB without a key", tmdbRequests.isEmpty())
+            shell("input keyevent KEYCODE_BACK")
+            compose.waitUntil(10_000) { exists("search-field") && exists("poster-vod:101") }
+            compose.onNodeWithTag("search-field").assertTextContains("Filme Teste")
+
+            // Save the user's own API key and verify it is not stored as plaintext.
+            compose.onNodeWithContentDescription("Configurações").performClick()
+            compose.onNodeWithTag("setting-tmdb-key").performScrollTo().performTextInput("mock-key")
+            compose.onNodeWithText("Salvar chave TMDB").performScrollTo().performClick()
+            compose.waitUntil(10_000) { vm.settings.tmdbApiKey == "mock-key" }
+            assertEquals("mock-key", app.sessionManager.loadSettings().tmdbApiKey)
+            val storedKey = app.getSharedPreferences("iptv_native_session", Context.MODE_PRIVATE)
+                .getString("setting_tmdb_api_key", "")
+            assertTrue("TMDB key must not be stored in plaintext", storedKey != "mock-key" && !storedKey.isNullOrBlank())
+
+            compose.onNodeWithContentDescription("Filmes").performClick()
+            compose.waitUntil(15_000) { exists("poster-vod:101") && exists("search-field") }
+            compose.onNodeWithTag("poster-vod:101").performClick()
+            compose.waitUntil(25_000) { vm.detailExtras.fromTmdb && vm.detailExtras.cast.size == 8 && exists("cast-member-0") && exists("detail-trailer") }
+            assertEquals("Sinopse do TMDB", vm.detailItem?.plot)
+            assertFalse(exists("search-field"))
+            val cast = compose.onNodeWithTag("cast-member-0").fetchSemanticsNode().boundsInRoot
+            val viewport = compose.onNodeWithTag("detail-list").fetchSemanticsNode().boundsInRoot
+            val visibleHeight = minOf(cast.bottom, viewport.bottom) - maxOf(cast.top, viewport.top)
+            assertTrue("Part of the cast should be visible below the hero on a short screen",
+                visibleHeight > 0f && visibleHeight < 140f * compose.activity.resources.displayMetrics.density)
+            capture("screen-phone-detail.png")
+
+            // A real Down from the hero enters the cast and scrolls it fully into view.
+            useRemoteInputMode()
+            compose.onNodeWithTag("detail-trailer").performSemanticsAction(SemanticsActions.RequestFocus)
+                .assertIsFocused().performKeyInput { pressKey(Key.DirectionDown) }
+            compose.waitUntil(10_000) { (0..7).any { focused("cast-member-$it") } }
+            compose.onNodeWithTag("cast-member-0").performSemanticsAction(SemanticsActions.RequestFocus).assertIsFocused()
+            repeat(7) { index ->
+                compose.onNodeWithTag("cast-member-$index").performKeyInput { pressKey(Key.DirectionRight) }
+                compose.waitUntil(10_000) { focused("cast-member-${index + 1}") }
+            }
+            compose.onNodeWithTag("cast-member-7").assertIsDisplayed()
+            compose.onNodeWithTag("detail-list").performScrollToNode(hasTestTag("detail-synopsis"))
+            compose.onNodeWithTag("detail-synopsis").assertTextContains("Sinopse do TMDB")
+            compose.onNodeWithTag("detail-list").performScrollToIndex(0)
+
+            // Verify the actual button sends only a validated HTTPS YouTube watch URL.
+            Intents.init()
+            try {
+                val matcher = allOf(hasAction(Intent.ACTION_VIEW), hasData("https://www.youtube.com/watch?v=abcdefghijk"))
+                Intents.intending(matcher).respondWith(Instrumentation.ActivityResult(Activity.RESULT_OK, null))
+                compose.onNodeWithTag("detail-trailer").performClick()
+                Intents.intended(matcher)
+            } finally { Intents.release() }
+            assertTrue(tmdbRequests.any { it.startsWith("/tmdb/3/movie/42?") })
+            assertTrue(tmdbRequests.all { !it.contains("username=") && !it.contains("password=") })
+
+            shell("input keyevent KEYCODE_BACK")
+            compose.waitUntil(10_000) { exists("search-field") }
+            compose.onNodeWithContentDescription("Séries").performClick()
+            compose.waitUntil(15_000) { exists("poster-series:101") }
+            compose.onNodeWithTag("poster-series:101").performClick()
+            compose.waitUntil(25_000) { vm.detailExtras.fromTmdb && vm.episodeSelection?.choices?.size == 2 && exists("detail-trailer") }
+            assertFalse("Search must also disappear for a series", exists("search-field"))
+            assertEquals("Sinopse do TMDB", vm.detailItem?.plot)
+            assertTrue(tmdbRequests.any { it.startsWith("/tmdb/3/tv/77?") })
+            shell("input keyevent KEYCODE_BACK")
+            compose.waitUntil(10_000) { exists("search-field") && exists("poster-series:101") }
+
+            // An invalid key must not block panel-provided episodes, cast or the details screen.
+            compose.runOnIdle { vm.updateUserSettings(vm.settings.copy(tmdbApiKey = "wrong")) }
+            compose.onNodeWithTag("poster-series:101").performClick()
+            compose.waitUntil(20_000) { vm.detailMetadataMessage?.contains("Chave TMDB inválida") == true && vm.episodeSelection?.choices?.size == 2 }
+            assertEquals("Pessoa da série", vm.detailExtras.cast.first().name)
+            assertEquals("Sinopse da série", vm.detailItem?.plot)
         } finally {
             shell("wm size 768x1376")
         }
@@ -598,6 +728,16 @@ class ScreenIntegrationTest {
         compose.waitUntil(10_000) { textExists("Nenhum item encontrado.") }
         compose.onNodeWithText("Todos").performClick()
         compose.waitUntil(10_000) { runCatching { compose.onNodeWithTag("poster-vod:101").assertIsDisplayed() }.isSuccess }
+        compose.onNodeWithTag("poster-vod:101").performSemanticsAction(SemanticsActions.RequestFocus)
+            .performKeyInput { pressKey(Key.DirectionCenter) }
+        compose.waitUntil(20_000) { exists("detail-trailer") && exists("cast-member-0") }
+        assertFalse("Movie details must hide the search bar", exists("search-field"))
+        if (isTv) capture("screen-android-tv-detail.png")
+        compose.onNodeWithTag("detail-trailer").performSemanticsAction(SemanticsActions.RequestFocus)
+            .performKeyInput { pressKey(Key.DirectionDown) }
+        compose.waitUntil(10_000) { focused("cast-member-0") || focused("cast-member-1") }
+        shell("input keyevent KEYCODE_BACK")
+        compose.waitUntil(10_000) { exists("search-field") && exists("poster-vod:101") }
         compose.onNodeWithContentDescription("Séries").performSemanticsAction(SemanticsActions.RequestFocus)
             .assertIsFocused().performKeyInput { pressKey(Key.DirectionCenter) }
         compose.waitUntil(20_000) { exists("poster-series:101") }
@@ -692,7 +832,7 @@ class ScreenIntegrationTest {
             vm.toggleFavorite("ch:1")
             vm.saveProgress(com.xtream.player.data.PlayerRequest("Filme", "unused", false, libraryKey = "vod:101"), 20_000, 100_000)
             vm.updateUserSettings(vm.settings.copy(bufferSeconds = 30, streamFormat = com.example.iptv.data.model.StreamFormat.HLS,
-                autoUpdateEpg = false, epgOffsetHours = 1, userAgent = "IPTV-Test-Agent/1.0"))
+                autoUpdateEpg = false, epgOffsetHours = 1, userAgent = "IPTV-Test-Agent/1.0", tmdbApiKey = "alice-key"))
         }
         assertEquals(originalStart + 3_600_000L, vm.epg.getValue("news").first().start)
         assertTrue(vm.content.channels.first().url.endsWith(".m3u8"))
@@ -700,6 +840,7 @@ class ScreenIntegrationTest {
         compose.waitUntil(30_000) { !vm.loading && vm.session?.username == "bob" && vm.content.movies.size == 30 }
         assertEquals(2, vm.profiles.size)
         assertTrue("Another profile must not inherit favorites", vm.favorites.isEmpty())
+        assertEquals("", vm.settings.tmdbApiKey)
         assertEquals(15, vm.settings.bufferSeconds)
         compose.runOnIdle { vm.toggleFavorite("ch:2") }
         offline.set(true)
@@ -709,10 +850,12 @@ class ScreenIntegrationTest {
         assertFalse(vm.favorites.contains("ch:2"))
         assertEquals(30, vm.settings.bufferSeconds)
         assertEquals("IPTV-Test-Agent/1.0", vm.settings.userAgent)
+        assertEquals("alice-key", vm.settings.tmdbApiKey)
         assertEquals(1, vm.settings.epgOffsetHours)
         assertTrue(vm.content.movies.first { it.id == "101" }.progress > 0f)
         val stored = app.getSharedPreferences("iptv_native_profiles", Context.MODE_PRIVATE).all.toString()
         assertFalse("Profile passwords must not be stored as plaintext", stored.contains("senha"))
+        assertFalse("TMDB keys must not be stored as plaintext in profiles", stored.contains("alice-key"))
         offline.set(false)
         compose.onNodeWithContentDescription("TV").performClick()
         compose.waitUntil(10_000) { exists("channel-1") }

@@ -22,6 +22,9 @@ import com.example.iptv.data.model.StreamFormat
 import com.example.iptv.data.model.VodDetails
 import com.example.iptv.data.model.UserSettings
 import com.example.iptv.data.model.DEFAULT_USER_AGENT
+import com.example.iptv.data.tmdb.DetailExtras
+import com.example.iptv.data.tmdb.TmdbResult
+import com.example.iptv.data.tmdb.providerExtras
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.Job
@@ -40,7 +43,6 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
     private var catalogueJob: Job? = null
     private var guideJob: Job? = null
     private var shortEpgJob: Job? = null
-    private var episodeJob: Job? = null
     private var detailJob: Job? = null
     private var restoreJob: Job? = null
     private var heroPlayJob: Job? = null
@@ -78,6 +80,9 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
     var episodeLoading by mutableStateOf(false); private set
     var episodeError by mutableStateOf<String?>(null); private set
     var detailItem by mutableStateOf<VodItem?>(null); private set
+    var detailExtras by mutableStateOf(DetailExtras()); private set
+    var detailMetadataLoading by mutableStateOf(false); private set
+    var detailMetadataMessage by mutableStateOf<String?>(null); private set
     val favorites = mutableStateListOf<String>()
 
     data class EpisodeChoice(val episode: Episode, val url: String) {
@@ -277,9 +282,14 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
             notice = "O user agent deve conter apenas caracteres ASCII imprimíveis (até 200)."
             return
         }
+        val tmdbKey = requested.tmdbApiKey.trim()
+        if (tmdbKey.length > 128 || tmdbKey.any { it !in 'a'..'z' && it !in 'A'..'Z' && it !in '0'..'9' && it != '_' && it != '-' }) {
+            notice = "Use uma chave de API v3 do TMDB válida, sem espaços."
+            return
+        }
         val changedSource = old.customXmltvUrl != url
         // Parental credentials and locks have their own verified actions.
-        val next = requested.copy(customXmltvUrl = url, userAgent = agent,
+        val next = requested.copy(customXmltvUrl = url, userAgent = agent, tmdbApiKey = tmdbKey,
             lastEpgSyncMillis = if (changedSource) 0L else old.lastEpgSyncMillis,
             parentalSalt = old.parentalSalt, parentalHash = old.parentalHash, lockedCategories = old.lockedCategories)
         repository.updateSettings(next)
@@ -577,52 +587,79 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     fun openDetails(item: VodItem) {
-        detailJob?.cancel(); episodeJob?.cancel()
+        detailJob?.cancel()
         val detailToken = ++detailGeneration
+        val token = generation
+        val apiKey = repository.settings.value.tmdbApiKey
+        val isDemo = session?.isDemo == true
         detailItem = item
+        detailExtras = providerExtras(heroDetails[item.favoriteKey])
+        detailMetadataMessage = null
+        detailMetadataLoading = !isDemo || apiKey.isNotBlank()
         episodeSelection = null
         episodeError = null
-        episodeLoading = false
-        if (item.isSeries) {
-            if (session?.isDemo == true) {
-                episodeSelection = EpisodeSelection(item, DemoData.episodes())
-                return
-            }
-            val id = item.seriesId?.toIntOrNull()
-            if (id == null) { episodeError = "Série indisponível."; return }
-            val token = generation
-            episodeLoading = true
-            episodeJob = viewModelScope.launch {
-                try {
-                    when (val result = repository.seriesInfo(id)) {
-                        is ApiResult.Success -> if (generation == token && detailGeneration == detailToken && detailItem?.favoriteKey == item.favoriteKey) {
-                            val choices = result.data.flatMap { it.episodes }.map { EpisodeChoice(it, repository.episodeStreamUrl(it)) }
-                                .sortedWith(compareBy({ it.episode.season }, { it.episode.number }))
-                            episodeSelection = EpisodeSelection(item, choices)
-                            if (choices.isEmpty()) episodeError = "Nenhum episódio disponível para esta série."
+        val seriesId = item.seriesId?.toIntOrNull()
+        episodeLoading = item.isSeries && !isDemo && seriesId != null
+        if (item.isSeries && isDemo) episodeSelection = EpisodeSelection(item, DemoData.episodes())
+        else if (item.isSeries && seriesId == null) episodeError = "Série indisponível."
+        fun isCurrent() = generation == token && detailGeneration == detailToken && detailItem?.favoriteKey == item.favoriteKey
+
+        // Parse the panel's episodes and metadata together. Episodes become available before the
+        // optional TMDB lookup, which must not delay playback or overwrite another open title.
+        detailJob = viewModelScope.launch {
+            try {
+                val provider = when {
+                    isDemo -> null
+                    item.isSeries && seriesId != null -> try {
+                        when (val result = repository.seriesInfoWithDetails(seriesId)) {
+                            is ApiResult.Success -> {
+                                if (!isCurrent()) return@launch
+                                val choices = result.data.second.flatMap { it.episodes }
+                                    .map { EpisodeChoice(it, repository.episodeStreamUrl(it)) }
+                                    .sortedWith(compareBy({ it.episode.season }, { it.episode.number }))
+                                episodeSelection = EpisodeSelection(item, choices)
+                                if (choices.isEmpty()) episodeError = "Nenhum episódio disponível para esta série."
+                                result.data.first
+                            }
+                            is ApiResult.Failure -> {
+                                if (isCurrent()) episodeError = result.message
+                                null
+                            }
                         }
-                        is ApiResult.Failure -> if (generation == token && detailGeneration == detailToken && detailItem?.favoriteKey == item.favoriteKey) episodeError = result.message
+                    } finally { if (isCurrent()) episodeLoading = false }
+                    item.isSeries -> null
+                    else -> item.id.toIntOrNull()?.let { repository.vodDetails(it).getOrNull() }
+                }
+                if (!isCurrent()) return@launch
+                if (provider != null) {
+                    detailItem = detailItem?.withHeroDetails(provider)
+                    detailExtras = providerExtras(provider)
+                }
+                if (apiKey.isNotBlank()) {
+                    val enriched = detailItem ?: item
+                    when (val result = app.tmdbRepository.lookup(enriched.title, enriched.year, item.isSeries, provider?.tmdbId, apiKey)) {
+                        is TmdbResult.Found -> if (isCurrent()) {
+                            detailItem = detailItem?.withHeroDetails(result.metadata.details)
+                            val fallback = detailExtras
+                            detailExtras = result.metadata.extras.copy(
+                                cast = result.metadata.extras.cast.ifEmpty { fallback.cast },
+                                youtubeId = result.metadata.extras.youtubeId ?: fallback.youtubeId,
+                            )
+                        }
+                        TmdbResult.NotFound -> if (isCurrent()) detailMetadataMessage = "Título não encontrado no TMDB; exibindo os dados disponíveis do provedor."
+                        TmdbResult.Unauthorized -> if (isCurrent()) detailMetadataMessage = "Chave TMDB inválida ou sem acesso; confira as configurações."
+                        TmdbResult.Unavailable -> if (isCurrent()) detailMetadataMessage = "TMDB indisponível; exibindo os dados disponíveis do provedor."
                     }
-                } finally {
-                    if (generation == token && detailGeneration == detailToken && detailItem?.favoriteKey == item.favoriteKey) episodeLoading = false
                 }
-            }
-        } else if (session?.isDemo != true) {
-            val id = item.id.toIntOrNull() ?: return
-            val token = generation
-            detailJob = viewModelScope.launch {
-                val details = repository.vodDetails(id).getOrNull()
-                if (details != null && generation == token && detailGeneration == detailToken && detailItem?.favoriteKey == item.favoriteKey) {
-                    detailItem = detailItem?.withHeroDetails(details)
-                }
-            }
+            } finally { if (isCurrent()) detailMetadataLoading = false }
         }
     }
 
     fun closeDetails() {
         detailGeneration++
-        detailJob?.cancel(); episodeJob?.cancel()
+        detailJob?.cancel()
         detailItem = null; episodeSelection = null; episodeLoading = false; episodeError = null
+        detailExtras = DetailExtras(); detailMetadataLoading = false; detailMetadataMessage = null
     }
 
     fun playItem(item: VodItem, onReady: (PlayerRequest) -> Unit) {
@@ -745,12 +782,13 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
 
     private fun cancelActiveWork() {
         generation++; detailGeneration++
-        catalogueJob?.cancel(); guideJob?.cancel(); shortEpgJob?.cancel(); episodeJob?.cancel(); cacheClearJob?.cancel()
+        catalogueJob?.cancel(); guideJob?.cancel(); shortEpgJob?.cancel(); cacheClearJob?.cancel()
         connectionJob?.cancel(); connectionTest = null; testingConnection = false
         detailJob?.cancel()
         cancelHeroPlayback()
         heroPrepJob?.cancel(); heroPrepJob = null; heroDetails = emptyMap()
         detailItem = null; episodeSelection = null; episodeLoading = false; episodeError = null
+        detailExtras = DetailExtras(); detailMetadataLoading = false; detailMetadataMessage = null
     }
 
     companion object { private val YEAR = Regex("\\b(?:19|20)\\d{2}\\b") }
