@@ -3,18 +3,32 @@ package com.xtream.player.data
 import java.text.Normalizer
 import java.util.Locale
 
-/** Panels often decorate category names with emoji, years or different accents/capitalization. */
-fun isReleaseCategory(name: String): Boolean {
-    val normalized = Normalizer.normalize(name, Normalizer.Form.NFD)
-        .replace(Regex("\\p{M}+"), "").lowercase(Locale.ROOT)
-    return normalized.contains("lancamento")
+/** Ignore emoji, decorative punctuation, accents and case, but not category qualifiers. */
+private fun normalizedCategory(name: String): String = Normalizer.normalize(name, Normalizer.Form.NFD)
+    .replace(Regex("\\p{M}+"), "").lowercase(Locale.ROOT)
+    .replace(Regex("[^a-z0-9]+"), " ").trim().replace(Regex("\\s+"), " ")
+
+fun isReleaseCategory(name: String): Boolean = Regex("\\blancamentos?\\b").containsMatchIn(normalizedCategory(name))
+
+/** Prefer the actual Lançamentos folder, not 'Infantil / Lançamentos' or themed collections.
+ * Dated/quality-qualified release folders remain compatible when no unqualified folder exists.
+ */
+fun releaseCategoryIds(categories: List<Category>): Set<String> {
+    val exact = categories.filter { normalizedCategory(it.name) in setOf("lancamento", "lancamentos") }
+    if (exact.isNotEmpty()) return exact.map { it.id }.toSet()
+    return categories.filter { category ->
+        val words = normalizedCategory(category.name).split(' ')
+        words.any { it == "lancamento" || it == "lancamentos" } && words.all {
+            it in setOf("lancamento", "lancamentos", "filme", "filmes", "4k", "hd", "fhd", "uhd") || it.matches(Regex("(?:19|20)\\d{2}"))
+        }
+    }.map { it.id }.toSet()
 }
 
 /** Most recently added movies in the provider's release categories only.
  * Missing dates retain the provider's order and follow items with known dates.
  */
-fun latestReleaseMovies(categories: List<Category>, movies: List<VodItem>, limit: Int = 6): List<VodItem> {
-    val categoryIds = categories.asSequence().filter { isReleaseCategory(it.name) }.map { it.id }.toSet()
+fun latestReleaseMovies(categories: List<Category>, movies: List<VodItem>, limit: Int = Int.MAX_VALUE): List<VodItem> {
+    val categoryIds = releaseCategoryIds(categories)
     if (categoryIds.isEmpty()) return emptyList()
     return movies.asSequence().filter { !it.isSeries && it.categoryId in categoryIds }
         .distinctBy { it.favoriteKey }

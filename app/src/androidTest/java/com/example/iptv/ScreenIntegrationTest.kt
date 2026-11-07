@@ -1,5 +1,11 @@
 package com.example.iptv
 
+import com.google.zxing.BarcodeFormat
+import com.google.zxing.BinaryBitmap
+import com.google.zxing.DecodeHintType
+import com.google.zxing.MultiFormatReader
+import com.google.zxing.RGBLuminanceSource
+import com.google.zxing.common.HybridBinarizer
 import android.app.Activity
 import android.app.Instrumentation
 import android.content.Context
@@ -152,6 +158,7 @@ class ScreenIntegrationTest {
     private val guideRequests = AtomicInteger()
     private val shortRequests = AtomicInteger()
     private val catalogueRequests = AtomicInteger()
+    private val lateReleaseArtwork = AtomicBoolean(false)
     private val moviesCount = AtomicInteger(30)
     private val seriesCount = AtomicInteger(1)
     private val longGuide = AtomicBoolean(false)
@@ -240,27 +247,31 @@ class ScreenIntegrationTest {
                         val now = System.currentTimeMillis() / 1000
                         """{"epg_listings":[{"id":"1","title":"$title","start_timestamp":"${now - 60}","stop_timestamp":"${now + 3600}"}]}"""
                     }
-                    "get_vod_categories" -> """[{"category_id":"10","category_name":"Lançamentos"},{"category_id":"11","category_name":"Ação"}]"""
+                    "get_vod_categories" -> if (lateReleaseArtwork.get())
+                        """[{"category_id":"10","category_name":"🎬🔥 LANÇAMENTOS 🔥"},{"category_id":"99","category_name":"👶 Lançamentos Infantis"}]"""
+                    else """[{"category_id":"10","category_name":"Lançamentos"},{"category_id":"11","category_name":"Ação"}]"""
                     "get_vod_streams" -> {
                         val art = listOf("black-harbor", "summer-static", "house-of-tides", "field-notes", "white-room-six", "open-late", "crimson-skylark", "the-voltage-guard")
                         (101 until 101 + moviesCount.get()).joinToString(prefix = "[", postfix = "]") { id ->
                             val name = if (id == 101) "Filme Teste" else "Filme $id"
                             val poster = panelBase.resolve("/art/poster-${art[(id - 101) % art.size]}.webp")
                             val rating = when (id) { 101 -> "9.9"; 102 -> "1.0"; else -> "8.0" }
-                            """{"stream_id":$id,"name":"$name","category_id":"10","container_extension":"ts","rating":"$rating","added":"${2_000_000_000L - id}","stream_icon":"$poster"}"""
+                            val category = if (lateReleaseArtwork.get() && id < 104) "99" else "10"
+                            """{"stream_id":$id,"name":"$name","category_id":"$category","container_extension":"ts","rating":"$rating","added":"${2_000_000_000L - id}","stream_icon":"$poster"}"""
                         }
                     }
                     "get_vod_info" -> {
                         val id = url.queryParameter("vod_id").orEmpty()
                         vodInfoIds.add(id)
                         // Missing and mislabeled portrait artwork must never become a wide banner.
-                        if (id == "102") """{"info":{"plot":"Sem arte larga"}}"""
+                        if (lateReleaseArtwork.get() && (id.toIntOrNull() ?: 0) < 125) """{"info":{"plot":"Sem arte larga"}}"""
+                        else if (id == "102") """{"info":{"plot":"Sem arte larga"}}"""
                         else if (id == "103") """{"info":{"plot":"Arte vertical","backdrop_path":["${panelBase.resolve("/art/poster-black-harbor.webp")}"]}}"""
                         else if (id == "108") """{"info":{"backdrop_path":["${panelBase.resolve("/art/missing.webp")}"]}}"""
                         else {
                             val banners = listOf("black-harbor", "summer-static", "house-of-tides", "skyline-sentinels")
                             val banner = banners[((id.toIntOrNull() ?: 101) - 101).mod(banners.size)]
-                            """{"info":{"plot":"Sinopse real","genre":"Ação","cast":"Ator do painel, Atriz do painel","tmdb_id":"42","youtube_trailer":"abcdefghijk","backdrop_path":["${panelBase.resolve("/art/backdrop-$banner.webp")}"]}}"""
+                            """{"info":{"plot":"Sinopse real","genre":"Ação","cast":"Ator do painel, Atriz do painel","tmdb_id":"42","youtube_trailer":"abcdefghijk","backdrop_path":["${panelBase.resolve("/art/backdrop-$banner.webp?hero=${((id.toIntOrNull() ?: 101) - 101).mod(8)}")}"]}}"""
                         }
                     }
                     "get_series_categories" -> """[{"category_id":"20","category_name":"Drama"}]"""
@@ -301,6 +312,7 @@ class ScreenIntegrationTest {
         assertEquals(1080, bounds.outHeight)
         compose.onNodeWithTag("loading-art").assertDoesNotExist()
         assertLoginFitsAndIsCentered()
+        assertWallpaperQrScannable()
         capture("screen-login.png")
         val loginFieldWidth = compose.onNodeWithText("Servidor Xtream").fetchSemanticsNode().boundsInRoot.width
         assertTrue("The login form should stay compact on TV", loginFieldWidth <= 500f * compose.activity.resources.displayMetrics.density)
@@ -318,7 +330,9 @@ class ScreenIntegrationTest {
         compose.onNodeWithTag("app-background", useUnmergedTree = true).assertExists()
         compose.waitUntil(30_000) { vodInfoIds.containsAll(listOf("101", "102", "103", "104", "105", "106")) }
         useRemoteInputMode()
-        compose.waitUntil(30_000) { exists("hero-carousel") }
+        compose.waitUntil(30_000) {
+            compose.onAllNodesWithContentDescription("Destaque 8:", substring = true).fetchSemanticsNodes().isNotEmpty()
+        }
         compose.onNodeWithContentDescription("Destaque 1: Filme Teste").performClick()
         compose.waitUntil(10_000) { exists("hero-watch-vod:101") }
         compose.onNodeWithTag("hero-watch-vod:101").performSemanticsAction(SemanticsActions.RequestFocus)
@@ -369,7 +383,9 @@ class ScreenIntegrationTest {
         }
         compose.onNodeWithContentDescription("Multitela").assertDoesNotExist()
         // Assistir on the hero plays a movie directly without going through details.
-        compose.waitUntil(30_000) { exists("hero-carousel") }
+        compose.waitUntil(30_000) {
+            compose.onAllNodesWithContentDescription("Destaque 8:", substring = true).fetchSemanticsNodes().isNotEmpty()
+        }
         compose.onNodeWithContentDescription("Destaque 1: Filme Teste").performClick()
         compose.waitUntil(10_000) { exists("hero-watch-vod:101") }
         compose.onNodeWithTag("hero-watch-vod:101").performClick()
@@ -443,7 +459,9 @@ class ScreenIntegrationTest {
         // Missing and portrait images must be excluded from the carousel entirely.
         compose.onNodeWithContentDescription("Home").performClick()
         compose.onNodeWithTag("home-list").performScrollToIndex(0)
-        compose.waitUntil(30_000) { exists("hero-carousel") }
+        compose.waitUntil(30_000) {
+            compose.onAllNodesWithContentDescription("Destaque 8:", substring = true).fetchSemanticsNodes().isNotEmpty()
+        }
         compose.onNodeWithContentDescription("Destaque 2: Filme 104").performClick()
         compose.waitUntil(30_000) { exists("hero-watch-vod:104") && !keyboardIsVisible() }
         compose.onNodeWithContentDescription("Destaque 2: Filme 102").assertDoesNotExist()
@@ -583,6 +601,7 @@ class ScreenIntegrationTest {
             compose.onNodeWithTag("app-background", useUnmergedTree = true).assertExists()
             assertLoginFitsAndIsCentered()
             compose.waitUntil(15_000) { !keyboardIsVisible() && !systemImeShown() }
+            assertWallpaperQrScannable()
             capture("screen-phone-login.png")
             assertFalse("The keyboard must not cover the initial login", keyboardIsVisible() || systemImeShown())
             compose.onNodeWithText("Servidor Xtream").performScrollTo().performTextInput(server.url("/").toString())
@@ -596,7 +615,9 @@ class ScreenIntegrationTest {
             }
             val vm = ViewModelProvider(compose.activity)[AppViewModel::class.java]
             compose.waitUntil(30_000) { vm.content.movies.size == 30 }
-            compose.waitUntil(30_000) { exists("hero-carousel") }
+            compose.waitUntil(30_000) {
+            compose.onAllNodesWithContentDescription("Destaque 8:", substring = true).fetchSemanticsNodes().isNotEmpty()
+        }
         compose.onNodeWithContentDescription("Destaque 1: Filme Teste").performClick()
             compose.waitUntil(10_000) { exists("hero-watch-vod:101") }
             compose.onNodeWithTag("hero-carousel").performTouchInput { swipeLeft() }
@@ -891,7 +912,9 @@ class ScreenIntegrationTest {
         useRemoteInputMode()
         if (isTv) traceIme("remote mode")
         // Real TV-system-image regression: advance and return without a pager/focus bounce.
-        compose.waitUntil(30_000) { exists("hero-carousel") }
+        compose.waitUntil(30_000) {
+            compose.onAllNodesWithContentDescription("Destaque 8:", substring = true).fetchSemanticsNodes().isNotEmpty()
+        }
         compose.onNodeWithContentDescription("Destaque 1: Filme Teste").performClick()
         compose.waitUntil(10_000) { exists("hero-watch-vod:101") }
         compose.onNodeWithTag("hero-watch-vod:101").performSemanticsAction(SemanticsActions.RequestFocus)
@@ -1157,6 +1180,24 @@ class ScreenIntegrationTest {
         compose.waitUntil(30_000) { exists("home-list") }
     }
 
+    @Test fun heroSearchesEntireEmojiReleaseFolderUntilAtLeastSixValidSlides() {
+        lateReleaseArtwork.set(true)
+        connectToPanel()
+        val vm = ViewModelProvider(compose.activity)[AppViewModel::class.java]
+        compose.waitUntil(45_000) {
+            compose.onAllNodesWithContentDescription("Destaque 6:", substring = true).fetchSemanticsNodes().isNotEmpty()
+        }
+        assertTrue("Search must continue beyond the old 24-title cap", vodInfoIds.contains("130"))
+        assertFalse("Children's release folders must never be combined with the main folder",
+            vodInfoIds.any { it in setOf("101", "102", "103") })
+        for (index in 1..6) {
+            compose.onNodeWithContentDescription("Destaque $index: Filme ${124 + index}").assertExists()
+        }
+        compose.onNodeWithContentDescription("Destaque 6: Filme 130").performClick()
+        compose.waitUntil(10_000) { exists("hero-watch-vod:130") }
+        assertTrue(vm.heroDetails.containsKey("vod:130"))
+    }
+
     @Test fun cacheRestoresCatalogHeroAndGuidesOfflineAndSurvivesPartialFailures() {
         compose.waitUntil(10_000) { textExists("Adicionar conexão") }
         compose.onNodeWithText("Servidor Xtream").performScrollTo().performTextInput(server.url("/").toString())
@@ -1166,12 +1207,14 @@ class ScreenIntegrationTest {
         val app = compose.activity.application as IPTVApplication
         val vm = ViewModelProvider(compose.activity)[AppViewModel::class.java]
         compose.waitUntil(30_000) { vm.content.channels.size == 2 && vm.content.movies.size == 30 &&
-            app.catalogCache.catalog.value?.isFresh() == true && app.catalogCache.heroes.value?.entries?.size == 24 &&
+            app.catalogCache.catalog.value?.isFresh() == true && app.catalogCache.heroes.value?.entries?.size == 8 &&
             app.epgRepository.guide.value.programCount == 1 }
         val credentials = app.repository.currentCredentials()!!
         compose.runOnIdle { vm.channelFocused(vm.content.channels.first { it.id == "2" }) }
         compose.waitUntil(20_000) { runBlocking { app.catalogCache.loadShortGuide(credentials).entries.containsKey("sports") } }
-        compose.waitUntil(30_000) { exists("hero-carousel") }
+        compose.waitUntil(30_000) {
+            compose.onAllNodesWithContentDescription("Destaque 8:", substring = true).fetchSemanticsNodes().isNotEmpty()
+        }
         compose.onNodeWithContentDescription("Destaque 1: Filme Teste").performClick()
         compose.waitUntil(30_000) { existsUnmerged("hero-backdrop-loaded-vod:101") }
 
@@ -1179,7 +1222,7 @@ class ScreenIntegrationTest {
         val snapshot = runBlocking { disk.load(credentials) }!!
         assertEquals(30, snapshot.movies.size)
         assertEquals(2, snapshot.channels.size)
-        assertEquals(24, runBlocking { disk.loadHeroes(credentials) }.entries.size)
+        assertEquals(8, runBlocking { disk.loadHeroes(credentials) }.entries.size)
         assertTrue(runBlocking { disk.loadShortGuide(credentials) }.entries.containsKey("sports"))
         assertTrue(runBlocking { disk.load(credentials.copy(username = "other")) } == null)
         val xml = XmltvRepository(app.cacheDir, ApiClient.httpClient())
@@ -1352,10 +1395,14 @@ class ScreenIntegrationTest {
                 val view = compose.activity.window.decorView
                 val safe = compose.onNodeWithTag("device-safe-content", useUnmergedTree = true).fetchSemanticsNode().boundsInRoot
                 val panel = compose.onNodeWithTag("login-panel", useUnmergedTree = true).fetchSemanticsNode().boundsInRoot
+                val density = compose.activity.resources.displayMetrics.density
+                val artWidth = minOf(safe.width, safe.height * (16f / 9f))
+                val contactLeft = (safe.width - artWidth) / 2f + artWidth * .77f
+                val shift = ((safe.width + panel.width) / 2f - contactLeft + 12f * density).coerceAtLeast(0f)
                 safe.left >= 0f && safe.top >= 0f && safe.right <= view.width + 2f && safe.bottom <= view.height + 2f &&
                     kotlin.math.abs(safe.center.x - view.width / 2f) <= 3f && kotlin.math.abs(safe.center.y - view.height / 2f) <= 3f &&
                     panel.left >= safe.left && panel.top >= safe.top && panel.right <= safe.right && panel.bottom <= safe.bottom &&
-                    kotlin.math.abs(panel.center.x - safe.center.x) <= 3f && kotlin.math.abs(panel.center.y - safe.center.y) <= 3f
+                    kotlin.math.abs(panel.center.x - (safe.center.x - shift)) <= 3f && kotlin.math.abs(panel.center.y - safe.center.y) <= 3f
             }.getOrDefault(false)
         }
         compose.onNodeWithTag("login-submit").assertIsDisplayed()
@@ -1363,6 +1410,22 @@ class ScreenIntegrationTest {
         val button = compose.onNodeWithTag("login-submit").fetchSemanticsNode().boundsInRoot
         assertTrue("Login button and input must have the same width", kotlin.math.abs(field.width - button.width) < 2f)
         assertTrue("Login button and input must have the same height", kotlin.math.abs(field.height - button.height) < 2f)
+    }
+
+    private fun assertWallpaperQrScannable() {
+        fun decode(bitmap: Bitmap): String {
+            val readable = bitmap.copy(Bitmap.Config.ARGB_8888, false)
+            val pixels = IntArray(readable.width * readable.height)
+            readable.getPixels(pixels, 0, readable.width, 0, 0, readable.width, readable.height)
+            return MultiFormatReader().decode(BinaryBitmap(HybridBinarizer(
+                RGBLuminanceSource(readable.width, readable.height, pixels))),
+                mapOf(DecodeHintType.POSSIBLE_FORMATS to listOf(BarcodeFormat.QR_CODE),
+                    DecodeHintType.TRY_HARDER to true)).text
+        }
+        val original = BitmapFactory.decodeResource(compose.activity.resources, R.drawable.app_background,
+            BitmapFactory.Options().apply { inScaled = false })
+        val screenshot = InstrumentationRegistry.getInstrumentation().uiAutomation.takeScreenshot()
+        assertEquals("Contact QR must survive wallpaper scaling and must not be covered by login", decode(original), decode(screenshot))
     }
 
     private fun assertFirstCatalogItem(tag: String) {

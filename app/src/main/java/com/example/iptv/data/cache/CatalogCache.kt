@@ -124,7 +124,9 @@ class CatalogCache(private val directory: File, private val repository: XtreamRe
                 ?: read<CachedHeroes>(file(key, "heroes"))?.takeIf { it.accountKey == key }
                 ?: CachedHeroes(key)
             // Limit old hero entries on inexpensive TV sticks; current candidates remain newest.
-            val entries = (current.entries + updates).entries.sortedByDescending { it.value.fetchedAtMillis }
+            val entries = (current.entries + updates).entries.sortedWith(
+                compareByDescending<Map.Entry<String, CachedHero>> { it.key in updates }
+                    .thenByDescending { it.value.fetchedAtMillis })
                 .take(MAX_HERO_ENTRIES).associate { it.key to it.value }
             val next = CachedHeroes(key, entries)
             if (write(file(key, "heroes"), next) && repository.isSessionCurrent(credentials, sessionToken)) _heroes.value = next

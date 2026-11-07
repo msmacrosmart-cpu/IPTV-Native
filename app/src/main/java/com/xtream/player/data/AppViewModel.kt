@@ -532,11 +532,11 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
-    /** Fetch/cache artwork only for the latest 24 release candidates, never the whole library. */
+    /** Fetch/cache artwork only for the release folder in batches until eight valid banners are found. */
     fun prepareHeroItems(items: List<VodItem>) {
         val creds = repository.currentCredentials() ?: return
         if (session?.isDemo != false) return
-        val targets = items.asSequence().filter { !it.isSeries }.take(24)
+        val targets = items.asSequence().filter { !it.isSeries }
             .mapNotNull { item -> item.id.toIntOrNull()?.let { HeroTarget(it, item.title, item.year, item.backdrop) } }.toList()
         heroPrepJob?.cancel()
         heroPrepJob = viewModelScope.launch { app.heroLoader.prepare(creds, targets) }

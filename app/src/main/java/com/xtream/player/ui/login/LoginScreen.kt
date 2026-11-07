@@ -88,9 +88,15 @@ fun LoginScreen(loading: Boolean, error: String?, profiles: List<SavedProfile> =
         val compact = maxHeight < 430.dp
         val fieldHeight = if (compact) 44.dp else 52.dp
         val gap = if (compact) 6.dp else 12.dp
+        // On ultrawide landscape phones the centered form used to cover the contact.
+        // Keep the original 16:9 artwork intact and leave its right-hand contact block clear.
+        val artworkWidth = minOf(maxWidth, maxHeight * (16f / 9f))
+        val contactLeft = (maxWidth - artworkWidth) / 2 + artworkWidth * .77f
+        val panelWidth = minOf(if (compact) 460.dp else 500.dp, maxWidth - if (compact) 16.dp else 36.dp)
+        val contactShift = ((maxWidth + panelWidth) / 2 - contactLeft + 12.dp).coerceAtLeast(0.dp)
         Box(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(if (compact) 8.dp else 18.dp),
             contentAlignment = Alignment.Center) {
-            GlassPanel(Modifier.widthIn(max = if (compact) 460.dp else 500.dp).fillMaxWidth().testTag("login-panel"), RoundedCornerShape(18.dp)) {
+            GlassPanel(Modifier.offset(x = -contactShift).widthIn(max = if (compact) 460.dp else 500.dp).fillMaxWidth().testTag("login-panel"), RoundedCornerShape(18.dp)) {
                 Column(Modifier.fillMaxWidth().padding(if (compact) 14.dp else 26.dp)) {
                     Text("Adicionar conexão", color = XColors.Text, fontSize = if (compact) 22.sp else 27.sp,
                         fontWeight = FontWeight.SemiBold, modifier = Modifier.focusRequester(initialHeading)

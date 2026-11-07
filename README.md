@@ -2,12 +2,12 @@
 
 Aplicativo Android nativo em Kotlin/Jetpack Compose para Android TV, celulares e tablets, em orientação `sensorLandscape`. Use somente serviços e transmissões para os quais você tem autorização: o aplicativo não inclui canais nem credenciais.
 
-## Edição 2.7.0
+## Edição 2.7.1
 
 - A arte horizontal fornecida aparece somente no carregamento. A arte quadrada é usada nos ícones adaptativos e clássicos do Android, e a imagem 320×180 no banner do Android TV.
 - Navegação lateral com quatro ícones em neon, inspirados na imagem fornecida: Home, TV, Filmes e Séries. A engrenagem do cabeçalho mantém o acesso às configurações; os ícones ao lado abrem status da conta e troca de perfis. A opção Multitela foi retirada.
-- Tela de login com botão Entrar do tamanho dos campos e perfis locais por servidor/usuário. O wallpaper fornecido é usado no login e no restante do aplicativo, com a imagem original em alta resolução.
-- Home com até oito filmes com backdrop horizontal validado entre 24 lançamentos recentes da categoria Lançamentos do provedor, botões Assistir/Detalhes e navegação por D-pad/teclado. Com entrada por controle ou teclado, o banner não troca automaticamente. Imagens verticais nunca são usadas como banner: se não houver arte paisagem válida, o filme não entra no Hero.
+- Tela de login com botão Entrar do tamanho dos campos e perfis locais por servidor/usuário. O wallpaper fornecido é usado no login e no restante do aplicativo, com o PNG original preservado, sem recorte ou escurecimento global. O formulário evita cobrir o contato/QR em telas horizontais estreitas.
+- Home com até oito filmes com backdrop horizontal validado da pasta Lançamentos do provedor (mesmo com emojis no nome). A busca continua em lotes pela pasta até encontrar oito banners ou esgotar os filmes; não mistura pastas infantis ou temáticas, botões Assistir/Detalhes e navegação por D-pad/teclado. Com entrada por controle ou teclado, o banner não troca automaticamente. Imagens verticais nunca são usadas como banner: se não houver arte paisagem válida, o filme não entra no Hero.
 - Prateleiras de conteúdo da Home rolam horizontalmente e não limitam a biblioteca aos primeiros itens. As abas de Filmes e Séries continuam usando **grades verticais** com rolagem contínua, por toque ou D-pad. Em cada pasta ou busca é possível ordenar de A a Z, por últimos adicionados ou por mais votados, alternando a direção entre crescente e decrescente.
 - Ao voltar dos detalhes de um filme ou série, o aplicativo mantém a pasta, a pesquisa, a ordenação e a posição da grade; no controle, o foco retorna ao item. Cada aba e perfil mantém seu próprio estado de navegação durante a sessão.
 - “Mais votados” usa a **nota informada pelo provedor**, não uma contagem real de votos. “Últimos adicionados” usa a data enviada pelo painel; para séries sem data de inclusão, usa a última atualização informada. Títulos sem data ou nota ficam por último nas duas direções.
@@ -29,7 +29,7 @@ Cada atalho abre somente seu painel, com retorno ao menu e o mesmo estilo glassm
 
 ## TMDB, conexão e privacidade
 
-Não há campo de chave do TMDB nas configurações. A integração usa uma chave de API v3 fornecida na compilação; se ela estiver ausente ou o TMDB estiver indisponível, o app continua usando os dados do provedor. Dependendo dos dados disponíveis, elenco, fotos e trailer podem não existir para determinado título. Para o hero são consultados no máximo 24 lançamentos; nos detalhes são enviados ao TMDB o título e, quando disponível, o ano ou o ID do provedor. As credenciais Xtream não são enviadas ao TMDB.
+Não há campo de chave do TMDB nas configurações. A integração usa uma chave de API v3 fornecida na compilação; se ela estiver ausente ou o TMDB estiver indisponível, o app continua usando os dados do provedor. Dependendo dos dados disponíveis, elenco, fotos e trailer podem não existir para determinado título. Para o hero são consultados os filmes de Lançamentos em lotes, até obter oito banners válidos ou esgotar a pasta; nos detalhes são enviados ao TMDB o título e, quando disponível, o ano ou o ID do provedor. As credenciais Xtream não são enviadas ao TMDB.
 
 This product uses the TMDB API but is not endorsed or certified by TMDB. Mais informações em [LICENSES/TMDB.md](LICENSES/TMDB.md).
 

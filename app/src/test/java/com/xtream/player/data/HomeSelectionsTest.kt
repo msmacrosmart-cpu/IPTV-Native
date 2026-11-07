@@ -36,6 +36,20 @@ class HomeSelectionsTest {
         assertEquals(listOf(12, 10), releaseHeroTargets(raw).map { it.id })
     }
 
+    @Test fun emojiMainReleaseFolderWinsOverChildrensAndThemedReleaseFolders() {
+        val categories = listOf(Category("kids", "👶 Lançamentos Infantis"),
+            Category("main", "🎬🔥 LANÇAMENTOS 🔥"), Category("dated", "Lançamentos 2026"))
+        assertEquals(setOf("main"), releaseCategoryIds(categories))
+        assertTrue(releaseCategoryIds(listOf(Category("kids", "Infantil | Lançamentos"))).isEmpty())
+        val movies = listOf(movie("child", "kids", 9999), movie("release", "main", 1), movie("other", "dated", 999))
+        assertEquals(listOf("release"), latestReleaseMovies(categories, movies).map { it.id })
+        val many = (1..100).map { movie(it.toString(), "main", it.toLong()) }
+        assertEquals(100, latestReleaseMovies(categories, many).size)
+        val raw = CachedCatalog("key", movieCategories = categories.map { VodCategory(it.id, it.name) },
+            movies = listOf(PanelMovie(1, "Child", categoryId = "kids"), PanelMovie(2, "Release", categoryId = "main")))
+        assertEquals(listOf(2), releaseHeroTargets(raw).map { it.id })
+    }
+
     @Test fun heroRequiresValidatedBackdropDeduplicatesAndNeverExceedsEight() {
         val items = (1..14).map { movie(it.toString(), "new", it.toLong()).copy(backdrop = "https://example.com/$it.jpg") }
         val mixed = listOf(items[0], items[0], items[1].copy(backdrop = null),

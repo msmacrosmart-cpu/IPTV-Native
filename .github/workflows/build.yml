@@ -129,6 +129,7 @@ jobs:
         run: |
           cmp "IPTV Native Telas/XtreamTV/Picsart_26-11-06_18-01-23-760.png" app/src/main/res/drawable-nodpi/splash_art.png
           cmp "IPTV Native Telas/XtreamTV/20261106_180011_0000.png" app/src/main/res/drawable-nodpi/tv_launcher_banner.png
+          cmp "IPTV Native Telas/XtreamTV/11977888609_20261106_195947_0000.png" app/src/main/res/drawable-nodpi/app_background.png
 
       # Compiles every Kotlin source file, the Compose resources and the launcher icons.
       - name: Build Debug APK

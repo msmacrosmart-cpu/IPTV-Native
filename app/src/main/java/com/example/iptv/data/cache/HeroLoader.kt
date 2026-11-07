@@ -2,7 +2,7 @@ package com.example.iptv.data.cache
 
 import android.content.Context
 import coil.imageLoader
-import coil.request.CachePolicy
+import coil.request.SuccessResult
 import coil.request.ImageRequest
 import com.example.iptv.data.model.ApiResult
 import com.example.iptv.data.model.PanelCredentials
@@ -11,7 +11,8 @@ import com.example.iptv.data.model.VodItem
 import com.example.iptv.data.repository.XtreamRepository
 import com.example.iptv.data.tmdb.TmdbRepository
 import com.example.iptv.data.tmdb.TmdbResult
-import com.xtream.player.data.isReleaseCategory
+import com.xtream.player.data.Category
+import com.xtream.player.data.releaseCategoryIds
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.coroutineScope
@@ -20,15 +21,15 @@ import kotlinx.coroutines.sync.withPermit
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 
-/** Artwork lookups are bounded to the 24 recent release candidates. */
+/** Release candidates are scanned in small batches until eight landscape banners are found. */
 data class HeroTarget(val id: Int, val title: String, val year: String = "", val backdrop: String? = null)
 
 private val YEAR = Regex("\\b(?:19|20)\\d{2}\\b")
 
 fun releaseHeroTargets(catalog: CachedCatalog): List<HeroTarget> {
-    val ids = catalog.movieCategories.asSequence().filter { isReleaseCategory(it.name) }.map { it.id }.toSet()
+    val ids = releaseCategoryIds(catalog.movieCategories.map { Category(it.id, it.name) })
     return catalog.movies.asSequence().filter { it.categoryId != null && ids.contains(it.categoryId) }.distinctBy(VodItem::id)
-        .sortedByDescending { it.addedAtMillis ?: Long.MIN_VALUE }.take(24)
+        .sortedByDescending { it.addedAtMillis ?: Long.MIN_VALUE }
         .map { HeroTarget(it.id, it.name, YEAR.find(it.name)?.value.orEmpty(), it.backdrop) }.toList()
 }
 
@@ -44,18 +45,23 @@ class HeroLoader(
 
     suspend fun prepare(credentials: PanelCredentials, requested: List<HeroTarget>): Boolean = mutex.withLock {
         val token = repository.sessionToken(credentials) ?: return@withLock false
-        val targets = requested.distinctBy { it.id }.take(24)
+        val targets = requested.distinctBy { it.id }
         val cached = cache.loadHeroes(credentials).entries
         val now = System.currentTimeMillis()
         val apiKey = tmdbKey()
-        data class Fetched(val target: HeroTarget, val hero: CachedHero?, val updated: Boolean, val failed: Boolean)
+        data class Fetched(val target: HeroTarget, val hero: CachedHero, val failed: Boolean)
+        val selected = linkedMapOf<String, CachedHero>()
+        val artwork = mutableSetOf<String>()
+        var anyFailure = false
         val slots = Semaphore(4)
-        val fetched = coroutineScope {
-            targets.map { target -> async { slots.withPermit {
+        for (batch in targets.chunked(8)) {
+            if (!repository.isSessionCurrent(credentials, token)) return@withLock false
+            val fetched = coroutineScope {
+            batch.map { target -> async { slots.withPermit {
                 val old = cached["vod:${target.id}"]
                 val fresh = old != null && cacheIsFresh(old.fetchedAtMillis, now)
                 if (fresh && (apiKey.isBlank() || old!!.tmdbChecked)) {
-                    Fetched(target, old, false, false)
+                    Fetched(target, old!!, false)
                 } else {
                     var failed = false
                     val provider = if (fresh) old!!.details else when (val result = repository.vodDetails(target.id)) {
@@ -91,25 +97,31 @@ class HeroLoader(
                         // Do not mark a transient details failure as fresh for three days.
                         val updatedAt = if (failed) old?.fetchedAtMillis ?: 0L
                             else if (fresh) old!!.fetchedAtMillis else System.currentTimeMillis()
-                        Fetched(target, CachedHero(updatedAt, details, checked && apiKey.isNotBlank()), true, failed)
+                        Fetched(target, CachedHero(updatedAt, details, checked && apiKey.isNotBlank()), failed)
                     }
                 }
             } } }.awaitAll()
         }
-        if (!repository.isSessionCurrent(credentials, token)) return@withLock false
-        cache.mergeHeroes(credentials, fetched.filter { it.updated && it.hero != null }
-            .associate { "vod:${it.target.id}" to it.hero!! }, token)
-        // Never prewarm a portrait poster as a hero. UI validates actual image dimensions too.
-        coroutineScope {
-            fetched.mapNotNull { item ->
-                item.hero?.details?.backdrop?.takeIf { it.isNotBlank() }?.let { url -> async {
-                    if (repository.isSessionCurrent(credentials, token)) {
-                        context.imageLoader.execute(ImageRequest.Builder(context).data(url).size(1280, 720)
-                            .memoryCachePolicy(CachePolicy.DISABLED).diskCachePolicy(CachePolicy.ENABLED).build())
-                    }
-                } }
-            }.awaitAll()
+            anyFailure = anyFailure || fetched.any { it.failed }
+            val validated = coroutineScope {
+                fetched.map { entry -> async { slots.withPermit {
+                    val url = entry.hero.details.backdrop?.takeIf(String::isNotBlank)
+                    val result = url?.let { context.imageLoader.execute(ImageRequest.Builder(context)
+                        .data(it).size(1280, 720).build()) as? SuccessResult }
+                    val image = result?.drawable
+                    entry.takeIf { image != null && image.intrinsicHeight > 0 && image.intrinsicWidth > image.intrinsicHeight }
+                } } }.awaitAll().filterNotNull()
+            }
+            for (entry in validated) {
+                if (selected.size == 8) break
+                if (artwork.add(entry.hero.details.backdrop!!)) selected["vod:${entry.target.id}"] = entry.hero
+            }
+            // Publish each batch so a slow/missing image cannot hold the entire carousel hostage.
+            // Only decoded landscape artwork is cached as a selected hero.
+            if (!repository.isSessionCurrent(credentials, token)) return@withLock false
+            cache.mergeHeroes(credentials, selected, token)
+            if (selected.size >= 8) break
         }
-        fetched.none { it.failed }
+        !anyFailure
     }
 }

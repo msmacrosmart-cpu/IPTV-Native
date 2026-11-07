@@ -1,45 +1,31 @@
 package com.xtream.player.ui.components
 
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxScope
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.remember
-import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.FilterQuality
+import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.testTag
-import androidx.compose.ui.platform.LocalContext
-import coil.compose.AsyncImage
-import coil.request.ImageRequest
-import coil.size.Size
+import androidx.compose.ui.res.imageResource
 import com.example.iptv.R
 
-/** The same user-provided image behind login and the app; the scrim preserves text contrast. */
+/** Original lossless wallpaper, including the contact/QR area: never crop, tint or blur it. */
 @Composable
 fun AppBackground(content: @Composable BoxScope.() -> Unit) {
-    var loaded by remember { mutableStateOf(false) }
+    val wallpaper = ImageBitmap.imageResource(R.drawable.app_background)
     Box(Modifier.fillMaxSize().background(Color.Black)) {
-        // Preserve the supplied 3780×1890 source rather than enlarging a sampled thumbnail.
-        // Coil shares one decoded bitmap across destinations and bounds the memory cache.
-        val context = LocalContext.current
-        val wallpaper = remember(context) {
-            ImageRequest.Builder(context).data(R.drawable.app_background).size(Size.ORIGINAL).build()
-        }
         Box(Modifier.fillMaxSize().testTag("app-background")) {
-            AsyncImage(
-                model = wallpaper,
-                contentDescription = null,
-                contentScale = ContentScale.Crop,
-                modifier = Modifier.fillMaxSize().then(if (loaded) Modifier.testTag("app-background-loaded") else Modifier),
-                onSuccess = { loaded = true },
-            )
+            Image(wallpaper, contentDescription = null, contentScale = ContentScale.Fit,
+                filterQuality = FilterQuality.High,
+                modifier = Modifier.fillMaxSize().testTag("app-background-loaded"))
         }
-        Box(Modifier.fillMaxSize().background(Color.Black.copy(alpha = .38f)))
+        // Contrast belongs to individual glass cards, not a scrim over the contact QR.
         content()
     }
 }

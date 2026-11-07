@@ -79,7 +79,7 @@ fun HomeScreen(content: ContentState, epg: Map<String, List<Programme>>, query: 
     // The hero is always the newest movies from the panel's Lançamentos category,
     // never favorites, series or unrelated highly-rated titles.
     val candidates = remember(content.movieCategories, content.movies) {
-        latestReleaseMovies(content.movieCategories, content.movies, limit = 24)
+        latestReleaseMovies(content.movieCategories, content.movies)
     }
     val topMovies = remember(content.movies, query) { topRated(content.movies).filter { it.title.contains(query, true) } }
     val topSeries = remember(content.series, query) { topRated(content.series).filter { it.title.contains(query, true) } }
@@ -89,19 +89,22 @@ fun HomeScreen(content: ContentState, epg: Map<String, List<Programme>>, query: 
     }
     val context = LocalContext.current
     // A URL alone is not proof of a backdrop: reject missing, broken and portrait images
-    // before composing the hero or its controls. Lookups are bounded to 24 recent releases.
+    // before composing the hero or its controls. Scan the release folder, stopping once eight valid banners have been found.
     var slides by remember(candidates) { mutableStateOf<List<VodItem>>(emptyList()) }
     LaunchedEffect(enriched) {
         val slots = Semaphore(4)
-        val valid = enriched.map { item -> async {
-            if (item.backdrop.isNullOrBlank()) null else slots.withPermit {
+        val valid = mutableListOf<VodItem>()
+        for (batch in enriched.filter { !it.backdrop.isNullOrBlank() }.chunked(8)) {
+            val decoded = batch.map { item -> async { slots.withPermit {
                 val result = context.imageLoader.execute(ImageRequest.Builder(context)
                     .data(item.backdrop).size(1280, 720).build()) as? SuccessResult
                 val image = result?.drawable
                 item.takeIf { image != null && image.intrinsicWidth > image.intrinsicHeight && image.intrinsicHeight > 0 }
-            }
-        } }.awaitAll().filterNotNull()
-        slides = validHeroSlides(enriched, valid.map { it.favoriteKey }.toSet())
+            } } }.awaitAll().filterNotNull()
+            valid.addAll(decoded)
+            if (valid.map { it.backdrop }.distinct().size >= 8) break
+        }
+        slides = validHeroSlides(valid, valid.map { it.favoriteKey }.toSet())
     }
 
     BoxWithConstraints(Modifier.fillMaxSize()) {
