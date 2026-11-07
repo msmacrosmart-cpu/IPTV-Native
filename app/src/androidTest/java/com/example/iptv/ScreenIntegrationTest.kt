@@ -1467,7 +1467,7 @@ class ScreenIntegrationTest {
         val top = (screenshot.height - artHeight) / 2f
         // Check the entire wallpaper, not just the QR: source pixels on both sides
         // must survive without a tint/scrim. Avoid the login card and QR edges.
-        for (x in listOf(.06f, .94f)) for (y in listOf(.15f, .30f, .45f)) {
+        for (x in listOf(.01f, .99f)) for (y in listOf(.15f, .30f, .45f)) {
             val expected = original.getPixel((original.width * x).toInt(), (original.height * y).toInt())
             val actual = screenshot.getPixel((left + artWidth * x).toInt(), (top + artHeight * y).toInt())
             for (shift in listOf(0, 8, 16)) assertTrue("Wallpaper must retain original colors across the full artwork",
