@@ -2,11 +2,11 @@
 
 Aplicativo Android nativo em Kotlin/Jetpack Compose para Android TV, celulares e tablets, em orientação `sensorLandscape`. Use somente serviços e transmissões para os quais você tem autorização: o aplicativo não inclui canais nem credenciais.
 
-## Edição 2.7.1
+## Edição 2.7.2
 
 - A arte horizontal fornecida aparece somente no carregamento. A arte quadrada é usada nos ícones adaptativos e clássicos do Android, e a imagem 320×180 no banner do Android TV.
 - Navegação lateral com quatro ícones em neon, inspirados na imagem fornecida: Home, TV, Filmes e Séries. A engrenagem do cabeçalho mantém o acesso às configurações; os ícones ao lado abrem status da conta e troca de perfis. A opção Multitela foi retirada.
-- Tela de login com botão Entrar do tamanho dos campos e perfis locais por servidor/usuário. O wallpaper fornecido é usado no login e no restante do aplicativo, com o PNG original preservado, sem recorte ou escurecimento global. O formulário evita cobrir o contato/QR em telas horizontais estreitas.
+- Tela de login com botão Entrar do tamanho dos campos e perfis locais por servidor/usuário. O wallpaper fornecido é usado no login e no restante do aplicativo, com o PNG original preservado, sem recorte ou escurecimento global. Em celulares/tablets o wallpaper é estendido para preencher toda a tela horizontal, sem faixas laterais nem recortes (a proporção pode se alongar); na TV mantém o ajuste proporcional anterior. O formulário evita cobrir o contato/QR em ambos os modos.
 - Home com até oito filmes com backdrop horizontal validado da pasta Lançamentos do provedor (mesmo com emojis no nome). A busca continua em lotes pela pasta até encontrar oito banners ou esgotar os filmes; não mistura pastas infantis ou temáticas e filtra gêneros infantis, família e animação também dentro da pasta principal, botões Assistir/Detalhes e navegação por D-pad/teclado. Com entrada por controle ou teclado, o banner não troca automaticamente. Imagens verticais nunca são usadas como banner: se não houver arte paisagem válida, o filme não entra no Hero.
 - Prateleiras de conteúdo da Home rolam horizontalmente e não limitam a biblioteca aos primeiros itens. As abas de Filmes e Séries continuam usando **grades verticais** com rolagem contínua, por toque ou D-pad. Em cada pasta ou busca é possível ordenar de A a Z, por últimos adicionados ou por mais votados, alternando a direção entre crescente e decrescente.
 - Ao voltar dos detalhes de um filme ou série, o aplicativo mantém a pasta, a pesquisa, a ordenação e a posição da grade; no controle, o foco retorna ao item. Cada aba e perfil mantém seu próprio estado de navegação durante a sessão.

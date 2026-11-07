@@ -1,5 +1,7 @@
 package com.xtream.player.ui.login
 
+import android.content.res.Configuration
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.foundation.focusable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
@@ -88,9 +90,9 @@ fun LoginScreen(loading: Boolean, error: String?, profiles: List<SavedProfile> =
         val compact = maxHeight < 430.dp
         val fieldHeight = if (compact) 44.dp else 52.dp
         val gap = if (compact) 6.dp else 12.dp
-        // On ultrawide landscape phones the centered form used to cover the contact.
-        // Keep the original 16:9 artwork intact and leave its right-hand contact block clear.
-        val artworkWidth = minOf(maxWidth, maxHeight * (16f / 9f))
+        // Follow the actual background mapping so the login never covers the contact.
+        val isTv = (LocalConfiguration.current.uiMode and Configuration.UI_MODE_TYPE_MASK) == Configuration.UI_MODE_TYPE_TELEVISION
+        val artworkWidth = if (isTv) minOf(maxWidth, maxHeight * (16f / 9f)) else maxWidth
         val contactLeft = (maxWidth - artworkWidth) / 2 + artworkWidth * .77f
         val panelWidth = minOf(if (compact) 460.dp else 500.dp, maxWidth - if (compact) 16.dp else 36.dp)
         val contactShift = ((maxWidth + panelWidth) / 2 - contactLeft + 12.dp).coerceAtLeast(0.dp)

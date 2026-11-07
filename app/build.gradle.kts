@@ -21,7 +21,7 @@ val releaseAlias = providers.environmentVariable("RELEASE_KEY_ALIAS").orElse("")
 val releaseKeyPassword = providers.environmentVariable("RELEASE_KEY_PASSWORD").orElse("").get()
 val updateVersionCode = providers.environmentVariable("ANDROID_VERSION_CODE")
     .orElse(providers.environmentVariable("GITHUB_RUN_NUMBER").map { (1000 + it.toInt()).toString() })
-    .orElse("10").get().toInt()
+    .orElse("11").get().toInt()
 require(updateVersionCode in 1..2_100_000_000) { "Invalid Android update versionCode" }
 if (releaseKeystore.isNotBlank()) {
     require(listOf(releaseStorePassword, releaseAlias, releaseKeyPassword).all { it.isNotBlank() }) {
@@ -38,7 +38,7 @@ android {
         minSdk = 24
         targetSdk = 35
         versionCode = updateVersionCode
-        versionName = "2.7.1"
+        versionName = "2.7.2"
         buildConfigField("String", "TMDB_API_KEY", "\"$tmdbApiKey\"")
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
 

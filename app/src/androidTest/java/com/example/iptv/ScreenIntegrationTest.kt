@@ -1429,7 +1429,8 @@ class ScreenIntegrationTest {
                 val safe = compose.onNodeWithTag("device-safe-content", useUnmergedTree = true).fetchSemanticsNode().boundsInRoot
                 val panel = compose.onNodeWithTag("login-panel", useUnmergedTree = true).fetchSemanticsNode().boundsInRoot
                 val density = compose.activity.resources.displayMetrics.density
-                val artWidth = minOf(safe.width, safe.height * (16f / 9f))
+                val isTv = (compose.activity.resources.configuration.uiMode and Configuration.UI_MODE_TYPE_MASK) == Configuration.UI_MODE_TYPE_TELEVISION
+                val artWidth = if (isTv) minOf(safe.width, safe.height * (16f / 9f)) else safe.width
                 val contactLeft = (safe.width - artWidth) / 2f + artWidth * .77f
                 val shift = ((safe.width + panel.width) / 2f - contactLeft + 12f * density).coerceAtLeast(0f)
                 safe.left >= 0f && safe.top >= 0f && safe.right <= view.width + 2f && safe.bottom <= view.height + 2f &&
@@ -1461,10 +1462,15 @@ class ScreenIntegrationTest {
         val screenshot = InstrumentationRegistry.getInstrumentation().uiAutomation.takeScreenshot()
             .copy(Bitmap.Config.ARGB_8888, false)
         val scale = minOf(screenshot.width.toFloat() / original.width, screenshot.height.toFloat() / original.height)
-        val artWidth = original.width * scale
-        val artHeight = original.height * scale
+        val isTv = (compose.activity.resources.configuration.uiMode and Configuration.UI_MODE_TYPE_MASK) == Configuration.UI_MODE_TYPE_TELEVISION
+        val artWidth = if (isTv) original.width * scale else screenshot.width.toFloat()
+        val artHeight = if (isTv) original.height * scale else screenshot.height.toFloat()
         val left = (screenshot.width - artWidth) / 2f
         val top = (screenshot.height - artHeight) / 2f
+        if (!isTv) {
+            assertEquals("Mobile wallpaper must fill the complete viewport width", screenshot.width.toFloat(), artWidth, .01f)
+            assertEquals("Mobile wallpaper must fill the complete viewport height", screenshot.height.toFloat(), artHeight, .01f)
+        }
         // Check the entire wallpaper, not just the QR: source pixels on both sides
         // must survive without a tint/scrim. Avoid the login card and QR edges.
         for (x in listOf(.01f, .99f)) for (y in listOf(.15f, .30f, .45f)) {
@@ -1481,7 +1487,11 @@ class ScreenIntegrationTest {
             val region = Bitmap.createBitmap(screenshot, x, y,
                 (artWidth * .23f).toInt().coerceAtMost(screenshot.width - x),
                 (artHeight * .35f).toInt().coerceAtMost(screenshot.height - y))
-            decode(Bitmap.createScaledBitmap(region, region.width * 4, region.height * 4, false))
+            // Normalize the detector's screenshot crop back to the source aspect ratio.
+            // The app still renders the complete wallpaper, never a QR-only patch.
+            val normalizedHeight = if (isTv) region.height * 4 else
+                (region.width * 4 * (original.height * .35f) / (original.width * .23f)).toInt()
+            decode(Bitmap.createScaledBitmap(region, region.width * 4, normalizedHeight, false))
         }
         assertEquals("Contact QR must survive wallpaper scaling and must not be covered by login", decode(original), decoded)
     }
