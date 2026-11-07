@@ -111,7 +111,8 @@ fun MainScreen(session: Session?, content: ContentState, epg: Map<String, List<P
             else when (tab) {
                 Tab.Home -> HomeScreen(visibleContent, epg, query, favorites, heroDetails, loadingHeroKey, settings.time24Hour,
                     actions.onOpenDetails, actions.onPlayHero, actions.onPrepareHeroes,
-                    { ch -> actions.onPlay(PlayerRequest(ch.name, ch.url, true, visibleContent.channels, visibleContent.channels.indexOf(ch), ch.fallbackUrl)) }, actions.onToggleFav)
+                    { ch -> actions.onPlay(PlayerRequest(ch.name, ch.url, true, visibleContent.channels, visibleContent.channels.indexOf(ch), ch.fallbackUrl)) }, actions.onToggleFav,
+                    requirePreparedHeroes = session?.isDemo == false)
                 Tab.Live -> LiveScreen(visibleContent, epg, favorites, query, actions.onToggleFav, actions.onPlay,
                     previewEnabled, settings.showChannelEpg, settings.time24Hour, settings.onlyChannelsWithEpg, settings.showFullEpg,
                     actions.onChannelFocused, restoreChannelId, onChannelRestored)

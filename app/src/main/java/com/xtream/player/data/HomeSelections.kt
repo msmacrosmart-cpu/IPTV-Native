@@ -24,6 +24,13 @@ fun releaseCategoryIds(categories: List<Category>): Set<String> {
     }.map { it.id }.toSet()
 }
 
+/** Conservative hero-only filter. This does not hide titles from the catalog itself. */
+fun isChildrensHero(title: String, genre: String): Boolean {
+    val children = setOf("infantil", "infantis", "kids", "crianca", "criancas", "children", "childrens",
+        "family", "familia", "animacao", "animation", "desenho", "desenhos", "cartoon", "cartoons", "junior")
+    return normalizedCategory("$title $genre").split(' ').any { it in children }
+}
+
 /** Most recently added movies in the provider's release categories only.
  * Missing dates retain the provider's order and follow items with known dates.
  */
@@ -44,5 +51,5 @@ fun topRated(items: List<VodItem>, limit: Int = 10): List<VodItem> = items.asSeq
 
 /** Only successfully decoded landscape artwork may enter the eight-title carousel. */
 fun validHeroSlides(items: List<VodItem>, validatedKeys: Set<String>): List<VodItem> = items.asSequence()
-    .filter { !it.isSeries && !it.backdrop.isNullOrBlank() && it.favoriteKey in validatedKeys }
+    .filter { !it.isSeries && !it.backdrop.isNullOrBlank() && it.favoriteKey in validatedKeys && !isChildrensHero(it.title, it.genre) }
     .distinctBy { it.favoriteKey }.distinctBy { it.backdrop }.take(8).toList()

@@ -63,6 +63,16 @@ class HomeSelectionsTest {
         assertEquals(1, validHeroSlides(items.map { it.copy(backdrop = "https://example.com/reused.jpg") }, approved).size)
     }
 
+    @Test fun childrensMoviesAreExcludedEvenInsideTheMainReleaseFolder() {
+        assertTrue(isChildrensHero("Novo filme", "Animação, Família"))
+        assertTrue(isChildrensHero("Novo filme", "Children / Animation"))
+        assertTrue(isChildrensHero("Sessão Infantil", "Aventura"))
+        assertFalse(isChildrensHero("Lançamento de ação", "Ação / Suspense"))
+        val items = listOf(movie("kids", "main", 10).copy(backdrop = "kids.jpg", genre = "Família"),
+            movie("movie", "main", 9).copy(backdrop = "film.jpg", genre = "Drama"))
+        assertEquals(listOf("movie"), validHeroSlides(items, items.map { it.favoriteKey }.toSet()).map { it.id })
+    }
+
     @Test fun topTenUsesProviderScoresAndStableTiesRatherThanClaimingPopularity() {
         val items = (1..12).map { movie(it.toString(), "a", null, rating = it.toDouble()) }
         assertEquals((12 downTo 3).map(Int::toString), topRated(items).map { it.id })

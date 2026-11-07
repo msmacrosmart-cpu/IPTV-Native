@@ -14,6 +14,21 @@ require(tmdbApiKey.isEmpty() || tmdbApiKey.matches(Regex("[a-fA-F0-9]{32}"))) {
     "TMDB_API_KEY must be a 32-character v3 API key"
 }
 
+// Installed updates require BOTH a growing versionCode and the same signing key.
+val releaseKeystore = providers.environmentVariable("RELEASE_KEYSTORE_PATH").orElse("").get()
+val releaseStorePassword = providers.environmentVariable("RELEASE_KEYSTORE_PASSWORD").orElse("").get()
+val releaseAlias = providers.environmentVariable("RELEASE_KEY_ALIAS").orElse("").get()
+val releaseKeyPassword = providers.environmentVariable("RELEASE_KEY_PASSWORD").orElse("").get()
+val updateVersionCode = providers.environmentVariable("ANDROID_VERSION_CODE")
+    .orElse(providers.environmentVariable("GITHUB_RUN_NUMBER").map { (1000 + it.toInt()).toString() })
+    .orElse("10").get().toInt()
+require(updateVersionCode in 1..2_100_000_000) { "Invalid Android update versionCode" }
+if (releaseKeystore.isNotBlank()) {
+    require(listOf(releaseStorePassword, releaseAlias, releaseKeyPassword).all { it.isNotBlank() }) {
+        "Persistent release signing requires keystore password, alias and key password"
+    }
+}
+
 android {
     namespace = "com.example.iptv"
     compileSdk = 35
@@ -22,7 +37,7 @@ android {
         applicationId = "com.example.iptv"
         minSdk = 24
         targetSdk = 35
-        versionCode = 10
+        versionCode = updateVersionCode
         versionName = "2.7.1"
         buildConfigField("String", "TMDB_API_KEY", "\"$tmdbApiKey\"")
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
@@ -30,6 +45,13 @@ android {
         vectorDrawables {
             useSupportLibrary = true
         }
+    }
+
+    if (releaseKeystore.isNotBlank()) signingConfigs.create("persistentRelease") {
+        storeFile = file(releaseKeystore)
+        storePassword = releaseStorePassword
+        keyAlias = releaseAlias
+        keyPassword = releaseKeyPassword
     }
 
     buildTypes {
@@ -44,8 +66,8 @@ android {
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro"
             )
-            // Makes `assembleRelease` produce an installable APK on CI without secrets.
-            signingConfig = signingConfigs.getByName("debug")
+            // Missing secrets produce a TEST artifact only, never a promised in-place update.
+            signingConfig = signingConfigs.getByName(if (releaseKeystore.isNotBlank()) "persistentRelease" else "debug")
         }
     }
 

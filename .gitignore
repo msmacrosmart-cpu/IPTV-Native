@@ -14,3 +14,8 @@ build/
 *.apk
 *.aab
 *.hprof
+
+# Private Android signing material
+*.keystore
+*.jks
+signing.properties

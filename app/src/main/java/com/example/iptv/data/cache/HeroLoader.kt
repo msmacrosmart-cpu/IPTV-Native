@@ -13,6 +13,7 @@ import com.example.iptv.data.tmdb.TmdbRepository
 import com.example.iptv.data.tmdb.TmdbResult
 import com.xtream.player.data.Category
 import com.xtream.player.data.releaseCategoryIds
+import com.xtream.player.data.isChildrensHero
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.coroutineScope
@@ -105,7 +106,8 @@ class HeroLoader(
             anyFailure = anyFailure || fetched.any { it.failed }
             val validated = coroutineScope {
                 fetched.map { entry -> async { slots.withPermit {
-                    val url = entry.hero.details.backdrop?.takeIf(String::isNotBlank)
+                    val excluded = isChildrensHero(entry.target.title, entry.hero.details.genre.orEmpty())
+                    val url = entry.hero.details.backdrop?.takeIf { it.isNotBlank() && !excluded }
                     val result = url?.let { context.imageLoader.execute(ImageRequest.Builder(context)
                         .data(it).size(1280, 720).build()) as? SuccessResult }
                     val image = result?.drawable

@@ -7,7 +7,7 @@ Aplicativo Android nativo em Kotlin/Jetpack Compose para Android TV, celulares e
 - A arte horizontal fornecida aparece somente no carregamento. A arte quadrada é usada nos ícones adaptativos e clássicos do Android, e a imagem 320×180 no banner do Android TV.
 - Navegação lateral com quatro ícones em neon, inspirados na imagem fornecida: Home, TV, Filmes e Séries. A engrenagem do cabeçalho mantém o acesso às configurações; os ícones ao lado abrem status da conta e troca de perfis. A opção Multitela foi retirada.
 - Tela de login com botão Entrar do tamanho dos campos e perfis locais por servidor/usuário. O wallpaper fornecido é usado no login e no restante do aplicativo, com o PNG original preservado, sem recorte ou escurecimento global. O formulário evita cobrir o contato/QR em telas horizontais estreitas.
-- Home com até oito filmes com backdrop horizontal validado da pasta Lançamentos do provedor (mesmo com emojis no nome). A busca continua em lotes pela pasta até encontrar oito banners ou esgotar os filmes; não mistura pastas infantis ou temáticas, botões Assistir/Detalhes e navegação por D-pad/teclado. Com entrada por controle ou teclado, o banner não troca automaticamente. Imagens verticais nunca são usadas como banner: se não houver arte paisagem válida, o filme não entra no Hero.
+- Home com até oito filmes com backdrop horizontal validado da pasta Lançamentos do provedor (mesmo com emojis no nome). A busca continua em lotes pela pasta até encontrar oito banners ou esgotar os filmes; não mistura pastas infantis ou temáticas e filtra gêneros infantis, família e animação também dentro da pasta principal, botões Assistir/Detalhes e navegação por D-pad/teclado. Com entrada por controle ou teclado, o banner não troca automaticamente. Imagens verticais nunca são usadas como banner: se não houver arte paisagem válida, o filme não entra no Hero.
 - Prateleiras de conteúdo da Home rolam horizontalmente e não limitam a biblioteca aos primeiros itens. As abas de Filmes e Séries continuam usando **grades verticais** com rolagem contínua, por toque ou D-pad. Em cada pasta ou busca é possível ordenar de A a Z, por últimos adicionados ou por mais votados, alternando a direção entre crescente e decrescente.
 - Ao voltar dos detalhes de um filme ou série, o aplicativo mantém a pasta, a pesquisa, a ordenação e a posição da grade; no controle, o foco retorna ao item. Cada aba e perfil mantém seu próprio estado de navegação durante a sessão.
 - “Mais votados” usa a **nota informada pelo provedor**, não uma contagem real de votos. “Últimos adicionados” usa a data enviada pelo painel; para séries sem data de inclusão, usa a última atualização informada. Títulos sem data ou nota ficam por último nas duas direções.
@@ -36,6 +36,17 @@ This product uses the TMDB API but is not endorsed or certified by TMDB. Mais in
 A chave incorporada ao APK **pode ser extraída por terceiros**; evite usá-la como segredo de alta segurança e aplique restrições compatíveis com seu uso. Não inclua tokens no repositório. Para compilar com TMDB, configure a variável de ambiente `TMDB_API_KEY` ou a propriedade Gradle de mesmo nome; no GitHub Actions, use o secret `TMDB_API_KEY`. Uma compilação sem chave permanece funcional, mas sem consultas ao TMDB.
 
 Informe URL do servidor, usuário e senha Xtream Codes. HTTP pode expor credenciais e conteúdo na rede; prefira HTTPS. A senha e a URL XMLTV própria são criptografadas com Android Keystore quando disponível. Se o Keystore falhar, usa-se somente uma ofuscação reversível, que **não é criptografia**. Servidor, usuário e dados locais dos perfis não são secretos. Backups do Android estão desativados.
+
+## Reconexão e atualizações
+
+O player interno tenta novamente erros temporários de rede/HTTP sem limite fixo de tentativas,
+com espera progressiva de 1 a 30 segundos. Preserva a posição de filmes e volta à borda ao vivo
+nos canais. É possível pausar as tentativas; sair do player ou colocar o app em segundo plano
+suspende a reconexão. Erros de formato/decoder/DRM continuam exigindo correção da fonte ou ação manual.
+
+Atualizações por cima exigem a chave de assinatura original. O CI suporta keystore permanente por
+secrets e aumenta o versionCode em cada execução. Sem o keystore, gera somente um APK de teste,
+sem garantia de atualização da instalação anterior. Veja [docs/android-updates.md](docs/android-updates.md).
 
 ## Desenvolvimento e testes
 

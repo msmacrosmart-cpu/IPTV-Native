@@ -97,6 +97,15 @@ fun PlayerScreen(request: PlayerRequest, onBack: () -> Unit, previewMode: Boolea
     var buffering by remember { mutableStateOf(false) }
     var error by remember { mutableStateOf<String?>(null) }
     var triedFallback by remember(url) { mutableStateOf(false) }
+    var retryable by remember(url) { mutableStateOf(false) }
+    var retrySignal by remember(url) { mutableIntStateOf(0) }
+    var retryAttempt by remember(url) { mutableIntStateOf(0) }
+    var retrySeconds by remember(url) { mutableIntStateOf(0) }
+    var retryPosition by remember(url) { mutableLongStateOf(request.resumePositionMs.coerceAtLeast(0L)) }
+    var playRequested by remember(url) { mutableStateOf(!previewMode) }
+    var foreground by remember(lifecycleOwner) {
+        mutableStateOf(lifecycleOwner.lifecycle.currentState.isAtLeast(Lifecycle.State.STARTED))
+    }
     var tracks by remember { mutableStateOf(Tracks.EMPTY) }
     var position by remember { mutableLongStateOf(if (previewMode) 872_000L else 0L) }
     var duration by remember { mutableLongStateOf(if (previewMode) 3_600_000L else 0L) }
@@ -131,12 +140,15 @@ fun PlayerScreen(request: PlayerRequest, onBack: () -> Unit, previewMode: Boolea
             player.release()
         }
     }
-    DisposableEffect(lifecycleOwner, player) {
+    DisposableEffect(lifecycleOwner, player, url) {
         var resume = false
         val observer = LifecycleEventObserver { _, event ->
             when (event) {
-                Lifecycle.Event.ON_STOP -> { resume = player.playWhenReady; player.pause() }
-                Lifecycle.Event.ON_START -> if (resume && !previewMode) { player.play(); resume = false }
+                Lifecycle.Event.ON_STOP -> { foreground = false; resume = playRequested; player.pause() }
+                Lifecycle.Event.ON_START -> {
+                    foreground = true
+                    if (resume && !previewMode && playRequested) { player.play(); resume = false }
+                }
                 else -> Unit
             }
         }
@@ -144,7 +156,9 @@ fun PlayerScreen(request: PlayerRequest, onBack: () -> Unit, previewMode: Boolea
         onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
     }
     LaunchedEffect(url) {
-        error = null
+        error = null; retryable = false; retryAttempt = 0; retrySeconds = 0
+        retryPosition = request.resumePositionMs.coerceAtLeast(0L)
+        playRequested = !previewMode
         pointA = null; pointB = null
         val start = if (!request.isLive) request.resumePositionMs.coerceAtLeast(0L) else 0L
         player.setMediaItem(MediaItem.fromUri(url), start)
@@ -163,7 +177,14 @@ fun PlayerScreen(request: PlayerRequest, onBack: () -> Unit, previewMode: Boolea
                 }
             }
             override fun onPlayerError(e: PlaybackException) {
-                if (!triedFallback && !fallbackUrl.isNullOrBlank() && fallbackUrl != url) {
+                if (!previewMode && retryPlaybackError(e.errorCode)) {
+                    // Do not surface exception messages: they can contain account credentials.
+                    error = e.errorCodeName
+                    retryable = true
+                    retrySignal++
+                    retryPosition = if (request.isLive) 0L else player.currentPosition.takeIf { it > 0 } ?: retryPosition
+                    controls = false
+                } else if (!triedFallback && !fallbackUrl.isNullOrBlank() && fallbackUrl != url) {
                     triedFallback = true
                     val resume = if (request.isLive) 0L else player.currentPosition.coerceAtLeast(0)
                     val shouldPlay = player.playWhenReady && lifecycleOwner.lifecycle.currentState.isAtLeast(Lifecycle.State.STARTED)
@@ -172,12 +193,34 @@ fun PlayerScreen(request: PlayerRequest, onBack: () -> Unit, previewMode: Boolea
                 } else {
                     // Playback exceptions can contain credential-bearing URLs; show the code only.
                     error = e.errorCodeName
+                    retryable = false
                     controls = false
                 }
             }
             override fun onTracksChanged(t: Tracks) { tracks = t }
         }
         player.addListener(l); onDispose { player.removeListener(l) }
+    }
+
+    LaunchedEffect(player, url, error, retrySignal, foreground, playRequested) {
+        if (previewMode || error == null || !retryable || !foreground || !playRequested) return@LaunchedEffect
+        for (remaining in (playbackRetryDelayMillis(retryAttempt) / 1_000).toInt() downTo 1) {
+            retrySeconds = remaining
+            delay(1_000)
+        }
+        retrySeconds = 0
+        retryAttempt++
+        // Alternate provider TS/HLS endpoints when available. VOD retains its position;
+        // live streams restart at the live edge rather than replaying a stale segment.
+        val alternate = fallbackUrl?.takeIf { it.isNotBlank() && it != url }
+        val next = if (alternate != null && retryAttempt % 2 == 1) alternate else url
+        if (request.isLive) player.setMediaItem(MediaItem.fromUri(next))
+        else player.setMediaItem(MediaItem.fromUri(next), retryPosition)
+        player.prepare()
+        player.playWhenReady = true
+    }
+    LaunchedEffect(isPlaying, url) {
+        if (isPlaying) { delay(10_000); retryAttempt = 0 }
     }
 
     // Polling de posição, loop A-B e estatísticas
@@ -232,7 +275,10 @@ fun PlayerScreen(request: PlayerRequest, onBack: () -> Unit, previewMode: Boolea
         index = (index + delta + request.playlist.size) % request.playlist.size
         osd = request.playlist[index].name
     }
-    fun togglePlay() { if (player.isPlaying) player.pause() else player.play() }
+    fun togglePlay() {
+        playRequested = !playRequested
+        if (playRequested) player.play() else player.pause()
+    }
 
     BackHandler {
         when {
@@ -252,6 +298,7 @@ fun PlayerScreen(request: PlayerRequest, onBack: () -> Unit, previewMode: Boolea
                     } else showUnlock = true
                     return@onPreviewKeyEvent true
                 }
+                if (error != null && (e.key == Key.MediaPlayPause || e.key == Key.Spacebar)) { togglePlay(); return@onPreviewKeyEvent true }
                 if (error != null) return@onPreviewKeyEvent false
                 if (controls || dlg != null) { touch(); return@onPreviewKeyEvent false }
                 when (e.key) {
@@ -326,8 +373,15 @@ fun PlayerScreen(request: PlayerRequest, onBack: () -> Unit, previewMode: Boolea
             Column(Modifier.align(Alignment.Center).clip(RoundedCornerShape(16.dp)).background(Color(0xDD111113)).padding(24.dp), horizontalAlignment = Alignment.CenterHorizontally) {
                 Text("Falha na reprodução", color = XColors.Accent, fontSize = 20.sp, fontWeight = FontWeight.Bold)
                 Text(it, color = XColors.TextDim, fontSize = 14.sp, textAlign = TextAlign.Center, modifier = Modifier.widthIn(max = 420.dp).padding(vertical = 8.dp))
+                if (retryable) {
+                    Text(if (!playRequested) "Reconexão pausada" else if (!foreground) "Reconexão suspensa em segundo plano"
+                        else "Reconectando · tentativa ${retryAttempt + 1} · ${retrySeconds}s",
+                        color = XColors.Text, fontSize = 14.sp,
+                        modifier = Modifier.padding(bottom = 12.dp).testTag("player-reconnect-status"))
+                    PBtn(if (playRequested) "Pausar tentativas" else "Retomar tentativas", Icons.Filled.Pause) { togglePlay() }
+                }
                 PBtn("Tentar novamente", Icons.Filled.Refresh, Modifier.focusRequester(retryFocus)) {
-                    error = null; triedFallback = false
+                    error = null; retryable = false; retrySignal++; retryAttempt = 0; playRequested = true; triedFallback = false
                     val resume = if (request.isLive) 0L else player.currentPosition.coerceAtLeast(0)
                     player.setMediaItem(MediaItem.fromUri(url), resume)
                     player.prepare(); player.playWhenReady = true

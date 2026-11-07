@@ -65,7 +65,7 @@ fun HomeScreen(content: ContentState, epg: Map<String, List<Programme>>, query: 
                favorites: List<String>, heroDetails: Map<String, VodDetails>, loadingHeroKey: String?, time24Hour: Boolean,
                onSelectItem: (VodItem) -> Unit, onWatchItem: (VodItem) -> Unit,
                onPrepareHeroes: (List<VodItem>) -> Unit,
-               onPlayChannel: (Channel) -> Unit, onToggleFav: (String) -> Unit) {
+               onPlayChannel: (Channel) -> Unit, onToggleFav: (String) -> Unit, requirePreparedHeroes: Boolean = false) {
     var now by remember { mutableLongStateOf(System.currentTimeMillis()) }
     LaunchedEffect(Unit) { while (true) { delay(30_000); now = System.currentTimeMillis() } }
     val all = remember(content.movies, content.series) { content.movies + content.series }
@@ -84,8 +84,10 @@ fun HomeScreen(content: ContentState, epg: Map<String, List<Programme>>, query: 
     val topMovies = remember(content.movies, query) { topRated(content.movies).filter { it.title.contains(query, true) } }
     val topSeries = remember(content.series, query) { topRated(content.series).filter { it.title.contains(query, true) } }
     LaunchedEffect(candidates.map { it.favoriteKey }) { onPrepareHeroes(candidates) }
-    val enriched = remember(candidates, heroDetails) {
-        candidates.map { it.withHeroDetails(heroDetails[it.favoriteKey]) }.distinctBy { it.favoriteKey }
+    val enriched = remember(candidates, heroDetails, requirePreparedHeroes) {
+        candidates.filter { !requirePreparedHeroes || it.favoriteKey in heroDetails }
+            .map { it.withHeroDetails(heroDetails[it.favoriteKey]) }
+            .filterNot { isChildrensHero(it.title, it.genre) }.distinctBy { it.favoriteKey }
     }
     val context = LocalContext.current
     // A URL alone is not proof of a backdrop: reject missing, broken and portrait images

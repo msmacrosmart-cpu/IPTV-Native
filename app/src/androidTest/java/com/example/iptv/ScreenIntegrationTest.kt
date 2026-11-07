@@ -164,6 +164,7 @@ class ScreenIntegrationTest {
     private val longGuide = AtomicBoolean(false)
     private val offline = AtomicBoolean(false)
     private val failVodStreams = AtomicBoolean(false)
+    private val failMediaRequests = AtomicBoolean(false)
     private val blockNextVod = AtomicBoolean(false)
     private val vodBlocked = CountDownLatch(1)
     private val releaseVod = CountDownLatch(1)
@@ -234,6 +235,7 @@ class ScreenIntegrationTest {
                 if (path.startsWith("/live/") || path.startsWith("/movie/") || path.startsWith("/series/")) {
                     streamPaths.add(path)
                     streamAgents.add(request.getHeader("User-Agent").orEmpty())
+                    if (failMediaRequests.get()) return MockResponse().setResponseCode(503)
                     return MockResponse().setHeader("Content-Type", "video/mp2t").setBody(Buffer().write(video))
                 }
                 if (!path.endsWith("/player_api.php")) return MockResponse().setResponseCode(404)
@@ -271,7 +273,8 @@ class ScreenIntegrationTest {
                         else {
                             val banners = listOf("black-harbor", "summer-static", "house-of-tides", "skyline-sentinels")
                             val banner = banners[((id.toIntOrNull() ?: 101) - 101).mod(banners.size)]
-                            """{"info":{"plot":"Sinopse real","genre":"Ação","cast":"Ator do painel, Atriz do painel","tmdb_id":"42","youtube_trailer":"abcdefghijk","backdrop_path":["${panelBase.resolve("/art/backdrop-$banner.webp?hero=${((id.toIntOrNull() ?: 101) - 101).mod(8)}")}"]}}"""
+                            val genre = if (lateReleaseArtwork.get() && id == "128") "Animação, Família" else "Ação"
+                            """{"info":{"plot":"Sinopse real","genre":"$genre","cast":"Ator do painel, Atriz do painel","tmdb_id":"42","youtube_trailer":"abcdefghijk","backdrop_path":["${panelBase.resolve("/art/backdrop-$banner.webp?hero=${((id.toIntOrNull() ?: 101) - 101).mod(8)}")}"]}}"""
                         }
                     }
                     "get_series_categories" -> """[{"category_id":"20","category_name":"Drama"}]"""
@@ -1182,6 +1185,7 @@ class ScreenIntegrationTest {
 
     @Test fun heroSearchesEntireEmojiReleaseFolderUntilAtLeastSixValidSlides() {
         lateReleaseArtwork.set(true)
+        moviesCount.set(36)
         connectToPanel()
         val vm = ViewModelProvider(compose.activity)[AppViewModel::class.java]
         compose.waitUntil(45_000) {
@@ -1190,12 +1194,41 @@ class ScreenIntegrationTest {
         assertTrue("Search must continue beyond the old 24-title cap", vodInfoIds.contains("130"))
         assertFalse("Children's release folders must never be combined with the main folder",
             vodInfoIds.any { it in setOf("101", "102", "103") })
-        for (index in 1..6) {
-            compose.onNodeWithContentDescription("Destaque $index: Filme ${124 + index}").assertExists()
+        val expected = listOf(125, 126, 127, 129, 130, 131)
+        expected.forEachIndexed { index, id ->
+            compose.onNodeWithContentDescription("Destaque ${index + 1}: Filme $id").assertExists()
         }
-        compose.onNodeWithContentDescription("Destaque 6: Filme 130").performClick()
-        compose.waitUntil(10_000) { exists("hero-watch-vod:130") }
-        assertTrue(vm.heroDetails.containsKey("vod:130"))
+        compose.onNodeWithContentDescription("Filme 128", substring = true).assertDoesNotExist()
+        compose.onNodeWithContentDescription("Destaque 6: Filme 131").performClick()
+        compose.waitUntil(10_000) { exists("hero-watch-vod:131") }
+        assertTrue(vm.heroDetails.containsKey("vod:131"))
+    }
+
+    @Test fun playerReconnectsAutomaticallyCanPauseRetriesAndCancelsThemOnExit() {
+        connectToPanel()
+        compose.waitUntil(30_000) { exists("hero-watch-vod:101") }
+        failMediaRequests.set(true)
+        compose.onNodeWithTag("hero-watch-vod:101").performClick()
+        compose.waitUntil(60_000) { exists("player-reconnect-status") }
+        compose.onNodeWithText("Pausar tentativas").performClick()
+        val pausedRequests = streamPaths.size
+        Thread.sleep(2_500)
+        assertEquals("Paused retries must not open more streams", pausedRequests, streamPaths.size)
+        failMediaRequests.set(false)
+        compose.onNodeWithText("Retomar tentativas").performClick()
+        compose.waitUntil(40_000) { playerState() == "playing" && streamPaths.size > pausedRequests }
+        shell("input keyevent KEYCODE_BACK")
+        compose.waitUntil(15_000) { !exists("player-root") && exists("home-list") }
+        compose.waitUntil(15_000) { exists("hero-watch-vod:101") }
+        failMediaRequests.set(true)
+        compose.onNodeWithTag("hero-watch-vod:101").performClick()
+        compose.waitUntil(60_000) { exists("player-reconnect-status") }
+        shell("input keyevent KEYCODE_BACK")
+        compose.waitUntil(15_000) { !exists("player-root") }
+        val afterExit = streamPaths.size
+        Thread.sleep(2_500)
+        assertEquals("Leaving the player must cancel pending reconnects", afterExit, streamPaths.size)
+        failMediaRequests.set(false)
     }
 
     @Test fun cacheRestoresCatalogHeroAndGuidesOfflineAndSurvivesPartialFailures() {
