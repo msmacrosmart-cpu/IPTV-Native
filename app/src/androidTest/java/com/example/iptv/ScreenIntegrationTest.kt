@@ -1457,8 +1457,33 @@ class ScreenIntegrationTest {
         }
         val original = BitmapFactory.decodeResource(compose.activity.resources, R.drawable.app_background,
             BitmapFactory.Options().apply { inScaled = false })
+        compose.waitForIdle()
         val screenshot = InstrumentationRegistry.getInstrumentation().uiAutomation.takeScreenshot()
-        assertEquals("Contact QR must survive wallpaper scaling and must not be covered by login", decode(original), decode(screenshot))
+            .copy(Bitmap.Config.ARGB_8888, false)
+        val scale = minOf(screenshot.width.toFloat() / original.width, screenshot.height.toFloat() / original.height)
+        val artWidth = original.width * scale
+        val artHeight = original.height * scale
+        val left = (screenshot.width - artWidth) / 2f
+        val top = (screenshot.height - artHeight) / 2f
+        // Check the entire wallpaper, not just the QR: source pixels on both sides
+        // must survive without a tint/scrim. Avoid the login card and QR edges.
+        for (x in listOf(.06f, .94f)) for (y in listOf(.15f, .30f, .45f)) {
+            val expected = original.getPixel((original.width * x).toInt(), (original.height * y).toInt())
+            val actual = screenshot.getPixel((left + artWidth * x).toInt(), (top + artHeight * y).toInt())
+            for (shift in listOf(0, 8, 16)) assertTrue("Wallpaper must retain original colors across the full artwork",
+                kotlin.math.abs(((expected shr shift) and 255) - ((actual shr shift) and 255)) <= 12)
+        }
+        // ZXing's full-frame finder can miss a 56px code on an 800px phone capture.
+        // Magnify existing screenshot pixels for the detector, not the app artwork.
+        val decoded = runCatching { decode(screenshot) }.getOrElse {
+            val x = (left + artWidth * .77f).toInt()
+            val y = (top + artHeight * .65f).toInt()
+            val region = Bitmap.createBitmap(screenshot, x, y,
+                (artWidth * .23f).toInt().coerceAtMost(screenshot.width - x),
+                (artHeight * .35f).toInt().coerceAtMost(screenshot.height - y))
+            decode(Bitmap.createScaledBitmap(region, region.width * 4, region.height * 4, false))
+        }
+        assertEquals("Contact QR must survive wallpaper scaling and must not be covered by login", decode(original), decoded)
     }
 
     private fun assertFirstCatalogItem(tag: String) {
